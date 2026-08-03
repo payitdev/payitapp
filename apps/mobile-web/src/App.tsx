@@ -152,12 +152,8 @@ export default function App() {
 
   // Check Magic isLoggedIn status on mount & restore persisted verified session
   useEffect(() => {
-    const savedEntities = localStorage.getItem('payit_verified_entities');
-    if (savedEntities) {
-      try {
-        setEntitiesMap(JSON.parse(savedEntities));
-      } catch (e) {}
-    }
+    localStorage.removeItem('payit_verified_entities');
+
 
     const checkMagicSession = async () => {
       try {
