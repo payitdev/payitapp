@@ -65,6 +65,7 @@ export const cards = pgTable('cards', {
   nuvionCardId: text('nuvion_card_id').notNull(),
   last4: text('last4').notNull(),
   brand: text('brand').notNull(),
+  cardholderName: text('cardholder_name'),
   status: text('status').default('active').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -82,7 +83,7 @@ export const invoices = pgTable('invoices', {
   hdIndex: integer('hd_index').notNull(),
   hdReceivingAddress: text('hd_receiving_address').notNull(),
   settlementType: text('settlement_type', { enum: ['fiat', 'stablecoin'] }).notNull(),
-  status: text('status', { enum: ['pending', 'paid', 'overdue', 'cancelled'] }).default('pending').notNull(),
+  status: text('status', { enum: ['pending', 'paid', 'partially_paid', 'overpaid', 'overdue', 'cancelled'] }).default('pending').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -101,7 +102,7 @@ export const payrollRuns = pgTable('payroll_runs', {
   entityId: text('entity_id').notNull().references(() => entities.id),
   title: text('title').notNull(),
   totalAmount: numeric('total_amount', { precision: 18, scale: 2 }).notNull(),
-  status: text('status', { enum: ['draft', 'reviewing', 'processing', 'completed', 'failed'] }).default('draft').notNull(),
+  status: text('status', { enum: ['draft', 'reviewing', 'processing', 'completed', 'completed_with_errors', 'failed'] }).default('draft').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

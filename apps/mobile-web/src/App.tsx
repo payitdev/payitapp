@@ -27,8 +27,15 @@ import {
   LogOut
 } from 'lucide-react';
 
+// API Base URL from environment (no hardcoded localhost)
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
+
 // Initialize Official Magic SDK Client
-const magic = new Magic((import.meta as any).env?.VITE_MAGIC_PUBLISHABLE_KEY || 'pk_live_10C7A608B3AC3382');
+const MAGIC_KEY = (import.meta as any).env?.VITE_MAGIC_PUBLISHABLE_KEY;
+if (!MAGIC_KEY) {
+  console.warn('VITE_MAGIC_PUBLISHABLE_KEY missing from environment configuration');
+}
+const magic = new Magic(MAGIC_KEY || '');
 
 interface FiatAccount {
   nuvionAccountId: string;
@@ -41,10 +48,10 @@ interface FiatAccount {
 interface UserEntity {
   id: string;
   kind: 'PERSONAL' | 'BUSINESS';
-  legalName: string;
-  username: string;
+  legalName?: string;
+  username?: string;
   nuvionTier: number;
-  nuvionStatus: 'UNVERIFIED' | 'incomplete' | 'pending' | 'APPROVED' | 'REJECTED' | 'FAILED';
+  nuvionStatus: 'incomplete' | 'pending' | 'approved' | 'rejected';
   nuvionEntityId?: string;
   accountNumber?: string;
   bankName?: string;
@@ -105,7 +112,7 @@ export default function App() {
   const [sendAccountNumber, setSendAccountNumber] = useState('');
   const [sendCryptoAddress, setSendCryptoAddress] = useState('');
 
-  // Verification Form State (Clean blank inputs for authentic verification)
+  // Verification Form State (Clean blank inputs)
   const [kycLegalName, setKycLegalName] = useState('');
   const [kycBvn, setKycBvn] = useState('');
   const [kycDob, setKycDob] = useState('');
@@ -123,37 +130,13 @@ export default function App() {
   const [kycStatusMsg, setKycStatusMsg] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
   const [isSubmittingKyc, setIsSubmittingKyc] = useState(false);
 
-  const [transferAmount, setTransferAmount] = useState('');
-
-  // Payment Network Rail Helper
   const getAccountNetwork = (currency: string) => {
     switch (currency) {
       case 'NGN': return 'NIP Instant';
       case 'USD': return 'ACH / FedWire';
       case 'GBP': return 'FPS Direct';
       case 'EUR': return 'SEPA Instant';
-      case 'CNY': return 'Cross-Border';
       default: return 'Instant Clearing';
-    }
-  };
-
-  const resolveNuvionBankName = (curr: string, rawBank?: string): string => {
-    if (rawBank && !rawBank.toLowerCase().includes('payit') && !rawBank.toLowerCase().includes('account')) {
-      return rawBank;
-    }
-    switch ((curr || '').toUpperCase()) {
-      case 'NGN': return 'Wema Bank / SafeHaven MFB';
-      case 'USD': return 'Community Federal Savings Bank (CFSB)';
-      case 'GBP': return 'ClearBank UK';
-      case 'EUR': return 'Banking Circle S.A.';
-      case 'KES': return 'NCBA Bank Kenya';
-      case 'GHS': return 'Ecobank Ghana';
-      case 'ZAR': return 'Standard Bank South Africa';
-      case 'CAD': return 'Peoples Trust Company';
-      case 'AED': return 'Mashreq Bank UAE';
-      case 'UGX': return 'Stanbic Bank Uganda';
-      case 'TZS': return 'CRDB Bank Tanzania';
-      default: return 'Nuvion Partner Bank';
     }
   };
 
@@ -165,22 +148,6 @@ export default function App() {
       case 'NGN': return 'NIBSS NIP Code: 090518';
       default: return null;
     }
-  };
-
-  const deriveParticleAddress = (entityId: string, kind: 'PERSONAL' | 'BUSINESS' = 'PERSONAL'): string => {
-    const seed = `${entityId}_${kind}_particle_universal_v2`;
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) {
-      hash = ((hash << 5) - hash) + seed.charCodeAt(i);
-      hash |= 0;
-    }
-    const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
-    const padded = (hexHash + seed + '0123456789abcdef0123456789abcdef').slice(0, 32);
-    let fullHex = '';
-    for (let i = 0; i < padded.length; i++) {
-      fullHex += padded.charCodeAt(i).toString(16);
-    }
-    return `0x${fullHex.slice(0, 40)}`;
   };
 
   // Check Magic isLoggedIn status on mount & restore persisted verified session
@@ -200,7 +167,7 @@ export default function App() {
           if (metadata.email) {
             setUserEmail(metadata.email);
             const idToken = await magic.user.getIdToken();
-            const res = await fetch('http://localhost:4000/api/auth/magic-login', {
+            const res = await fetch(`${API_BASE_URL}/api/auth/magic-login`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -220,42 +187,41 @@ export default function App() {
     checkMagicSession();
   }, []);
 
-  // Helper to map user entities with Particle Network Universal Account derivation & status normalization
+  // Helper to map user entities without tier overrides or hardcoded name fallbacks
   const populateUserEntities = async (userObj: any, email: string) => {
     if (userObj.entities && userObj.entities.length > 0) {
       const pEnt = userObj.entities.find((e: any) => e.kind === 'PERSONAL') || userObj.entities[0];
-      const bEnt = userObj.entities.find((e: any) => e.kind === 'BUSINESS') || userObj.entities[1] || pEnt;
+      const bEnt = userObj.entities.find((e: any) => e.kind === 'BUSINESS');
 
-      const pAddr = deriveParticleAddress(pEnt.id, 'PERSONAL');
-      const bAddr = deriveParticleAddress(bEnt.id, 'BUSINESS');
+      const newMap: Record<string, UserEntity> = {};
 
-      const pStatus = (pEnt.nuvionStatus || '').toUpperCase() === 'APPROVED' || pEnt.nuvionTier >= 1 ? 'APPROVED' : (pEnt.nuvionStatus || 'incomplete');
-      const bStatus = (bEnt.nuvionStatus || '').toUpperCase() === 'APPROVED' || bEnt.nuvionTier >= 2 ? 'APPROVED' : (bEnt.nuvionStatus || 'incomplete');
-
-      const newMap: Record<string, UserEntity> = {
-        PERSONAL: {
+      if (pEnt) {
+        newMap.PERSONAL = {
           id: pEnt.id,
           kind: 'PERSONAL',
-          legalName: pEnt.legalName || 'Iboh Igboze Igboze',
-          username: pEnt.username || email.split('@')[0].toLowerCase(),
-          nuvionTier: pEnt.nuvionTier || (pStatus === 'APPROVED' ? 1 : 0),
-          nuvionStatus: pStatus as any,
-          accountNumber: pEnt.accountNumber || 'Unverified',
-          bankName: resolveNuvionBankName('NGN', pEnt.bankName),
-          particleNetworkAddress: pAddr,
-        },
-        BUSINESS: {
+          legalName: pEnt.legalName || undefined,
+          username: pEnt.username,
+          nuvionTier: pEnt.nuvionTier || 0,
+          nuvionStatus: pEnt.nuvionStatus || 'incomplete',
+          accountNumber: pEnt.accountNumber,
+          bankName: pEnt.bankName,
+          particleNetworkAddress: pEnt.particleNetworkAddress || pEnt.particleWalletAddress,
+        };
+      }
+
+      if (bEnt) {
+        newMap.BUSINESS = {
           id: bEnt.id,
           kind: 'BUSINESS',
-          legalName: bEnt.legalName || 'Igboze Global Enterprises',
-          username: bEnt.username || 'BIZ',
-          nuvionTier: bEnt.nuvionTier || (bStatus === 'APPROVED' ? 2 : 0),
-          nuvionStatus: bStatus as any,
-          accountNumber: bEnt.accountNumber || 'Unverified',
-          bankName: resolveNuvionBankName('USD', bEnt.bankName),
-          particleNetworkAddress: bAddr,
-        },
-      };
+          legalName: bEnt.legalName || undefined,
+          username: bEnt.username,
+          nuvionTier: bEnt.nuvionTier || 0,
+          nuvionStatus: bEnt.nuvionStatus || 'incomplete',
+          accountNumber: bEnt.accountNumber,
+          bankName: bEnt.bankName,
+          particleNetworkAddress: bEnt.particleNetworkAddress || bEnt.particleWalletAddress,
+        };
+      }
 
       setEntitiesMap(newMap);
       localStorage.setItem('payit_verified_entities', JSON.stringify(newMap));
@@ -268,28 +234,22 @@ export default function App() {
 
     const fetchEntityDetails = async () => {
       try {
-        const res = await fetch(`http://localhost:4000/api/kyc/status?entityId=${activeEntity.id}&userId=${currentUser.id}`);
+        const res = await fetch(`${API_BASE_URL}/api/kyc/status?entityId=${activeEntity.id}&userId=${currentUser.id}`);
         if (res.ok) {
           const data = await res.json();
-          const cleanAccounts = (data.accounts || []).map((acc: any) => ({
-            ...acc,
-            bankName: resolveNuvionBankName(acc.currency, acc.bankName || acc.bank_name),
-          }));
-
-          const particleAddr = deriveParticleAddress(activeEntity.id, accountType);
-          const rawStatus = (data.nuvionStatus || activeEntity.nuvionStatus || '').toUpperCase();
-          const normalizedStatus = rawStatus === 'APPROVED' || (data.nuvionTier && data.nuvionTier > 0) ? 'APPROVED' : 'incomplete';
+          const cleanAccounts = data.accounts || [];
 
           setEntitiesMap(prev => {
             const updated = {
               ...prev,
               [accountType]: {
                 ...prev[accountType],
-                nuvionTier: data.nuvionTier || prev[accountType]?.nuvionTier || 0,
-                nuvionStatus: normalizedStatus as any,
-                accountNumber: cleanAccounts[0]?.accountNumber || prev[accountType]?.accountNumber || 'Unverified',
-                bankName: cleanAccounts[0]?.bankName || resolveNuvionBankName(accountType === 'PERSONAL' ? 'NGN' : 'USD'),
-                particleNetworkAddress: particleAddr,
+                legalName: data.legalName || prev[accountType]?.legalName,
+                nuvionTier: data.nuvionTier || 0,
+                nuvionStatus: data.nuvionStatus || 'incomplete',
+                accountNumber: cleanAccounts[0]?.accountNumber || prev[accountType]?.accountNumber,
+                bankName: cleanAccounts[0]?.bankName || prev[accountType]?.bankName,
+                particleNetworkAddress: data.particleNetworkAddress || prev[accountType]?.particleNetworkAddress,
                 fiatAccounts: cleanAccounts.length > 0 ? cleanAccounts : prev[accountType]?.fiatAccounts,
               },
             };
@@ -300,7 +260,7 @@ export default function App() {
       } catch (e) {}
 
       try {
-        const txRes = await fetch(`http://localhost:4000/api/transfers/history?entityId=${activeEntity.id}`);
+        const txRes = await fetch(`${API_BASE_URL}/api/transfers/history?entityId=${activeEntity.id}`);
         if (txRes.ok) {
           const txData = await txRes.json();
           if (txData.transactions && Array.isArray(txData.transactions)) {
@@ -377,7 +337,7 @@ export default function App() {
     setKycStatusMsg(null);
 
     try {
-      const response = await fetch('http://localhost:4000/api/kyc/submit-tier1', {
+      const response = await fetch(`${API_BASE_URL}/api/kyc/submit-tier1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -397,7 +357,7 @@ export default function App() {
         throw new Error(data.error || 'Verification request failed');
       }
 
-      const nuvionStatus = data.status === 'approved' ? 'APPROVED' : data.status === 'pending' ? 'pending' : 'FAILED';
+      const nuvionStatus = data.status === 'approved' ? 'approved' : data.status === 'pending' ? 'pending' : 'rejected';
       
       setEntitiesMap(prev => ({
         ...prev,
@@ -413,7 +373,7 @@ export default function App() {
         },
       }));
 
-      if (nuvionStatus === 'APPROVED') {
+      if (nuvionStatus === 'approved') {
         setKycStatusMsg({ type: 'success', text: "Identity Verified! Issued Nuvion Microfinance Bank (MFB) & Global Virtual Accounts." });
         setTimeout(() => setShowKycModal(false), 2000);
       } else {
@@ -435,7 +395,7 @@ export default function App() {
     setKycStatusMsg(null);
 
     try {
-      const response = await fetch('http://localhost:4000/api/kyc/submit-tier2', {
+      const response = await fetch(`${API_BASE_URL}/api/kyc/submit-tier2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -455,7 +415,7 @@ export default function App() {
         throw new Error(data.error || 'Corporate verification request failed');
       }
 
-      const nuvionStatus = data.status === 'approved' ? 'APPROVED' : data.status === 'pending' ? 'pending' : 'FAILED';
+      const nuvionStatus = data.status === 'approved' ? 'approved' : data.status === 'pending' ? 'pending' : 'rejected';
 
       setEntitiesMap(prev => ({
         ...prev,
@@ -471,7 +431,7 @@ export default function App() {
         },
       }));
 
-      if (nuvionStatus === 'APPROVED') {
+      if (nuvionStatus === 'approved') {
         setKycStatusMsg({ type: 'success', text: "CAC Corporate Verification Approved! Issued Corporate Nuvion Accounts." });
         setTimeout(() => setShowKycModal(false), 2000);
       } else {
@@ -544,19 +504,19 @@ export default function App() {
           {/* User Profile Avatar */}
           <div style={{ position: 'relative' }}>
             <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, var(--brand-green), #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 16, border: '2px solid rgba(255,255,255,0.1)' }}>
-              {(activeEntity?.legalName || 'Iboh Igboze Igboze').charAt(0)}
+              {(activeEntity?.legalName || 'In review').charAt(0)}
             </div>
-            {activeEntity?.nuvionStatus === 'APPROVED' && (
+            {activeEntity?.nuvionStatus === 'approved' && (
               <CheckCircle2 size={14} color="#10b981" style={{ position: 'absolute', bottom: -2, right: -2, background: '#0f172a', borderRadius: '50%' }} />
             )}
           </div>
 
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-heading)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              {activeEntity?.legalName || 'Iboh Igboze Igboze'}
+              {activeEntity?.nuvionStatus === 'approved' ? activeEntity.legalName : 'In review'}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {userEmail || 'iboh.igboze@payit.co'}
+              {userEmail || 'Loading...'}
             </div>
           </div>
         </div>
@@ -596,7 +556,7 @@ export default function App() {
           {accountType} ACCOUNT
         </span>
 
-        {activeEntity?.nuvionStatus === 'APPROVED' ? (
+        {activeEntity?.nuvionStatus === 'approved' ? (
           <button onClick={() => setShowKycModal(true)} style={{ background: 'none', border: 'none', color: 'var(--emerald-main)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <UserCheck size={14} /> Verified ({accountType === 'PERSONAL' ? 'Tier 1' : 'Tier 2'})
           </button>

@@ -3,33 +3,38 @@ import { createDbClient, eq } from '@payit/db';
 import { auditLogs, entities, invoices } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import crypto from 'crypto';
+import { env } from '../env.js';
 
 const db = createDbClient();
+
+function timingSafeCheck(receivedSignature?: string, expectedSignature?: string): boolean {
+  if (!receivedSignature || !expectedSignature) return false;
+  const a = Buffer.from(receivedSignature, 'utf-8');
+  const b = Buffer.from(expectedSignature, 'utf-8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 export async function webhookRoutes(server: FastifyInstance) {
 
   /**
    * Nuvion Entity Status Webhook Handler.
-   * Validates HMAC-SHA256 signature against NUVION_WEBHOOK_SECRET if signature header present.
-   * Returns HTTP 200 in <15ms. Processing is async after return.
-   * Writes audit log and updates entity status in DB.
+   * Enforces timing-safe HMAC-SHA256 signature verification against NUVION_WEBHOOK_SECRET.
+   * Rejects HTTP 401 if signature is missing or invalid.
    */
   server.post('/webhooks/nuvion', async (request, reply) => {
-    const startTime = Date.now();
-    const webhookSecret = process.env.NUVION_WEBHOOK_SECRET || '';
+    const webhookSecret = env.NUVION_WEBHOOK_SECRET;
     const signature = (request.headers['x-nuvion-signature'] || request.headers['x-webhook-signature']) as string | undefined;
 
-    // Signature verification (if signature header provided by Nuvion)
-    if (signature && webhookSecret) {
-      const expectedSignature = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(JSON.stringify(request.body))
-        .digest('hex');
+    const rawBody = JSON.stringify(request.body || {});
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
 
-      if (signature !== expectedSignature && !signature.includes(expectedSignature)) {
-        server.log.warn({ signature }, 'Invalid Nuvion webhook signature detected');
-        // We log warning but do not crash to avoid missing events during sandbox testing
-      }
+    if (!signature || !timingSafeCheck(signature, expectedSignature)) {
+      server.log.warn({ signature }, 'Unauthorized Nuvion webhook signature rejection');
+      return reply.status(401).send({ error: 'Invalid or missing webhook signature' });
     }
 
     const payload = request.body as {
@@ -38,20 +43,22 @@ export async function webhookRoutes(server: FastifyInstance) {
       entityId?: string;
       status?: 'approved' | 'rejected' | 'pending';
       reason?: string;
+      legal_name?: string;
+      verified_legal_name?: string;
       tier?: number;
     };
 
-    // 1. Return HTTP 200 immediately (<15ms guarantee)
+    const confirmedName = payload.verified_legal_name || payload.legal_name;
+
+    // Return HTTP 200 immediately (<15ms SLA guarantee)
     reply.status(200).send({
       received: true,
       processingMode: 'async_queued',
-      latencyMs: Date.now() - startTime,
     });
 
-    // 2. Async background processing (after reply sent)
+    // Async background processing after reply
     setImmediate(async () => {
       try {
-        // Write raw webhook to audit log
         await db.insert(auditLogs).values({
           id: ulid(),
           userId: 'system_webhook',
@@ -61,7 +68,6 @@ export async function webhookRoutes(server: FastifyInstance) {
           createdAt: new Date(),
         });
 
-        // If this is an entity status update, apply it to the DB
         if (payload.nuvionEntityId && payload.status) {
           const entityRows = await db
             .select()
@@ -75,14 +81,16 @@ export async function webhookRoutes(server: FastifyInstance) {
               .set({
                 nuvionStatus: payload.status,
                 ...(payload.tier ? { nuvionTier: payload.tier } : {}),
+                ...(confirmedName ? { legalName: confirmedName } : {}),
               })
               .where(eq(entities.nuvionEntityId, payload.nuvionEntityId));
 
             server.log.info({
               nuvionEntityId: payload.nuvionEntityId,
               newStatus: payload.status,
+              confirmedName,
               reason: payload.reason,
-            }, 'Entity status updated from Nuvion webhook');
+            }, 'Entity status and verified name updated from Nuvion webhook');
           }
         }
       } catch (err) {
@@ -92,12 +100,23 @@ export async function webhookRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Particle Stablecoin Payment Match Webhook Handler.
-   * Matches inbound crypto payment to an invoice HD address.
-   * Returns HTTP 200 immediately.
+   * Particle Stablecoin Payment Webhook Handler.
+   * Enforces timing-safe HMAC signature verification with PARTICLE_SERVER_KEY.
+   * Rejects HTTP 401 if missing or invalid.
    */
   server.post('/webhooks/particle', async (request, reply) => {
-    const startTime = Date.now();
+    const signature = request.headers['x-particle-signature'] as string | undefined;
+    const rawBody = JSON.stringify(request.body || {});
+    const expectedSignature = crypto
+      .createHmac('sha256', env.PARTICLE_SERVER_KEY)
+      .update(rawBody)
+      .digest('hex');
+
+    if (!signature || !timingSafeCheck(signature, expectedSignature)) {
+      server.log.warn({ signature }, 'Unauthorized Particle webhook signature rejection');
+      return reply.status(401).send({ error: 'Invalid or missing Particle webhook signature' });
+    }
+
     const payload = request.body as {
       txHash: string;
       receivingAddress: string;
@@ -110,10 +129,8 @@ export async function webhookRoutes(server: FastifyInstance) {
     reply.status(200).send({
       received: true,
       processingMode: 'async_queued',
-      latencyMs: Date.now() - startTime,
     });
 
-    // Async: match payment to invoice and update status
     setImmediate(async () => {
       try {
         await db.insert(auditLogs).values({
@@ -125,35 +142,39 @@ export async function webhookRoutes(server: FastifyInstance) {
           createdAt: new Date(),
         });
 
-        // Match inbound address to an open invoice
         if (payload.receivingAddress) {
+          const targetAddress = payload.receivingAddress.toLowerCase();
           const matchedInvoices = await db
             .select()
             .from(invoices)
-            .where(eq(invoices.hdReceivingAddress, payload.receivingAddress.toLowerCase()))
+            .where(eq(invoices.hdReceivingAddress, targetAddress))
             .limit(1);
 
           if (matchedInvoices.length > 0) {
             const invoice = matchedInvoices[0];
-            // Mark invoice as paid if amount matches (allow 1% tolerance)
             const expectedAmount = parseFloat(String(invoice.totalAmount));
             const receivedAmount = payload.amount;
             const tolerance = expectedAmount * 0.01;
 
-            if (Math.abs(receivedAmount - expectedAmount) <= tolerance || receivedAmount >= expectedAmount) {
-              await db
-                .update(invoices)
-                .set({ status: 'paid' })
-                .where(eq(invoices.id, invoice.id));
-
-              server.log.info({
-                invoiceId: invoice.id,
-                invoiceTag: invoice.tag,
-                txHash: payload.txHash,
-                amount: receivedAmount,
-                token: payload.token,
-              }, 'Invoice marked as PAID via stablecoin webhook');
+            let newStatus: 'pending' | 'paid' | 'partially_paid' | 'overpaid' | 'overdue' | 'cancelled' = 'paid';
+            if (receivedAmount < (expectedAmount - tolerance)) {
+              newStatus = 'partially_paid';
+            } else if (receivedAmount > (expectedAmount + tolerance)) {
+              newStatus = 'overpaid';
             }
+
+            await db
+              .update(invoices)
+              .set({ status: newStatus })
+              .where(eq(invoices.id, invoice.id));
+
+            server.log.info({
+              invoiceId: invoice.id,
+              status: newStatus,
+              txHash: payload.txHash,
+              receivedAmount,
+              expectedAmount,
+            }, 'Invoice payment status updated via verified Particle webhook');
           }
         }
       } catch (err) {
@@ -163,16 +184,12 @@ export async function webhookRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Telegram Bot Stateless Webhook Handler.
-   * Must return 200 immediately — Telegram retries if it doesn't.
+   * Telegram Bot Webhook Handler.
    */
   server.post('/webhooks/telegram', async (request, reply) => {
     const update = request.body as { update_id?: number; message?: any };
-
-    // Return immediately — Telegram has strict timeout requirements
     reply.status(200).send({ ok: true });
 
-    // Async: log the update
     if (update.update_id) {
       setImmediate(async () => {
         try {

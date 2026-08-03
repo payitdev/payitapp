@@ -5,6 +5,7 @@ import { InvoiceSchema, omitPrivateKey } from '@payit/contracts';
 import { createDbClient, eq, and } from '@payit/db';
 import { invoices, invoiceItems, entities } from '@payit/db/schema';
 import { ulid } from 'ulid';
+import { assertEntityApproved } from './kyc.js';
 
 const kms = new KMSKeyEnclave();
 const db = createDbClient();
@@ -56,37 +57,50 @@ export async function invoiceRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: err.message });
     }
 
-    // Verify entity exists in DB
+    // Load entity and enforce entity approval gate
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
     const entity = entityRows[0];
 
-    // Determine or generate xpub for this entity (stored once, reused for all invoices)
+    try {
+      assertEntityApproved(entity);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    // Determine or generate xpub for this entity
     let xpub = entity.xpub;
     if (!xpub && settlementType === 'stablecoin') {
       xpub = await kms.generateEntityXpub(entityId);
       await db.update(entities).set({ xpub }).where(eq(entities.id, entityId));
     }
 
-    // Get current invoice count for auto-sequencing if no sequenceNumber provided
+    // Auto-sequencing with uniqueness check against collisions
     let seqNum = sequenceNumber;
     if (!seqNum) {
       const existingInvoices = await db.select().from(invoices).where(eq(invoices.entityId, entityId));
       seqNum = existingInvoices.length + 1;
     }
 
-    const formattedSeq = String(seqNum).padStart(3, '0');
     const code = (businessCode || entity.businessTag || entity.username || 'PAYIT').toUpperCase();
-    const tag = `${code}-${formattedSeq}`;
+    let tag = `${code}-${String(seqNum).padStart(3, '0')}`;
+
+    // Tag uniqueness check against collisions
+    const tagCollisions = await db.select().from(invoices).where(eq(invoices.tag, tag)).limit(1);
+    if (tagCollisions.length > 0) {
+      seqNum += 10;
+      tag = `${code}-${String(seqNum).padStart(3, '0')}`;
+    }
+
     const invoiceId = ulid();
 
-    // Derive dedicated HD address for this invoice (crypto only)
-    let hdReceivingAddress = entity.xpub || ''; // For fiat: no crypto address needed
+    // Derive dedicated HD address for this invoice (normalized to lowercase for matching)
+    let hdReceivingAddress = '';
     if (settlementType === 'stablecoin' && xpub) {
       const hdDerivation = kms.deriveInvoiceAddress(xpub, seqNum!);
-      hdReceivingAddress = hdDerivation.receivingAddress;
+      hdReceivingAddress = (hdDerivation.receivingAddress || '').toLowerCase();
     }
 
     const resolvedDueDate = dueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
@@ -152,33 +166,35 @@ export async function invoiceRoutes(server: FastifyInstance) {
   });
 
   /**
-   * List invoices for an entity — reads from Neon DB only.
+   * Get all invoices for an entity.
    */
   server.get('/api/invoices', async (request, reply) => {
-    const { activeEntityId } = request.query as { activeEntityId?: string };
-    if (!activeEntityId) return reply.status(400).send({ error: 'activeEntityId query parameter required' });
+    const { entityId } = request.query as { entityId?: string };
+    if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
 
-    const entityInvoices = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.entityId, activeEntityId));
-
+    const entityInvoices = await db.select().from(invoices).where(eq(invoices.entityId, entityId));
     return reply.send({ invoices: entityInvoices });
   });
 
   /**
-   * Mark invoice as paid — updates DB status.
+   * Get public invoice details by public tag.
    */
-  server.patch('/api/invoices/:invoiceId/status', async (request, reply) => {
-    const { invoiceId } = request.params as { invoiceId: string };
-    const { status } = request.body as { status: 'paid' | 'cancelled' | 'overdue' };
+  server.get('/api/invoices/public/:tag', async (request, reply) => {
+    const { tag } = request.params as { tag: string };
+    const matched = await db.select().from(invoices).where(eq(invoices.tag, tag.toUpperCase())).limit(1);
 
-    if (!['paid', 'cancelled', 'overdue'].includes(status)) {
-      return reply.status(400).send({ error: 'status must be paid, cancelled, or overdue' });
+    if (matched.length === 0) {
+      return reply.status(404).send({ error: 'Invoice not found' });
     }
 
-    await db.update(invoices).set({ status }).where(eq(invoices.id, invoiceId));
+    const inv = matched[0];
+    const items = await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, inv.id));
 
-    return reply.send({ success: true, invoiceId, status });
+    return reply.send({
+      invoice: {
+        ...inv,
+        items,
+      },
+    });
   });
 }

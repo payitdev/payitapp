@@ -8,6 +8,7 @@ import { accounts, entities, auditLogs, riskEvents, ledgerEntries, ledgerAccount
 import { ulid } from 'ulid';
 import bcrypt from 'bcryptjs';
 import { trustedDevices } from '@payit/db/schema';
+import { assertEntityApproved } from './kyc.js';
 
 const riskEngine = new DeterministicRiskEngine();
 const groq = new GroqIntentParser();
@@ -30,6 +31,7 @@ export async function transferRoutes(server: FastifyInstance) {
 
   /**
    * Fetch transaction activity history from Neon DB.
+   * Reads actual amounts, currencies, and counterparties from audit logs and ledger entries.
    */
   server.get('/api/transfers/history', async (request, reply) => {
     const { entityId } = request.query as { entityId?: string };
@@ -43,33 +45,46 @@ export async function transferRoutes(server: FastifyInstance) {
         .select()
         .from(auditLogs)
         .where(eq(auditLogs.entityId, entityId))
-        .limit(20);
+        .limit(30);
 
-      const transactions = logs.map(l => ({
-        id: l.id,
-        type: l.action.includes('INBOUND') ? 'INBOUND' : 'OUTBOUND',
-        title: l.action,
-        subtitle: 'Payment Activity',
-        amount: 0,
-        currency: 'NGN',
-        symbol: '₦',
-        date: new Date(l.createdAt).toLocaleDateString(),
-        time: new Date(l.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        mode: 'fiat',
-        senderAccount: 'Nuvion MFB',
-        recipientAccount: 'Destination Account',
-        reference: l.id,
-      }));
+      const transactions = logs.map(l => {
+        let meta: any = {};
+        try {
+          meta = JSON.parse(l.metadata || '{}');
+        } catch {}
+
+        const isTransfer = l.action === 'TRANSFER_EXECUTE';
+        const rawAmount = meta.amount || meta.feeAmountLocal || 0;
+        const curr = meta.currency || 'NGN';
+        const sym = curr === 'USD' ? '$' : curr === 'EUR' ? '€' : curr === 'GBP' ? '£' : '₦';
+        const counterparty = meta.recipient || meta.entityId || 'External Account';
+
+        return {
+          id: l.id,
+          type: l.action.includes('INBOUND') || l.action.includes('PAYMENT_RECEIVED') ? 'INBOUND' : 'OUTBOUND',
+          title: isTransfer ? `Payment to ${counterparty}` : l.action.replace(/_/g, ' '),
+          subtitle: meta.chain ? `${meta.chain} Chain` : 'Payment Activity',
+          amount: parseFloat(String(rawAmount)),
+          currency: curr,
+          symbol: sym,
+          date: new Date(l.createdAt).toLocaleDateString(),
+          time: new Date(l.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          mode: meta.sendMode || 'fiat',
+          senderAccount: 'PayIT Account',
+          recipientAccount: counterparty,
+          reference: meta.txId || l.id,
+        };
+      });
 
       return reply.send({ transactions });
-    } catch {
+    } catch (err: any) {
+      server.log.error({ err }, 'Error fetching transfer history');
       return reply.send({ transactions: [] });
     }
   });
 
   /**
    * Dynamic live FX quote with PayIT margin applied.
-   * Shows end-amount only — margin is never exposed in the response.
    */
   server.post('/api/fx/dynamic-quote', async (request, reply) => {
     const { fromCurrency, toCurrency, amount, isDeposit, marginPercent } = request.body as {
@@ -87,7 +102,6 @@ export async function transferRoutes(server: FastifyInstance) {
     try {
       const quote = await nuvion.getLiveDynamicQuote({ fromCurrency, toCurrency, amount, isDeposit, marginPercent });
 
-      // Return end-amount to client — do NOT expose nuvionBaseExchangeRate or margin
       return reply.send({
         fromCurrency: quote.fromCurrency,
         toCurrency: quote.toCurrency,
@@ -137,17 +151,8 @@ export async function transferRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Execute Transfer — production implementation.
-   * Flow:
-   * 1. Entity guard (prevents cross-entity access)
-   * 2. Load entity + account from DB
-   * 3. Deterministic risk evaluation
-   * 4. Step-up auth verification via bcrypt against DB hash
-   * 5. Get live FX quote for fee calculation
-   * 6. Execute payout via Nuvion
-   * 7. Record double-entry ledger posting to DB
-   * 8. Sweep fee record to treasury
-   * 9. Write audit log to DB
+   * Execute Transfer.
+   * Enforces entity access guard and entity approval check before execution.
    */
   server.post('/api/transfers/execute', async (request, reply) => {
     const {
@@ -191,18 +196,42 @@ export async function transferRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: 'Amount must be greater than zero' });
     }
 
-    // 2. Load entity and account from Neon DB
+    // 2. Load entity and enforce entity approval gate
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
     const entity = entityRows[0];
 
+    try {
+      assertEntityApproved(entity);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
     const entityAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId)).limit(1);
     if (entityAccounts.length === 0) {
       return reply.status(400).send({ error: 'No account found for this entity. Complete KYC first.' });
     }
     const account = entityAccounts[0];
+
+    // Load recent transfer history for risk evaluation
+    const recentLogs = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, entityId), eq(auditLogs.action, 'TRANSFER_EXECUTE')))
+      .limit(10);
+
+    const userHistory = recentLogs.map(l => {
+      let meta: any = {};
+      try { meta = JSON.parse(l.metadata || '{}'); } catch {}
+      return {
+        createdAt: new Date(l.createdAt),
+        amount: meta.amount || 0,
+        recipientTagOrAccount: meta.recipient || '',
+        deviceId: meta.deviceId || 'unknown_device',
+      };
+    });
 
     // 3. Deterministic risk evaluation
     const riskAssessment = riskEngine.evaluate({
@@ -211,8 +240,8 @@ export async function transferRoutes(server: FastifyInstance) {
       amount,
       recipientTagOrAccount: recipientTagOrAccount || recipientCryptoAddress || '',
       deviceId: deviceId || 'unknown_device',
-      userKnownRecipients: [],  // Production: load from DB contacts table
-      userHistory: [],          // Production: load from DB transfer history
+      userKnownRecipients: userHistory.map(h => h.recipientTagOrAccount).filter(Boolean),
+      userHistory,
     });
 
     // Write risk event to DB
@@ -298,7 +327,6 @@ export async function transferRoutes(server: FastifyInstance) {
     }
 
     // 7. Record double-entry ledger entries in Neon DB
-    // Load or create ledger accounts for this entity
     const ledgerAccId = `${entityId}_cash`;
     const ledgerClearId = `${entityId}_outbound`;
 
@@ -351,7 +379,7 @@ export async function transferRoutes(server: FastifyInstance) {
       currency: currency || 'NGN',
       recipient: recipientTagOrAccount || recipientCryptoAddress,
       narration: narration || 'PayIT Transfer',
-      transferFeeChargedToUser: 0, // 0 Transfer Fee Guarantee — fee absorbed from FX margin
+      transferFeeChargedToUser: 0,
       effectiveRate,
       feeSweep: {
         sweepId: feeSweep.sweepId,

@@ -5,6 +5,7 @@ import { NuvionClient } from '@payit/integrations';
 import { createDbClient, eq } from '@payit/db';
 import { payrollRuns, payrollItems, entities } from '@payit/db/schema';
 import { ulid } from 'ulid';
+import { assertEntityApproved } from './kyc.js';
 
 const ocr = new GeminiOcrParser();
 const nuvion = new NuvionClient();
@@ -14,8 +15,6 @@ export async function payrollRoutes(server: FastifyInstance) {
 
   /**
    * Step 1: Upload and OCR-extract payroll file using Gemini Flash.
-   * Requires multipart form upload with file buffer.
-   * Saves draft payroll run to DB for mandatory human review.
    */
   server.post('/api/payroll/extract', {
     config: { rawBody: true },
@@ -31,13 +30,18 @@ export async function payrollRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: err.message });
     }
 
-    // Verify entity exists
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
+    const entity = entityRows[0];
 
-    // Get file from multipart OR raw body
+    try {
+      assertEntityApproved(entity);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
     const files = (request as any).files;
     let fileBuffer: Buffer;
     let fileName: string;
@@ -47,7 +51,6 @@ export async function payrollRoutes(server: FastifyInstance) {
       fileBuffer = Buffer.from(await file.toBuffer());
       fileName = file.filename || 'payroll.pdf';
     } else if ((request as any).rawBody) {
-      // Fallback: accept raw body with filename header
       fileBuffer = Buffer.from((request as any).rawBody);
       fileName = (request.headers['x-filename'] as string) || 'payroll.pdf';
     } else {
@@ -56,7 +59,6 @@ export async function payrollRoutes(server: FastifyInstance) {
       });
     }
 
-    // Call real Gemini Flash OCR
     let extractedItems: any[];
     try {
       extractedItems = await ocr.extractPayrollFromFile(fileBuffer, fileName);
@@ -72,7 +74,6 @@ export async function payrollRoutes(server: FastifyInstance) {
     const totalAmount = extractedItems.reduce((acc, item) => acc + item.amount, 0);
     const payrollRunId = ulid();
 
-    // Save draft payroll run to DB
     await db.insert(payrollRuns).values({
       id: payrollRunId,
       entityId,
@@ -82,7 +83,6 @@ export async function payrollRoutes(server: FastifyInstance) {
       createdAt: new Date(),
     });
 
-    // Save extracted line items to DB
     await db.insert(payrollItems).values(
       extractedItems.map(item => ({
         id: ulid(),
@@ -111,8 +111,7 @@ export async function payrollRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Step 2: Execute approved payroll run. Each line item executes independently.
-   * One failed item does not block the rest. Results updated in DB.
+   * Step 2: Execute approved payroll run.
    */
   server.post('/api/payroll/execute', async (request, reply) => {
     const { session, entityId, payrollRunId, approvedItems } = request.body as {
@@ -124,6 +123,7 @@ export async function payrollRoutes(server: FastifyInstance) {
         recipientName: string;
         recipientAccountOrTag: string;
         amount: number;
+        currency?: string;
       }>;
     };
 
@@ -137,16 +137,13 @@ export async function payrollRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: 'payrollRunId and at least one approved item are required' });
     }
 
-    // Verify the payroll run belongs to this entity
     const runRows = await db.select().from(payrollRuns).where(eq(payrollRuns.id, payrollRunId)).limit(1);
     if (runRows.length === 0 || runRows[0].entityId !== entityId) {
       return reply.status(403).send({ error: 'Payroll run not found or does not belong to this entity' });
     }
 
-    // Update status to processing
     await db.update(payrollRuns).set({ status: 'processing' }).where(eq(payrollRuns.id, payrollRunId));
 
-    // Execute each item independently via Nuvion payout
     const results: any[] = [];
     for (const item of approvedItems) {
       if (!item.recipientAccountOrTag || item.amount <= 0) {
@@ -159,12 +156,11 @@ export async function payrollRoutes(server: FastifyInstance) {
       }
 
       try {
-        // Execute payout via Nuvion
         await nuvion.executePayout({
           nuvionAccountId: `nacc_${entityId}`,
           destinationAccount: item.recipientAccountOrTag,
           amount: item.amount,
-          currency: 'NGN',
+          currency: item.currency || 'NGN',
         });
 
         results.push({ ...item, status: 'success' as const });
@@ -182,14 +178,13 @@ export async function payrollRoutes(server: FastifyInstance) {
 
     const successCount = results.filter(r => r.status === 'success').length;
     const failedCount = results.filter(r => r.status === 'failed').length;
-    const finalStatus = failedCount === 0 ? 'completed' : 'completed';
+    const finalStatus = failedCount === 0 ? 'completed' : 'completed_with_errors';
 
-    // Update payroll run status in DB
     await db.update(payrollRuns).set({ status: finalStatus }).where(eq(payrollRuns.id, payrollRunId));
 
     return reply.send({
       payrollRunId,
-      status: failedCount === 0 ? 'completed' : 'completed_with_errors',
+      status: finalStatus,
       summary: {
         totalItems: results.length,
         successCount,

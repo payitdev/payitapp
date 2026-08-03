@@ -4,6 +4,7 @@ import { validateEntityAccess, validateCardEntityMatch } from '@payit/ledger';
 import { createDbClient, eq, and } from '@payit/db';
 import { cards, accounts, entities } from '@payit/db/schema';
 import { ulid } from 'ulid';
+import { assertEntityApproved } from './kyc.js';
 
 const nuvion = new NuvionClient();
 const db = createDbClient();
@@ -30,12 +31,20 @@ export async function cardRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: err.message });
     }
 
-    // 2. Load entity from DB to get legal name (cardholder must be verified name)
+    // 2. Load entity from DB and enforce entity approval gate
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
     const entity = entityRows[0];
+
+    try {
+      assertEntityApproved(entity);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const cardholderName = `${entity.legalName}/PayIT`;
 
     // 3. Load account from DB (must belong to this entity)
     let nuvionAccountId: string;
@@ -55,7 +64,6 @@ export async function cardRoutes(server: FastifyInstance) {
       nuvionAccountId = accountRows[0].nuvionAccountId;
       cardAccountId = accountId;
     } else {
-      // Use default account for this entity
       const defaultAccounts = await db
         .select()
         .from(accounts)
@@ -69,32 +77,32 @@ export async function cardRoutes(server: FastifyInstance) {
       cardAccountId = defaultAccounts[0].id;
     }
 
-    // 4. Issue card via Nuvion API
-    const cardholderName = `${entity.legalName}/PayIT`;
-    let cardData: any;
+    // 4. Issue virtual card via Nuvion
+    let cardResult: any;
     try {
-      cardData = await nuvion.issueVirtualCard({
-        nuvionEntityId: entity.nuvionEntityId || entityId,
+      cardResult = await nuvion.issueVirtualCard({
+        nuvionEntityId: entity.nuvionEntityId || `nuvion_${entityId}`,
         nuvionAccountId,
         brand: brand || 'VISA',
         cardholderName,
-        cardType: cardType || (entity.kind === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL'),
+        cardType: cardType || 'PERSONAL',
       });
     } catch (err: any) {
       server.log.error({ err }, 'Nuvion card issuance failed');
       return reply.status(502).send({ error: `Card issuance failed: ${err.message}` });
     }
 
-    // 5. Store card in Neon DB — NEVER store PAN or CVV
+    // 5. Insert card record into Neon DB
     const cardId = ulid();
     await db.insert(cards).values({
       id: cardId,
       entityId,
       accountId: cardAccountId,
-      nuvionCardId: cardData.nuvionCardId,
-      last4: cardData.last4,
-      brand: cardData.brand,
-      status: 'active',
+      nuvionCardId: cardResult.nuvionCardId,
+      last4: cardResult.last4,
+      brand: brand || 'VISA',
+      cardholderName,
+      status: cardResult.status,
       createdAt: new Date(),
     });
 
@@ -103,54 +111,27 @@ export async function cardRoutes(server: FastifyInstance) {
         id: cardId,
         entityId,
         accountId: cardAccountId,
-        nuvionCardId: cardData.nuvionCardId,
-        last4: cardData.last4,  // NEVER return full PAN or CVV
-        brand: cardData.brand,
+        nuvionCardId: cardResult.nuvionCardId,
+        last4: cardResult.last4,
+        brand: brand || 'VISA',
         cardholderName,
-        cardType: cardData.cardType,
-        issuanceFeeUsd: cardData.issuanceFeeUsd,
-        status: 'active',
-        feeSweep: cardData.feeSweep,
+        cardType: cardType || 'PERSONAL',
+        issuanceFeeUsd: cardResult.issuanceFeeUsd,
+        status: cardResult.status,
         createdAt: new Date().toISOString(),
       },
+      feeSweep: cardResult.feeSweep,
     });
   });
 
   /**
-   * List cards — reads only from DB, filtered strictly by entity.
+   * List all virtual cards for an entity.
    */
   server.get('/api/cards', async (request, reply) => {
-    const { activeEntityId } = request.query as { activeEntityId?: string };
-    if (!activeEntityId) return reply.status(400).send({ error: 'activeEntityId query parameter required' });
+    const { entityId } = request.query as { entityId?: string };
+    if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
 
-    const entityCards = await db
-      .select()
-      .from(cards)
-      .where(eq(cards.entityId, activeEntityId));
-
+    const entityCards = await db.select().from(cards).where(eq(cards.entityId, entityId));
     return reply.send({ cards: entityCards });
-  });
-
-  /**
-   * Freeze / unfreeze a card — updates status in DB.
-   */
-  server.patch('/api/cards/:cardId/status', async (request, reply) => {
-    const { cardId } = request.params as { cardId: string };
-    const { status, entityId } = request.body as { status: 'frozen' | 'active'; entityId: string };
-
-    // Verify card belongs to this entity before updating
-    const cardRows = await db
-      .select()
-      .from(cards)
-      .where(and(eq(cards.id, cardId), eq(cards.entityId, entityId)))
-      .limit(1);
-
-    if (cardRows.length === 0) {
-      return reply.status(404).send({ error: 'Card not found for this entity' });
-    }
-
-    await db.update(cards).set({ status }).where(eq(cards.id, cardId));
-
-    return reply.send({ success: true, cardId, status });
   });
 }

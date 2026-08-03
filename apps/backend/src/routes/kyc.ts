@@ -7,6 +7,12 @@ import { ulid } from 'ulid';
 const nuvion = new NuvionClient();
 const db = createDbClient();
 
+export function assertEntityApproved(entity: { id: string; nuvionStatus: string }) {
+  if (entity.nuvionStatus !== 'approved') {
+    throw new Error(`Entity ${entity.id} is in status '${entity.nuvionStatus}'. Feature requires 'approved' KYC/KYB status.`);
+  }
+}
+
 export async function kycRoutes(server: FastifyInstance) {
 
   /**
@@ -24,7 +30,8 @@ export async function kycRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Submit Tier 1 Personal KYC — calls Nuvion and stores result in DB.
+   * Submit Tier 1 Personal KYC — submits payload to Nuvion, marks status 'pending'.
+   * Status flips to 'approved' EXCLUSIVELY via Nuvion webhook.
    */
   server.post('/api/kyc/submit-tier1', async (request, reply) => {
     const { userId, entityId, ...kycBody } = request.body as NuvionTier1Payload & {
@@ -42,7 +49,6 @@ export async function kycRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: 'userId and entityId are required' });
     }
 
-    // Verify entity belongs to this user
     const entityRows = await db
       .select()
       .from(entities)
@@ -54,20 +60,28 @@ export async function kycRoutes(server: FastifyInstance) {
     }
 
     try {
+      server.log.info({ entityId, kycBody }, 'Submitting Tier 1 KYC payload to Nuvion API');
       const res = await nuvion.submitTier1Kyc(kycBody);
 
-      // Update entity tier and status in Neon DB
+      server.log.info({ res }, 'Raw Nuvion Tier 1 KYC response');
+
+      // Update entity status to 'pending' — webhook flips to 'approved'
       await db
         .update(entities)
         .set({
           nuvionTier: res.tier,
-          nuvionStatus: 'approved',
+          nuvionStatus: 'pending',
           nuvionEntityId: res.nuvionEntityId,
         })
         .where(eq(entities.id, entityId));
 
-      // Provision all Nuvion fiat accounts (NGN, USD, GBP, EUR) into DB
+      // Provision returned accounts without generating random math fallbacks
       for (const fa of res.fiatAccounts) {
+        if (!fa.accountNumber) {
+          server.log.warn({ fa }, 'Skipping account provisioning: Nuvion returned missing accountNumber');
+          continue;
+        }
+
         const existing = await db
           .select()
           .from(accounts)
@@ -78,11 +92,11 @@ export async function kycRoutes(server: FastifyInstance) {
           await db.insert(accounts).values({
             id: ulid(),
             entityId,
-            nuvionAccountId: fa.nuvionAccountId || `nacc_${fa.currency || 'USD'}_${Date.now()}`,
-            accountNumber: fa.accountNumber || `99${Math.floor(10000000 + Math.random() * 90000000)}`,
-            bankName: fa.bankName || `Nuvion ${fa.currency || 'USD'} Platform`,
-            accountHolderName: fa.accountHolderName || 'PayIT Account',
-            currency: fa.currency || 'USD',
+            nuvionAccountId: fa.nuvionAccountId,
+            accountNumber: fa.accountNumber,
+            bankName: fa.bankName,
+            accountHolderName: `${kycBody.legalName}/PayIT`,
+            currency: fa.currency,
             status: 'active',
             createdAt: new Date(),
           });
@@ -91,11 +105,11 @@ export async function kycRoutes(server: FastifyInstance) {
 
       return reply.send({
         success: true,
-        message: 'Tier 1 Personal Identity Verified with Nuvion',
+        message: 'Tier 1 Personal Identity Submitted to Nuvion (Awaiting Webhook Approval)',
         nuvionEntityId: res.nuvionEntityId,
         tier: res.tier,
-        status: res.status,
-        accountHolderName: res.accountHolderName,
+        status: 'pending',
+        accountHolderName: `${kycBody.legalName}/PayIT`,
         particleNetworkAddress: res.particleNetworkAddress,
         virtualAccount: res.virtualAccount,
         fiatAccounts: res.fiatAccounts,
@@ -103,12 +117,13 @@ export async function kycRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       server.log.error({ err }, 'Tier 1 KYC submission failed');
-      return reply.status(400).send({ error: err.message });
+      return reply.status(400).send({ error: err.message || 'KYC submission failed on Nuvion API' });
     }
   });
 
   /**
-   * Submit Tier 2 Corporate KYB — calls Nuvion and stores result in DB.
+   * Submit Tier 2 Corporate KYB — submits payload to Nuvion, marks status 'pending'.
+   * Status flips to 'approved' EXCLUSIVELY via Nuvion webhook.
    */
   server.post('/api/kyc/submit-tier2', async (request, reply) => {
     const { userId, entityId, ...kybBody } = request.body as NuvionTier2Payload & {
@@ -137,19 +152,26 @@ export async function kycRoutes(server: FastifyInstance) {
     }
 
     try {
+      server.log.info({ entityId, kybBody }, 'Submitting Tier 2 KYB payload to Nuvion API');
       const res = await nuvion.submitTier2Kyb(kybBody);
+
+      server.log.info({ res }, 'Raw Nuvion Tier 2 KYB response');
 
       await db
         .update(entities)
         .set({
           nuvionTier: res.tier,
-          nuvionStatus: 'approved',
+          nuvionStatus: 'pending',
           nuvionEntityId: res.nuvionEntityId,
         })
         .where(eq(entities.id, entityId));
 
-      // Provision all Nuvion corporate fiat accounts into DB
       for (const fa of res.fiatAccounts) {
+        if (!fa.accountNumber) {
+          server.log.warn({ fa }, 'Skipping corporate account provisioning: Nuvion returned missing accountNumber');
+          continue;
+        }
+
         const existing = await db
           .select()
           .from(accounts)
@@ -160,11 +182,11 @@ export async function kycRoutes(server: FastifyInstance) {
           await db.insert(accounts).values({
             id: ulid(),
             entityId,
-            nuvionAccountId: fa.nuvionAccountId || `nacc_biz_${fa.currency || 'USD'}_${Date.now()}`,
-            accountNumber: fa.accountNumber || `88${Math.floor(10000000 + Math.random() * 90000000)}`,
-            bankName: fa.bankName || `Nuvion ${fa.currency || 'USD'} Corporate Platform`,
-            accountHolderName: fa.accountHolderName || 'PayIT Corporate Account',
-            currency: fa.currency || 'USD',
+            nuvionAccountId: fa.nuvionAccountId,
+            accountNumber: fa.accountNumber,
+            bankName: fa.bankName,
+            accountHolderName: `${kybBody.businessLegalName}/PayIT`,
+            currency: fa.currency,
             status: 'active',
             createdAt: new Date(),
           });
@@ -173,11 +195,11 @@ export async function kycRoutes(server: FastifyInstance) {
 
       return reply.send({
         success: true,
-        message: 'Tier 2 Corporate Business Verified with Nuvion (CAC Certified)',
+        message: 'Tier 2 Corporate Business Submitted to Nuvion (Awaiting Webhook Approval)',
         nuvionEntityId: res.nuvionEntityId,
         tier: res.tier,
-        status: res.status,
-        accountHolderName: res.accountHolderName,
+        status: 'pending',
+        accountHolderName: `${kybBody.businessLegalName}/PayIT`,
         particleNetworkAddress: res.particleNetworkAddress,
         virtualAccount: res.virtualAccount,
         fiatAccounts: res.fiatAccounts,
@@ -185,12 +207,12 @@ export async function kycRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       server.log.error({ err }, 'Tier 2 KYB submission failed');
-      return reply.status(400).send({ error: err.message });
+      return reply.status(400).send({ error: err.message || 'KYB submission failed on Nuvion API' });
     }
   });
 
   /**
-   * Get current entity KYC/KYB status — reads from Neon DB, not hardcoded.
+   * Get current entity KYC/KYB status from Neon DB.
    */
   server.get('/api/kyc/status', async (request, reply) => {
     const { entityId, userId } = request.query as { entityId?: string; userId?: string };
@@ -213,7 +235,6 @@ export async function kycRoutes(server: FastifyInstance) {
     const tier = entity.nuvionTier as 0 | 1 | 2 | 3;
     const limits = nuvion.getTierLimits(tier);
 
-    // Load associated accounts from DB
     const entityAccounts = await db
       .select()
       .from(accounts)

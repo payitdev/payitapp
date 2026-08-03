@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { Magic } from '@magic-sdk/admin';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { ulid } from 'ulid';
 import { createDbClient, eq, and } from '@payit/db';
-import { users, trustedDevices, entities, accounts } from '@payit/db/schema';
+import { users, trustedDevices, entities } from '@payit/db/schema';
+import { env } from '../env.js';
 
-const magic = new Magic(process.env.MAGIC_SECRET_KEY!);
+const magic = new Magic(env.MAGIC_SECRET_KEY);
 const db = createDbClient();
 
 // In-memory OTP code cache (10-min TTL)
@@ -46,64 +48,25 @@ export async function authRoutes(server: FastifyInstance) {
 
       const cleanEmail = email.trim().toLowerCase();
       let userId = metadata.issuer || `usr_${Date.now()}`;
-      let userEntities: any[] = [];
 
-      try {
-        const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+      const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
 
-        if (existingUsers.length > 0) {
-          userId = existingUsers[0].id;
-        } else {
-          await db.insert(users).values({
-            id: userId,
-            email: cleanEmail,
-            fullName: cleanEmail.split('@')[0],
-            createdAt: new Date(),
-          });
-        }
-
-        userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
-
-        if (userEntities.length === 0) {
-          const personalEntId = ulid();
-          await db.insert(entities).values({
-            id: personalEntId,
-            userId,
-            kind: 'PERSONAL',
-            legalName: cleanEmail.split('@')[0],
-            username: cleanEmail.split('@')[0].toLowerCase(),
-            nuvionTier: 0,
-            nuvionStatus: 'incomplete',
-            createdAt: new Date(),
-          });
-
-          const bizEntId = ulid();
-          await db.insert(entities).values({
-            id: bizEntId,
-            userId,
-            kind: 'BUSINESS',
-            legalName: `${cleanEmail.split('@')[0]} Enterprises`,
-            username: `${cleanEmail.split('@')[0].toUpperCase()}_BIZ`,
-            nuvionTier: 0,
-            nuvionStatus: 'incomplete',
-            createdAt: new Date(),
-          });
-
-          userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
-        }
-      } catch (dbErr) {
-        server.log.warn({ dbErr }, 'Database error during Magic login, using resilient fallback');
-        const pId = `ent_pers_${Date.now()}`;
-        const bId = `ent_biz_${Date.now()}`;
-        userEntities = [
-          { id: pId, userId, kind: 'PERSONAL', legalName: cleanEmail.split('@')[0], username: cleanEmail.split('@')[0].toLowerCase(), nuvionTier: 0, nuvionStatus: 'incomplete' },
-          { id: bId, userId, kind: 'BUSINESS', legalName: `${cleanEmail.split('@')[0]} Enterprises`, username: 'BIZ', nuvionTier: 0, nuvionStatus: 'incomplete' },
-        ];
+      if (existingUsers.length > 0) {
+        userId = existingUsers[0].id;
+      } else {
+        await db.insert(users).values({
+          id: userId,
+          email: cleanEmail,
+          fullName: cleanEmail.split('@')[0],
+          createdAt: new Date(),
+        });
       }
 
+      const userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+
       const token = jwt.sign(
-        { userId, email: cleanEmail, entityIds: userEntities.map(e => e.id), activeEntityId: userEntities[0]?.id },
-        process.env.JWT_SECRET || 'payit_secret',
+        { userId, email: cleanEmail, entityIds: userEntities.map(e => e.id), activeEntityId: userEntities[0]?.id || null },
+        env.JWT_SECRET,
         { expiresIn: '30d' }
       );
 
@@ -114,7 +77,7 @@ export async function authRoutes(server: FastifyInstance) {
           id: userId,
           email: cleanEmail,
           entities: userEntities,
-          activeEntityId: userEntities[0]?.id,
+          activeEntityId: userEntities[0]?.id || null,
         },
       });
     } catch (err: any) {
@@ -135,10 +98,10 @@ export async function authRoutes(server: FastifyInstance) {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = crypto.randomInt(100000, 1000000).toString();
     otpCache.set(cleanEmail, { code, expiresAt: Date.now() + 600_000 });
 
-    server.log.info({ email: cleanEmail, code }, 'Generated 6-digit email verification security code');
+    server.log.info({ email: cleanEmail }, 'Generated 6-digit email verification security code');
 
     await sendSecurityVerificationEmail(cleanEmail, code);
 
@@ -150,7 +113,7 @@ export async function authRoutes(server: FastifyInstance) {
 
   /**
    * Step 2: User enters the 6-digit verification code.
-   * Verifies code, registers/logs in user in Neon DB, provisions entities, and returns JWT session.
+   * Verifies code, registers/logs in user in Neon DB, and returns JWT session.
    */
   server.post('/api/auth/verify-code', async (request, reply) => {
     const { email, code } = request.body as { email?: string; code?: string };
@@ -162,72 +125,29 @@ export async function authRoutes(server: FastifyInstance) {
     const cleanEmail = email.trim().toLowerCase();
     const stored = otpCache.get(cleanEmail);
 
-    // Accept stored code or master dev code 891204
-    if (code !== '891204' && (!stored || stored.code !== code || Date.now() > stored.expiresAt)) {
+    if (!stored || stored.code !== code || Date.now() > stored.expiresAt) {
       return reply.status(401).send({ error: 'Invalid or expired verification code. Please request a new code.' });
     }
 
     // Clear used code
     otpCache.delete(cleanEmail);
 
-    let userId = `usr_${Date.now()}`;
-    let userEntities: any[] = [];
+    let userId: string;
+    const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
 
-    try {
-      const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
-
-      if (existingUsers.length > 0) {
-        userId = existingUsers[0].id;
-      } else {
-        userId = ulid();
-        await db.insert(users).values({
-          id: userId,
-          email: cleanEmail,
-          fullName: cleanEmail.split('@')[0],
-          createdAt: new Date(),
-        });
-      }
-
-      userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
-      
-      if (userEntities.length === 0) {
-        // Create Personal Entity
-        const personalEntId = ulid();
-        await db.insert(entities).values({
-          id: personalEntId,
-          userId,
-          kind: 'PERSONAL',
-          legalName: cleanEmail.split('@')[0],
-          username: cleanEmail.split('@')[0].toLowerCase(),
-          nuvionTier: 0,
-          nuvionStatus: 'incomplete',
-          createdAt: new Date(),
-        });
-
-        // Create Business Entity
-        const bizEntId = ulid();
-        await db.insert(entities).values({
-          id: bizEntId,
-          userId,
-          kind: 'BUSINESS',
-          legalName: `${cleanEmail.split('@')[0]} Enterprises`,
-          username: `${cleanEmail.split('@')[0].toUpperCase()}_BIZ`,
-          nuvionTier: 0,
-          nuvionStatus: 'incomplete',
-          createdAt: new Date(),
-        });
-
-        userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
-      }
-    } catch (dbErr) {
-      server.log.warn({ dbErr }, 'Database connection error during code verification, using resilient session fallback');
-      const pId = `ent_pers_${Date.now()}`;
-      const bId = `ent_biz_${Date.now()}`;
-      userEntities = [
-        { id: pId, userId, kind: 'PERSONAL', legalName: cleanEmail.split('@')[0], username: cleanEmail.split('@')[0].toLowerCase(), nuvionTier: 0, nuvionStatus: 'incomplete', accountNumber: '9901827364', bankName: 'Nuvion MFB' },
-        { id: bId, userId, kind: 'BUSINESS', legalName: `${cleanEmail.split('@')[0]} Enterprises`, username: 'BIZ', nuvionTier: 0, nuvionStatus: 'incomplete', accountNumber: '8812938475', bankName: 'Nuvion Financial Platform' },
-      ];
+    if (existingUsers.length > 0) {
+      userId = existingUsers[0].id;
+    } else {
+      userId = ulid();
+      await db.insert(users).values({
+        id: userId,
+        email: cleanEmail,
+        fullName: cleanEmail.split('@')[0],
+        createdAt: new Date(),
+      });
     }
+
+    const userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
 
     const jwtPayload = {
       userId,
@@ -236,7 +156,7 @@ export async function authRoutes(server: FastifyInstance) {
       activeEntityId: userEntities[0]?.id || null,
     };
 
-    const token = jwt.sign(jwtPayload, process.env.JWT_SECRET || 'payit_secret', {
+    const token = jwt.sign(jwtPayload, env.JWT_SECRET, {
       expiresIn: '30d',
     });
 
@@ -247,7 +167,7 @@ export async function authRoutes(server: FastifyInstance) {
         id: userId,
         email: cleanEmail,
         entities: userEntities,
-        activeEntityId: userEntities[0]?.id,
+        activeEntityId: userEntities[0]?.id || null,
       },
     });
   });
@@ -264,7 +184,6 @@ export async function authRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: 'DID token is required' });
     }
 
-    // 1. Validate DID Token against Magic using live secret key
     let magicUser: { email: string; issuer: string; publicAddress: string };
     try {
       magic.token.validate(didToken);
@@ -282,7 +201,6 @@ export async function authRoutes(server: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid or expired Magic authentication token' });
     }
 
-    // 2. Upsert user in Neon PostgreSQL — no mock data, no hardcoded rows
     let userId: string;
     const existingUsers = await db
       .select()
@@ -297,18 +215,16 @@ export async function authRoutes(server: FastifyInstance) {
       await db.insert(users).values({
         id: userId,
         email: magicUser.email,
-        fullName: magicUser.email.split('@')[0], // Placeholder until profile is set
+        fullName: magicUser.email.split('@')[0],
         createdAt: new Date(),
       });
     }
 
-    // 3. Fetch this user's entities (PERSONAL and/or BUSINESS) from DB
     const userEntities = await db
       .select()
       .from(entities)
       .where(eq(entities.userId, userId));
 
-    // 4. Sign JWT session token with user ID and entity IDs
     const jwtPayload = {
       userId,
       email: magicUser.email,
@@ -317,7 +233,7 @@ export async function authRoutes(server: FastifyInstance) {
       activeEntityId: userEntities[0]?.id || null,
     };
 
-    const sessionToken = jwt.sign(jwtPayload, process.env.JWT_SECRET!, {
+    const sessionToken = jwt.sign(jwtPayload, env.JWT_SECRET, {
       expiresIn: '30d',
       issuer: 'payit.co',
       audience: 'payit-app',
@@ -352,16 +268,13 @@ export async function authRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: 'userId, deviceId, and a 6-digit numeric passcode are required' });
     }
 
-    // Verify user exists in DB
     const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (userRows.length === 0) {
       return reply.status(404).send({ error: 'User not found' });
     }
 
-    // Hash with bcrypt (10 rounds)
     const passcodeHash = await bcrypt.hash(passcode, 10);
 
-    // Upsert trusted device passcode
     const existing = await db
       .select()
       .from(trustedDevices)
