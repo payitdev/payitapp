@@ -1,0 +1,14 @@
+{
+  "name": "@payit/ui",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').mkdirSync('dist', {recursive: true}); require('fs').copyFileSync('src/index.css', 'dist/index.css')\"",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

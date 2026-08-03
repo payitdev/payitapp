@@ -1,0 +1,14 @@
+{
+  "name": "payit-website",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'Website static build complete'",
+    "dev": "vite",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0"
+  }
+}

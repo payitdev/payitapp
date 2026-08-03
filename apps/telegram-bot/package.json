@@ -1,0 +1,17 @@
+{
+  "name": "payit-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/bot.js",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^4.26.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

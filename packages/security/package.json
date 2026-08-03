@@ -1,0 +1,20 @@
+{
+  "name": "@payit/security",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/deterministicRiskEngine.test.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@payit/contracts": "*",
+    "hdkey": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
