@@ -431,9 +431,13 @@ export class NuvionClient {
       if (newAccRes?.data?.data?.account) {
         liveAccounts.push(newAccRes.data.data.account);
       }
+    } catch (err: any) {
+      console.warn(`[NuvionClient] POST /accounts returned: ${err.message}. Fetching existing Nuvion accounts for verified user...`);
+    }
 
+    try {
       const nuvRes = await this.nuvionGet('/accounts');
-      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || [];
+      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
       if (Array.isArray(rawList) && rawList.length > 0) {
         for (const item of rawList) {
           if (!liveAccounts.some(existing => existing.id === item.id)) {
@@ -442,7 +446,9 @@ export class NuvionClient {
         }
       }
     } catch (err: any) {
-      throw new Error(`Nuvion account issuance failed: ${err.message || 'Unable to connect to Nuvion API'}`);
+      if (liveAccounts.length === 0) {
+        throw new Error(`Unable to fetch Nuvion accounts: ${err.message}`);
+      }
     }
 
     if (liveAccounts.length === 0) {
@@ -463,7 +469,7 @@ export class NuvionClient {
 
     return {
       nuvionEntityId,
-      status: 'approved' as const,
+      status: 'pending' as const,
       tier: 1 as const,
       accountHolderName,
       encryptedPayload,
@@ -491,9 +497,13 @@ export class NuvionClient {
       if (newBizAccRes?.data?.data?.account) {
         liveAccounts.push(newBizAccRes.data.data.account);
       }
+    } catch (err: any) {
+      console.warn(`[NuvionClient] POST /accounts corporate returned: ${err.message}. Fetching existing Nuvion accounts for verified user...`);
+    }
 
+    try {
       const nuvRes = await this.nuvionGet('/accounts');
-      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || [];
+      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
       if (Array.isArray(rawList) && rawList.length > 0) {
         for (const item of rawList) {
           if (!liveAccounts.some(existing => existing.id === item.id)) {
@@ -502,7 +512,9 @@ export class NuvionClient {
         }
       }
     } catch (err: any) {
-      throw new Error(`Nuvion corporate account issuance failed: ${err.message || 'Unable to connect to Nuvion API'}`);
+      if (liveAccounts.length === 0) {
+        throw new Error(`Unable to fetch corporate Nuvion accounts: ${err.message}`);
+      }
     }
 
     if (liveAccounts.length === 0) {
@@ -523,7 +535,7 @@ export class NuvionClient {
 
     return {
       nuvionEntityId: nuvionBizEntityId,
-      status: 'approved' as const,
+      status: 'pending' as const,
       tier: 2 as const,
       accountHolderName,
       encryptedPayload,
