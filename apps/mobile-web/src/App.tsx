@@ -294,7 +294,7 @@ export default function App() {
 
       setAuthSuccessMsg(`Magic Link verified! Logging in...`);
 
-      const response = await fetch('http://localhost:4000/api/auth/magic-login', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/magic-login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -352,7 +352,14 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || `Server error (Status ${response.status})`);
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Verification request failed');
       }
@@ -410,7 +417,14 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || `Server error (Status ${response.status})`);
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Corporate verification request failed');
       }
