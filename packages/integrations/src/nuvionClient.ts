@@ -138,15 +138,19 @@ export class NuvionClient {
   private treasuryFeeWallet: string;
   private defaultMarginPercent: number;
 
-  constructor(apiKey?: string, publicKey?: string, baseUrl = 'https://api.nuvion.co') {
+  constructor(apiKey?: string, publicKey?: string, baseUrl?: string) {
     this.apiKey = apiKey || process.env.NUVION_API_KEY || '';
     this.publicKey = publicKey || process.env.NUVION_PUBLIC_KEY || DEFAULT_PUBLIC_KEY;
-    this.baseUrl = baseUrl;
+    this.baseUrl = baseUrl || process.env.NUVION_API_BASE_URL || 'https://api.nuvion.co';
     this.treasuryFeeWallet = process.env.PAYIT_TREASURY_FEE_WALLET || PAYIT_TREASURY_WALLET;
     this.defaultMarginPercent = parseFloat(process.env.PAYIT_FX_MARGIN_PERCENT || '0.030');
 
     if (!this.apiKey) {
       throw new Error('NUVION_API_KEY environment variable is required');
+    }
+
+    if (!this.baseUrl.startsWith('https://')) {
+      throw new Error(`NUVION_API_BASE_URL must be an HTTPS URL. Got: ${this.baseUrl}`);
     }
   }
 
@@ -455,13 +459,40 @@ export class NuvionClient {
       throw new Error('Nuvion API returned 0 accounts for this entity.');
     }
 
-    const fiatAccounts = liveAccounts.map((a: any) => ({
-      nuvionAccountId: a.id || a.nuvion_account_id,
-      accountNumber: a.nuvion_ban || a.account_number || a.accountNumber || a.virtual_account_number,
-      bankName: resolveNuvionBankName(a.currency, a.bank_name || a.bankName),
-      currency: a.currency || 'USD',
-      accountHolderName: a.display_name || accountHolderName,
-    })).filter(acc => !!acc.accountNumber);
+    // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
+    liveAccounts.sort((a: any, b: any) => {
+      const aHasUser = a.meta?.platform_user_id ? 1 : 0;
+      const bHasUser = b.meta?.platform_user_id ? 1 : 0;
+      if (aHasUser !== bHasUser) return bHasUser - aHasUser;
+      return (b.created || 0) - (a.created || 0);
+    });
+
+    const fiatAccounts: any[] = [];
+    for (const a of liveAccounts) {
+      let detailAccNumber = a.nuvion_ban;
+      let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
+
+      try {
+        const detailRes = await this.getAccountById(a.id);
+        const accDetails = detailRes?.data?.account_details?.[0];
+        if (accDetails) {
+          detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
+          detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+        }
+      } catch (err: any) {
+        console.warn(`[NuvionClient] Could not fetch details for account ${a.id}: ${err.message}`);
+      }
+
+      if (detailAccNumber) {
+        fiatAccounts.push({
+          nuvionAccountId: a.id || a.nuvion_account_id,
+          accountNumber: detailAccNumber,
+          bankName: detailBankName,
+          currency: a.currency || 'USD',
+          accountHolderName: a.display_name || accountHolderName,
+        });
+      }
+    }
 
     const nuvionEntityId = `nuvion_pers_${Date.now()}`;
     const particleClient = new ParticleClient();
@@ -521,13 +552,40 @@ export class NuvionClient {
       throw new Error('Nuvion API returned 0 corporate accounts for this entity.');
     }
 
-    const fiatAccounts = liveAccounts.map((a: any) => ({
-      nuvionAccountId: a.id || a.nuvion_account_id,
-      accountNumber: a.nuvion_ban || a.account_number || a.accountNumber || a.virtual_account_number,
-      bankName: resolveNuvionBankName(a.currency, a.bank_name || a.bankName),
-      currency: a.currency || 'USD',
-      accountHolderName: a.display_name || accountHolderName,
-    })).filter(acc => !!acc.accountNumber);
+    // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
+    liveAccounts.sort((a: any, b: any) => {
+      const aHasUser = a.meta?.platform_user_id ? 1 : 0;
+      const bHasUser = b.meta?.platform_user_id ? 1 : 0;
+      if (aHasUser !== bHasUser) return bHasUser - aHasUser;
+      return (b.created || 0) - (a.created || 0);
+    });
+
+    const fiatAccounts: any[] = [];
+    for (const a of liveAccounts) {
+      let detailAccNumber = a.nuvion_ban;
+      let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
+
+      try {
+        const detailRes = await this.getAccountById(a.id);
+        const accDetails = detailRes?.data?.account_details?.[0];
+        if (accDetails) {
+          detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
+          detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+        }
+      } catch (err: any) {
+        console.warn(`[NuvionClient] Could not fetch details for corporate account ${a.id}: ${err.message}`);
+      }
+
+      if (detailAccNumber) {
+        fiatAccounts.push({
+          nuvionAccountId: a.id || a.nuvion_account_id,
+          accountNumber: detailAccNumber,
+          bankName: detailBankName,
+          currency: a.currency || 'USD',
+          accountHolderName: a.display_name || accountHolderName,
+        });
+      }
+    }
 
     const nuvionBizEntityId = `nuvion_biz_${Date.now()}`;
     const particleClient = new ParticleClient();
@@ -578,6 +636,13 @@ export class NuvionClient {
    */
   public async getAccountsForEntity(_entityId: string) {
     return this.nuvionGet('/accounts');
+  }
+
+  /**
+   * Fetches detailed account information by ID, including account_details (commercial bank numbers and partner bank names).
+   */
+  public async getAccountById(accountId: string) {
+    return this.nuvionGet(`/accounts/${accountId}`);
   }
 
   /**

@@ -257,21 +257,36 @@ export async function kycRoutes(server: FastifyInstance) {
         });
 
         for (const a of liveAccounts) {
-          const accNum = a.nuvion_ban || a.account_number || a.accountNumber || a.virtual_account_number;
           const currency = a.currency || 'NGN';
-          if (!accNum) continue;
 
           const existing = await db.select().from(accounts)
             .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currency)))
             .limit(1);
 
           if (existing.length === 0) {
+            // Fetch detailed account info from Nuvion to extract commercial bank account_details
+            let detailAccNumber = a.nuvion_ban;
+            let detailBankName = nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || '');
+
+            try {
+              const detailRes = await nuvion.getAccountById(a.id);
+              const accDetails = detailRes?.data?.account_details?.[0];
+              if (accDetails) {
+                detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
+                detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+              }
+            } catch (err: any) {
+              server.log.warn({ accId: a.id, err: err.message }, 'Could not fetch account_details; using primary account number');
+            }
+
+            if (!detailAccNumber) continue;
+
             await db.insert(accounts).values({
               id: ulid(),
               entityId,
               nuvionAccountId: a.id,
-              accountNumber: accNum,
-              bankName: nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || ''),
+              accountNumber: detailAccNumber,
+              bankName: detailBankName,
               accountHolderName: a.display_name || entity.legalName || 'Account Holder',
               currency,
               status: 'active',
