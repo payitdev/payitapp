@@ -594,6 +594,10 @@ export default function App() {
             <div style={{ fontSize: 12, fontWeight: 600, color: 'white' }}>
               {primaryAccount ? (
                 <>{primaryAccount.accountNumber} · <span style={{ color: 'var(--brand-green)' }}>{primaryAccount.bankName}</span></>
+              ) : activeEntity?.nuvionStatus === 'approved' ? (
+                <span style={{ color: 'var(--brand-green)' }}>Verified · Issuing accounts...</span>
+              ) : activeEntity?.nuvionStatus === 'pending' ? (
+                <span style={{ color: 'var(--amber-main)' }}>In review · Verification submitted</span>
               ) : (
                 <span style={{ color: 'var(--amber-main)' }}>Unverified · Tap Verify to issue</span>
               )}

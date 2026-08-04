@@ -248,6 +248,14 @@ export async function kycRoutes(server: FastifyInstance) {
         const nuvRes = await nuvion.getAccountsForEntity(entityId);
         const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
 
+        // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
+        liveAccounts.sort((a: any, b: any) => {
+          const aHasUser = a.meta?.platform_user_id ? 1 : 0;
+          const bHasUser = b.meta?.platform_user_id ? 1 : 0;
+          if (aHasUser !== bHasUser) return bHasUser - aHasUser;
+          return (b.created || 0) - (a.created || 0);
+        });
+
         for (const a of liveAccounts) {
           const accNum = a.nuvion_ban || a.account_number || a.accountNumber || a.virtual_account_number;
           const currency = a.currency || 'NGN';
