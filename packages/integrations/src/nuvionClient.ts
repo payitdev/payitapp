@@ -571,6 +571,25 @@ export class NuvionClient {
     };
   }
 
+  /**
+   * Fetches all live Nuvion accounts — used to re-sync accounts for a verified entity
+   * when the local DB is empty (e.g., after a DB reset or first login on a new device).
+   * Returns the raw Nuvion API response so the caller can map accounts.
+   */
+  public async getAccountsForEntity(_entityId: string) {
+    return this.nuvionGet('/accounts');
+  }
+
+  /**
+   * Resolves a Nuvion currency code to the clearinghouse bank name shown to the user.
+   * Exposed publicly so backend routes can use it for DB sync.
+   */
+  public resolveAccountBankName(currency: string, rawBank?: string): string {
+    return resolveNuvionBankName(currency, rawBank);
+  }
+
+
+
   public async issueVirtualCard(params: NuvionCardIssuanceParams) {
     if (!params.nuvionEntityId || !params.nuvionAccountId) throw new Error('Entity ID and Account ID required for card issuance');
     const cardRes = await this.nuvionPost('/cards', {

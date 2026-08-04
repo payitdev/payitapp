@@ -235,10 +235,50 @@ export async function kycRoutes(server: FastifyInstance) {
     const tier = entity.nuvionTier as 0 | 1 | 2 | 3;
     const limits = nuvion.getTierLimits(tier);
 
-    const entityAccounts = await db
+    let entityAccounts = await db
       .select()
       .from(accounts)
       .where(eq(accounts.entityId, entityId));
+
+    // If entity is verified (tier >= 1) but has no accounts in DB,
+    // pull live accounts from Nuvion and persist them now.
+    if (entityAccounts.length === 0 && entity.nuvionTier >= 1) {
+      try {
+        server.log.info({ entityId }, 'Verified entity has no accounts in DB — fetching live from Nuvion');
+        const nuvRes = await nuvion.getAccountsForEntity(entityId);
+        const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
+
+        for (const a of liveAccounts) {
+          const accNum = a.nuvion_ban || a.account_number || a.accountNumber || a.virtual_account_number;
+          const currency = a.currency || 'NGN';
+          if (!accNum) continue;
+
+          const existing = await db.select().from(accounts)
+            .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currency)))
+            .limit(1);
+
+          if (existing.length === 0) {
+            await db.insert(accounts).values({
+              id: ulid(),
+              entityId,
+              nuvionAccountId: a.id,
+              accountNumber: accNum,
+              bankName: nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || ''),
+              accountHolderName: a.display_name || entity.legalName || 'Account Holder',
+              currency,
+              status: 'active',
+              createdAt: new Date(),
+            });
+          }
+        }
+
+        // Re-fetch from DB after sync
+        entityAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
+        server.log.info({ entityId, count: entityAccounts.length }, 'Synced live Nuvion accounts to DB');
+      } catch (syncErr: any) {
+        server.log.warn({ syncErr: syncErr.message, entityId }, 'Failed to sync live Nuvion accounts — returning empty');
+      }
+    }
 
     return reply.send({
       entityId: entity.id,
