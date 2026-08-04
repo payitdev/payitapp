@@ -22,6 +22,40 @@ async function sendSecurityVerificationEmail(email: string, code: string) {
 export async function authRoutes(server: FastifyInstance) {
 
   /**
+   * Session restore endpoint — validates a stored JWT and returns the current user.
+   * Called on page load to avoid unnecessary Magic SDK round-trips.
+   */
+  server.get('/api/auth/session', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'No session token' });
+    }
+
+    const token = authHeader.slice(7);
+    try {
+      const payload = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string };
+      const userRows = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
+      if (userRows.length === 0) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+      const userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+      return reply.send({
+        success: true,
+        user: {
+          id: payload.userId,
+          email: payload.email,
+          entities: userEntities,
+          activeEntityId: userEntities[0]?.id || null,
+        },
+      });
+    } catch {
+      return reply.status(401).send({ error: 'Invalid or expired session' });
+    }
+  });
+
+
+
+  /**
    * Official Magic Link DID Token Authentication Endpoint.
    * Validates the Decentralized ID Token issued by Magic SDK on frontend.
    */

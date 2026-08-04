@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Magic } from 'magic-sdk';
 import {
   CreditCard,
@@ -150,38 +150,60 @@ export default function App() {
     }
   };
 
-  // Check Magic isLoggedIn status on mount & restore persisted verified session
+  // Restore session on mount — use stored JWT first, fall back to Magic session refresh
   useEffect(() => {
     localStorage.removeItem('payit_verified_entities');
 
+    const restoreSession = async () => {
+      // 1. Try JWT stored from last login (fastest path — no Magic round-trip)
+      const storedToken = localStorage.getItem('payit_session_token');
+      if (storedToken) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/auth/session`, {
+            headers: { 'Authorization': `Bearer ${storedToken}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.user) {
+              setCurrentUser(data.user);
+              setUserEmail(data.user.email || '');
+              populateUserEntities(data.user, data.user.email || '');
+              return; // Session restored — done
+            }
+          }
+        } catch { /* fall through to Magic refresh */ }
+      }
 
-    const checkMagicSession = async () => {
+      // 2. No valid JWT — check if Magic session is still alive and get a fresh token
       try {
         const loggedIn = await magic.user.isLoggedIn();
         if (loggedIn) {
-          const metadata = await magic.user.getMetadata();
-          if (metadata.email) {
-            setUserEmail(metadata.email);
-            const idToken = await magic.user.getIdToken();
+          const info = await magic.user.getInfo();
+          if (info.email) {
+            setUserEmail(info.email);
+            const freshToken = await magic.user.getIdToken({ lifespan: 900 }); // 15 min
             const res = await fetch(`${API_BASE_URL}/api/auth/magic-login`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${idToken}`,
+                'Authorization': `Bearer ${freshToken}`,
               },
-              body: JSON.stringify({ didToken: idToken, email: metadata.email }),
+              body: JSON.stringify({ didToken: freshToken, email: info.email }),
             });
             if (res.ok) {
               const data = await res.json();
               setCurrentUser(data.user);
-              populateUserEntities(data.user, metadata.email);
+              localStorage.setItem('payit_session_token', data.token);
+              populateUserEntities(data.user, info.email);
             }
           }
         }
-      } catch (err) {}
+      } catch { /* not logged in — show login screen */ }
     };
-    checkMagicSession();
+
+    restoreSession();
   }, []);
+
 
   // Helper to map user entities without tier overrides or hardcoded name fallbacks
   const populateUserEntities = async (userObj: any, email: string) => {
@@ -268,6 +290,86 @@ export default function App() {
 
     fetchEntityDetails();
   }, [currentUser, accountType]);
+
+  // ─── KYC Approval Poller ────────────────────────────────────────────────────
+  // While the active entity is 'pending', silently poll /api/kyc/status every
+  // 10 s. The moment Nuvion fires its webhook and flips the status to 'approved',
+  // the next poll picks it up, closes the KYC modal, and shows a confirmation.
+  const kycPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const isPending = activeEntity?.nuvionStatus === 'pending';
+    const canPoll = !!currentUser?.id && !!activeEntity?.id;
+
+    // Clear any running interval first
+    if (kycPollRef.current) {
+      clearInterval(kycPollRef.current);
+      kycPollRef.current = null;
+    }
+
+    if (!isPending || !canPoll) return;
+
+    const pollStatus = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/kyc/status?entityId=${activeEntity!.id}&userId=${currentUser!.id}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.nuvionStatus === 'approved') {
+          // Stop polling immediately
+          if (kycPollRef.current) {
+            clearInterval(kycPollRef.current);
+            kycPollRef.current = null;
+          }
+
+          const cleanAccounts = data.accounts || [];
+
+          setEntitiesMap(prev => {
+            const updated = {
+              ...prev,
+              [accountType]: {
+                ...prev[accountType],
+                nuvionStatus: 'approved' as const,
+                nuvionTier: data.nuvionTier || 1,
+                legalName: data.legalName || prev[accountType]?.legalName,
+                accountNumber: cleanAccounts[0]?.accountNumber || prev[accountType]?.accountNumber,
+                bankName: cleanAccounts[0]?.bankName || prev[accountType]?.bankName,
+                fiatAccounts: cleanAccounts.length > 0 ? cleanAccounts : prev[accountType]?.fiatAccounts,
+              },
+            };
+            localStorage.setItem('payit_verified_entities', JSON.stringify(updated));
+            return updated;
+          });
+
+          // Close KYC modal if still open & show in-app confirmation
+          setShowKycModal(false);
+          setKycStatusMsg({
+            type: 'success',
+            text: 'Identity verified. Your account is ready.',
+          });
+          // Auto-dismiss after 5 s
+          setTimeout(() => setKycStatusMsg(null), 5000);
+        }
+      } catch {
+        // Silently ignore poll errors — network blip, retry next interval
+      }
+    };
+
+    // Run once immediately, then every 10 s
+    pollStatus();
+    kycPollRef.current = setInterval(pollStatus, 10_000);
+
+    return () => {
+      if (kycPollRef.current) {
+        clearInterval(kycPollRef.current);
+        kycPollRef.current = null;
+      }
+    };
+  }, [activeEntity?.nuvionStatus, activeEntity?.id, currentUser?.id, accountType]);
+  // ────────────────────────────────────────────────────────────────────────────
+
 
   // Execute Authentic Passwordless Magic Link Authentication via Magic SDK
   const handleMagicLinkSignIn = async (e: React.FormEvent) => {
@@ -697,7 +799,7 @@ export default function App() {
                     <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1, marginBottom: 2 }}>{acc.accountNumber}</div>
 
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                      Beneficiary Name: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{activeEntity?.legalName || 'Account Holder'}</span>
+                      Beneficiary Name: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{acc.accountHolderName || activeEntity?.legalName || 'Account Holder'}</span>
                     </div>
 
                     {getBankRoutingCode(acc.currency) && (

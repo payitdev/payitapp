@@ -13,7 +13,7 @@ export async function cardRoutes(server: FastifyInstance) {
 
   /**
    * Issue virtual card — real Nuvion call, real DB insert.
-   * Cardholder name is ALWAYS "<verified legal name>/PayIT"
+   * Cardholder name is the user's verified legal name.
    */
   server.post('/api/cards/issue', async (request, reply) => {
     const { session, entityId, accountId, brand, cardType } = request.body as {
@@ -44,7 +44,7 @@ export async function cardRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: err.message });
     }
 
-    const cardholderName = `${entity.legalName}/PayIT`;
+    const cardholderName = entity.legalName || '';
 
     // 3. Load account from DB (must belong to this entity)
     let nuvionAccountId: string;
