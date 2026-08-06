@@ -34,7 +34,8 @@ import {
   Rocket,
   Store,
   UserCheck,
-  Loader2
+  Loader2,
+  Mail
 } from 'lucide-react';
 
 const TelegramIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
@@ -1480,6 +1481,21 @@ export default function App() {
             })}
           </div>
 
+          {/* Contact & Partnerships Banner */}
+          <div className="mt-10 p-6 sm:p-8 bg-emerald-50/70 border border-emerald-200/80 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+            <div>
+              <h4 className="text-sm sm:text-base font-bold text-emerald-950">Partnerships, Support & Inquiries</h4>
+              <p className="text-xs text-emerald-800 mt-1">Have questions, business proposals, or feedback? We'd love to hear from you.</p>
+            </div>
+            <a 
+              href="mailto:igboze@payitng.xyz"
+              className="inline-flex items-center gap-2 bg-[#059669] hover:bg-[#047857] text-white font-bold text-xs px-5 py-2.5 rounded-full shadow-sm transition-all shrink-0"
+            >
+              <Mail className="w-4 h-4" />
+              <span>igboze@payitng.xyz</span>
+            </a>
+          </div>
+
         </div>
       </section>
 
@@ -1556,6 +1572,14 @@ export default function App() {
               >
                 <XIcon className="w-3.5 h-3.5" />
                 <span>@usepayit</span>
+              </a>
+              <a 
+                href="mailto:igboze@payitng.xyz" 
+                className="flex items-center gap-1.5 text-[#059669] hover:text-[#047857] font-bold transition-colors"
+                title="Partnerships, Support & Inquiries"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>igboze@payitng.xyz</span>
               </a>
             </div>
 
