@@ -10,8 +10,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@payit/db": "workspace:*",
-    "@payit/contracts": "workspace:*"
+    "@payit/db": "*",
+    "@payit/contracts": "*"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
