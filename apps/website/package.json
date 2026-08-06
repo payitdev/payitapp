@@ -2,13 +2,27 @@
   "name": "payit-website",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build": "echo 'Website static build complete'",
+    "build": "tsc && vite build",
     "dev": "vite",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.3.3",
     "vite": "^5.1.0"
+  },
+  "dependencies": {
+    "framer-motion": "^12.43.0",
+    "lucide-react": "^0.330.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
