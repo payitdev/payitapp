@@ -1,11 +1,14 @@
 import { FastifyInstance } from 'fastify';
-import { createDbClient, eq } from '@payit/db';
-import { auditLogs, entities, invoices } from '@payit/db/schema';
+import { createDbClient, eq, or } from '@payit/db';
+import { auditLogs, entities, invoices, rawWebhooks, ledgerAccounts, ledgerEntries } from '@payit/db/schema';
+import { normalizeNuvionNgnAmount, NuvionClient, ParticleClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 import crypto from 'crypto';
 import { env } from '../env.js';
 
 const db = createDbClient();
+const nuvion = new NuvionClient();
+const particle = new ParticleClient();
 
 function timingSafeCheck(receivedSignature?: string, expectedSignature?: string): boolean {
   if (!receivedSignature || !expectedSignature) return false;
@@ -18,9 +21,9 @@ function timingSafeCheck(receivedSignature?: string, expectedSignature?: string)
 export async function webhookRoutes(server: FastifyInstance) {
 
   /**
-   * Nuvion Entity Status Webhook Handler.
+   * Nuvion Entity Status & Deposit Webhook Handler.
    * Enforces timing-safe HMAC-SHA256 signature verification against NUVION_WEBHOOK_SECRET.
-   * Rejects HTTP 401 if signature is missing or invalid.
+   * Handles NGN deposits with automatic Kobo-to-Naira normalization.
    */
   server.post('/webhooks/nuvion', async (request, reply) => {
     const webhookSecret = env.NUVION_WEBHOOK_SECRET;
@@ -46,13 +49,45 @@ export async function webhookRoutes(server: FastifyInstance) {
       legal_name?: string;
       verified_legal_name?: string;
       tier?: number;
+      amount?: number | string;
+      currency?: string;
+      unit?: string;
+      reference?: string;
+      senderName?: string;
     };
 
     const confirmedName = payload.verified_legal_name || payload.legal_name;
 
+    const eventId = (request.headers['x-nuvion-event-id'] || request.headers['x-event-id'] || ulid()) as string;
+
+    // Edge Case #2 Protection: Check if event_id has already been processed
+    const existingWebhook = await db
+      .select()
+      .from(rawWebhooks)
+      .where(eq(rawWebhooks.eventId, eventId))
+      .limit(1);
+
+    if (existingWebhook.length > 0 && existingWebhook[0].status === 'PROCESSED') {
+      server.log.info({ eventId }, 'Duplicate Nuvion webhook event ignored (Idempotent OK)');
+      return reply.status(200).send({ received: true, duplicate: true, status: 'already_processed' });
+    }
+
+    // Journal raw webhook to raw_webhooks table
+    if (existingWebhook.length === 0) {
+      await db.insert(rawWebhooks).values({
+        id: ulid(),
+        provider: 'NUVION',
+        eventId,
+        payload: rawBody,
+        status: 'RECEIVED',
+        createdAt: new Date(),
+      });
+    }
+
     // Return HTTP 200 immediately (<15ms SLA guarantee)
     reply.status(200).send({
       received: true,
+      eventId,
       processingMode: 'async_queued',
     });
 
@@ -93,6 +128,135 @@ export async function webhookRoutes(server: FastifyInstance) {
             }, 'Entity status and verified name updated from Nuvion webhook');
           }
         }
+
+        // Handle Incoming NGN & Fiat Deposit/Credit Webhooks with Kobo Normalization
+        const isCreditEvent = ['deposit', 'credit', 'payment_received', 'account_credited'].includes((payload.eventType || '').toLowerCase());
+        if (isCreditEvent && payload.amount && (payload.entityId || payload.nuvionEntityId)) {
+          const rawAmt = payload.amount;
+          const currency = payload.currency || 'NGN';
+          const normalizedAmount = normalizeNuvionNgnAmount(rawAmt, currency, payload.unit);
+
+          server.log.info({
+            eventType: payload.eventType,
+            rawAmt,
+            normalizedAmount,
+            currency,
+            reference: payload.reference,
+          }, 'Incoming Nuvion deposit normalized from Kobo/minor units to standard Naira');
+
+          const p = payload as any;
+          const targetEntityId = p.entityId || p.nuvionEntityId || p.entity_id;
+          let ent = targetEntityId
+            ? await db.select().from(entities).where(or(eq(entities.id, targetEntityId), eq(entities.nuvionEntityId, targetEntityId))).limit(1)
+            : [];
+
+          if (ent.length === 0) {
+            ent = await db.select().from(entities).limit(1);
+          }
+
+          if (ent.length > 0) {
+            const userEntity = ent[0];
+            const payitFeeAmount = normalizedAmount * 0.03;
+            const netUserAmount = normalizedAmount * 0.97;
+            const treasuryWallet = env.PAYIT_TREASURY_FEE_WALLET;
+
+            // 1. Log Deposit in Audit Trail
+            await db.insert(auditLogs).values({
+              id: ulid(),
+              userId: userEntity.userId,
+              entityId: userEntity.id,
+              action: 'NUVION_DEPOSIT_CREDITED',
+              metadata: JSON.stringify({
+                rawAmount: rawAmt,
+                normalizedAmount,
+                netUserAmount,
+                payitFeeAmount,
+                currency,
+                unit: p.unit,
+                senderName: p.senderName || p.sender_name || 'Bank Transfer',
+                reference: p.reference || p.unique_reference || `nuv_dep_${Date.now()}`,
+              }),
+              createdAt: new Date(),
+            });
+
+            // 1b. Record double-entry ledger entries for deposit
+            const txId = ulid();
+            const ledgerAccId = `${userEntity.id}_cash`;
+            const ledgerClearId = `${userEntity.id}_inbound`;
+
+            const existingLedgerAcc = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, ledgerAccId)).limit(1);
+            if (existingLedgerAcc.length === 0) {
+              await db.insert(ledgerAccounts).values([
+                { id: ledgerAccId, entityId: userEntity.id, name: 'Cash / Wallet', type: 'ASSET', currency, createdAt: new Date() },
+                { id: ledgerClearId, entityId: userEntity.id, name: 'Inbound Deposit Clearing', type: 'LIABILITY', currency, createdAt: new Date() },
+              ]);
+            }
+
+            await db.insert(ledgerEntries).values([
+              { id: ulid(), entityId: userEntity.id, transactionId: txId, ledgerAccountId: ledgerClearId, type: 'DEBIT', amount: String(normalizedAmount), createdAt: new Date() },
+              { id: ulid(), entityId: userEntity.id, transactionId: txId, ledgerAccountId: ledgerAccId, type: 'CREDIT', amount: String(normalizedAmount), createdAt: new Date() },
+            ]);
+
+            // 2. Execute on-chain / Nuvion Treasury Fee Sweep (H11)
+            const feeSweep = nuvion.sweepFeeToTreasury({
+              feeAmountUsd: payitFeeAmount,
+              feeAmountLocal: payitFeeAmount,
+              currency: currency as any,
+              feeType: 'ON_RAMP_FX',
+              sourceTransactionId: txId,
+            });
+
+            // 3. Particle Network Universal Account On-Ramp Auto-Sweep (Net Amount)
+            const particleAcc = await particle.getOrCreateUniversalAccount(userEntity.id, userEntity.kind as 'PERSONAL' | 'BUSINESS');
+            const particleAddr = particleAcc.walletAddress;
+
+            // Execute real transfer to user's Particle Universal Account on Polygon (chainId 137)
+            const sweepResult = await particle.executeGaslessTransfer({
+              senderEntityId: userEntity.id,
+              senderKind: userEntity.kind as 'PERSONAL' | 'BUSINESS',
+              recipientAddress: particleAddr,
+              amount: String(netUserAmount),
+              asset: 'USDC',
+              chainId: 137,
+            });
+
+            await db.insert(auditLogs).values({
+              id: ulid(),
+              userId: userEntity.userId,
+              entityId: userEntity.id,
+              action: 'PARTICLE_SWEEP_EXECUTED',
+              metadata: JSON.stringify({
+                particleNetworkAddress: particleAddr,
+                txHash: sweepResult.transactionId,
+                onRampAmountNgn: netUserAmount,
+                grossAmountNgn: normalizedAmount,
+                feeAmountNgn: payitFeeAmount,
+                currency,
+                feeSweepId: feeSweep.sweepId,
+                treasuryWallet,
+                status: 'SWEPT_TO_PARTICLE_UNIVERSAL_ACCOUNT',
+                timestamp: new Date().toISOString(),
+              }),
+              createdAt: new Date(),
+            });
+
+            server.log.info({
+              entityId: userEntity.id,
+              particleAddress: particleAddr,
+              txHash: sweepResult.transactionId,
+              grossAmount: normalizedAmount,
+              netAmount: netUserAmount,
+              payitFeeSwept: payitFeeAmount,
+              sweepId: feeSweep.sweepId,
+              treasuryWallet,
+            }, 'On-ramp deposit processed: 3% swept to PayIT Treasury, 97% swept to Particle Universal Account on-chain');
+          }
+        }
+
+        await db
+          .update(rawWebhooks)
+          .set({ status: 'PROCESSED' })
+          .where(eq(rawWebhooks.eventId, eventId));
       } catch (err) {
         server.log.error({ err, payload }, 'Error processing Nuvion webhook async');
       }

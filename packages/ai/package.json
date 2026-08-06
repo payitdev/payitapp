@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "@payit/contracts": "*"
+    "@payit/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

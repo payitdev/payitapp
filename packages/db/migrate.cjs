@@ -152,6 +152,46 @@ CREATE TABLE IF NOT EXISTS risk_events (
   decision_reason TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW() NOT NULL
 );
+
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS username_customized INTEGER DEFAULT 0 NOT NULL;
+
+CREATE TABLE IF NOT EXISTS friendships (
+  id TEXT PRIMARY KEY,
+  requester_entity_id TEXT NOT NULL REFERENCES entities(id),
+  addressee_entity_id TEXT NOT NULL REFERENCES entities(id),
+  status TEXT DEFAULT 'PENDING' NOT NULL CHECK (status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'BLOCKED')),
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payment_requests (
+  id TEXT PRIMARY KEY,
+  requester_entity_id TEXT NOT NULL REFERENCES entities(id),
+  payer_entity_id TEXT NOT NULL REFERENCES entities(id),
+  amount NUMERIC(18,2) NOT NULL,
+  currency TEXT NOT NULL,
+  narration TEXT,
+  status TEXT DEFAULT 'PENDING' NOT NULL CHECK (status IN ('PENDING', 'PAID', 'DECLINED', 'EXPIRED')),
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  request_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED')),
+  response_payload TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  expires_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS raw_webhooks (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL CHECK (provider IN ('NUVION', 'PARTICLE')),
+  event_id TEXT NOT NULL UNIQUE,
+  payload TEXT NOT NULL,
+  status TEXT DEFAULT 'RECEIVED' NOT NULL CHECK (status IN ('RECEIVED', 'PROCESSED', 'FAILED')),
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
 `;
 
 async function migrate() {

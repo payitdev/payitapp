@@ -131,7 +131,44 @@ export async function cardRoutes(server: FastifyInstance) {
     const { entityId } = request.query as { entityId?: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
 
-    const entityCards = await db.select().from(cards).where(eq(cards.entityId, entityId));
-    return reply.send({ cards: entityCards });
+    try {
+      const entityCards = await db.select().from(cards).where(eq(cards.entityId, entityId));
+      return reply.send({ cards: entityCards });
+    } catch {
+      return reply.send({ cards: [] });
+    }
+  });
+
+  /**
+   * Freeze / Unfreeze Virtual Card.
+   */
+  server.post('/api/cards/freeze', async (request, reply) => {
+    const { session, entityId, cardId, freeze } = request.body as {
+      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+      entityId: string;
+      cardId: string;
+      freeze: boolean;
+    };
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const cardRows = await db.select().from(cards).where(and(eq(cards.id, cardId), eq(cards.entityId, entityId))).limit(1);
+    if (cardRows.length === 0) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const newStatus = freeze ? 'FROZEN' : 'ACTIVE';
+    await db.update(cards).set({ status: newStatus }).where(eq(cards.id, cardId));
+
+    return reply.send({
+      success: true,
+      cardId,
+      status: newStatus,
+      message: `Card ${freeze ? 'frozen' : 'unfrozen'} successfully!`,
+    });
   });
 }

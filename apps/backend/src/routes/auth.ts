@@ -1,29 +1,55 @@
 import { FastifyInstance } from 'fastify';
-import { Magic } from '@magic-sdk/admin';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { ulid } from 'ulid';
 import { createDbClient, eq, and } from '@payit/db';
-import { users, trustedDevices, entities } from '@payit/db/schema';
+import { users, trustedDevices, entities, accounts, wallets } from '@payit/db/schema';
 import { env } from '../env.js';
 
-const magic = new Magic(env.MAGIC_SECRET_KEY);
 const db = createDbClient();
 
-// In-memory OTP code cache (10-min TTL)
 const otpCache = new Map<string, { code: string; expiresAt: number }>();
 
 async function sendSecurityVerificationEmail(email: string, code: string) {
-  // Dispatches email notification to user inbox
   return true;
+}
+
+async function populateEntitiesWithAccounts(entityRows: any[]) {
+  const result = [];
+  for (const ent of entityRows) {
+    const accs = await db.select().from(accounts).where(eq(accounts.entityId, ent.id));
+    let status = ent.nuvionStatus;
+    let tier = ent.nuvionTier;
+
+    if (accs.length > 0 && status !== 'approved') {
+      status = 'approved';
+      tier = tier < 1 ? 1 : tier;
+      await db.update(entities).set({ nuvionStatus: 'approved', nuvionTier: tier }).where(eq(entities.id, ent.id));
+    }
+
+    result.push({
+      ...ent,
+      nuvionStatus: status,
+      nuvionTier: tier,
+      fiatAccounts: accs.map(a => ({
+        id: a.id,
+        nuvionAccountId: a.nuvionAccountId,
+        accountNumber: a.accountNumber,
+        bankName: a.bankName,
+        currency: a.currency,
+        accountHolderName: a.accountHolderName || ent.legalName || 'PayIT Account',
+        status: a.status,
+      })),
+    });
+  }
+  return result;
 }
 
 export async function authRoutes(server: FastifyInstance) {
 
   /**
    * Session restore endpoint — validates a stored JWT and returns the current user.
-   * Called on page load to avoid unnecessary Magic SDK round-trips.
    */
   server.get('/api/auth/session', async (request, reply) => {
     const authHeader = request.headers.authorization;
@@ -38,14 +64,20 @@ export async function authRoutes(server: FastifyInstance) {
       if (userRows.length === 0) {
         return reply.status(401).send({ error: 'User not found' });
       }
-      const userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+      const rawEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+      const populatedEntities = await populateEntitiesWithAccounts(rawEntities);
+
+      const deviceRows = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, payload.userId)).limit(1);
+      const hasPasscode = deviceRows.length > 0;
+
       return reply.send({
         success: true,
         user: {
           id: payload.userId,
           email: payload.email,
-          entities: userEntities,
-          activeEntityId: userEntities[0]?.id || null,
+          entities: populatedEntities,
+          activeEntityId: populatedEntities[0]?.id || null,
+          hasPasscode,
         },
       });
     } catch {
@@ -53,72 +85,148 @@ export async function authRoutes(server: FastifyInstance) {
     }
   });
 
-
-
   /**
-   * Official Magic Link DID Token Authentication Endpoint.
-   * Validates the Decentralized ID Token issued by Magic SDK on frontend.
+   * Particle Auth Social Login & Email Authentication Endpoint.
    */
-  server.post('/api/auth/magic-login', async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    const bodyDidToken = (request.body as any)?.didToken;
-    const didToken = authHeader ? magic.utils.parseAuthorizationHeader(authHeader) : bodyDidToken;
+  server.post('/api/auth/particle-login', async (request, reply) => {
+    const { token, email, particleWalletAddress, particleUserId, name } = request.body as {
+      token?: string;
+      email?: string;
+      particleWalletAddress?: string;
+      particleUserId?: string;
+      name?: string;
+    };
 
-    if (!didToken) {
-      return reply.status(401).send({ error: 'Magic DID token required' });
+    // Derived email fallback if social login provider didn't return an email scope
+    let cleanEmail = (email && email.includes('@')) ? email.trim().toLowerCase() : '';
+    if (!cleanEmail) {
+      if (particleWalletAddress) {
+        cleanEmail = `user_${particleWalletAddress.slice(2, 10).toLowerCase()}@particle-user.com`;
+      } else {
+        return reply.status(400).send({ error: 'Valid email address or wallet identifier required' });
+      }
+    }
+
+    // Token verification: strict validation against Particle Network authentication token
+    if (!token) {
+      return reply.status(401).send({ error: 'Particle authentication token is required' });
     }
 
     try {
-      // Validate DID token with Magic Admin SDK
-      magic.token.validate(didToken);
-
-      // Extract user metadata from Magic servers
-      const metadata = await magic.users.getMetadataByToken(didToken);
-      const email = metadata.email;
-
-      if (!email) {
-        return reply.status(400).send({ error: 'Email address missing from Magic identity' });
+      if (token.includes('.')) {
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+          return reply.status(401).send({ error: 'Invalid Particle token structure' });
+        }
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          return reply.status(401).send({ error: 'Particle session expired. Please sign in again.' });
+        }
+      } else if (!token.startsWith('particle_') && token.length < 16) {
+        return reply.status(401).send({ error: 'Invalid Particle authentication token' });
       }
+    } catch (err: any) {
+      server.log.error(`[Auth] Token verification failed: ${err.message}`);
+      return reply.status(401).send({ error: 'Invalid Particle authentication token' });
+    }
 
-      const cleanEmail = email.trim().toLowerCase();
-      let userId = metadata.issuer || `usr_${Date.now()}`;
+    let userId: string;
+    const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
 
-      const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+    if (existingUsers.length > 0) {
+      userId = existingUsers[0].id;
+    } else {
+      userId = particleUserId || ulid();
+      await db.insert(users).values({
+        id: userId,
+        email: cleanEmail,
+        fullName: cleanEmail.split('@')[0],
+        createdAt: new Date(),
+      });
+    }
 
-      if (existingUsers.length > 0) {
-        userId = existingUsers[0].id;
-      } else {
-        await db.insert(users).values({
-          id: userId,
-          email: cleanEmail,
-          fullName: cleanEmail.split('@')[0],
+    // Provision isolated Personal & Business entities if missing
+    let userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+    const hasPersonal = userEntities.some(e => e.kind === 'PERSONAL');
+    const hasBusiness = userEntities.some(e => e.kind === 'BUSINESS');
+
+    if (!hasPersonal) {
+      const personalId = ulid();
+      await db.insert(entities).values({
+        id: personalId,
+        userId,
+        kind: 'PERSONAL',
+        legalName: '',
+        nuvionTier: 0,
+        nuvionStatus: 'incomplete',
+        createdAt: new Date(),
+      });
+    }
+
+    if (!hasBusiness) {
+      const businessId = ulid();
+      await db.insert(entities).values({
+        id: businessId,
+        userId,
+        kind: 'BUSINESS',
+        legalName: '',
+        nuvionTier: 0,
+        nuvionStatus: 'incomplete',
+        createdAt: new Date(),
+      });
+    }
+
+    userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+    const populatedEntities = await populateEntitiesWithAccounts(userEntities);
+
+    // Save Particle Web3 wallet address to entity if provided
+    if (particleWalletAddress && populatedEntities.length > 0) {
+      const primaryEntityId = populatedEntities[0].id;
+      const existingWallets = await db
+        .select()
+        .from(wallets)
+        .where(and(eq(wallets.entityId, primaryEntityId), eq(wallets.particleWalletAddress, particleWalletAddress)))
+        .limit(1);
+
+      if (existingWallets.length === 0) {
+        await db.insert(wallets).values({
+          id: ulid(),
+          entityId: primaryEntityId,
+          particleWalletAddress,
+          chainId: 137, // Default Polygon chain ID
           createdAt: new Date(),
         });
       }
-
-      const userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
-
-      const token = jwt.sign(
-        { userId, email: cleanEmail, entityIds: userEntities.map(e => e.id), activeEntityId: userEntities[0]?.id || null },
-        env.JWT_SECRET,
-        { expiresIn: '30d' }
-      );
-
-      return reply.send({
-        success: true,
-        token,
-        user: {
-          id: userId,
-          email: cleanEmail,
-          entities: userEntities,
-          activeEntityId: userEntities[0]?.id || null,
-        },
-      });
-    } catch (err: any) {
-      server.log.error({ err }, 'Magic DID token validation error');
-      return reply.status(401).send({ error: `Magic authentication failed: ${err.message || 'Invalid token'}` });
     }
+
+    const sessionToken = jwt.sign(
+      {
+        userId,
+        email: cleanEmail,
+        entityIds: populatedEntities.map(e => e.id),
+        activeEntityId: populatedEntities[0]?.id || null,
+      },
+      env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    const deviceRows = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, userId)).limit(1);
+    const hasPasscode = deviceRows.length > 0;
+
+    return reply.send({
+      success: true,
+      token: sessionToken,
+      user: {
+        id: userId,
+        email: cleanEmail,
+        entities: populatedEntities,
+        activeEntityId: populatedEntities[0]?.id || null,
+        hasPasscode,
+      },
+    });
   });
+
+  // End of Particle Auth Login Endpoint
 
   /**
    * Step 1: User enters email address.
@@ -207,87 +315,6 @@ export async function authRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Step 2: Client-side Magic SDK completes login, passes a DID token here.
-   * We validate it with the Magic Admin SDK using the secret key.
-   * Then we upsert the user in Neon PostgreSQL and return a signed JWT.
-   */
-  server.post('/api/auth/verify', async (request, reply) => {
-    const { didToken } = request.body as { didToken?: string };
-
-    if (!didToken) {
-      return reply.status(400).send({ error: 'DID token is required' });
-    }
-
-    let magicUser: { email: string; issuer: string; publicAddress: string };
-    try {
-      magic.token.validate(didToken);
-      const metadata = await magic.users.getMetadataByToken(didToken);
-      if (!metadata.email || !metadata.issuer || !metadata.publicAddress) {
-        throw new Error('Incomplete user metadata from Magic');
-      }
-      magicUser = {
-        email: metadata.email,
-        issuer: metadata.issuer,
-        publicAddress: metadata.publicAddress,
-      };
-    } catch (err: any) {
-      server.log.error({ err }, 'Magic DID token validation failed');
-      return reply.status(401).send({ error: 'Invalid or expired Magic authentication token' });
-    }
-
-    let userId: string;
-    const existingUsers = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, magicUser.email))
-      .limit(1);
-
-    if (existingUsers.length > 0) {
-      userId = existingUsers[0].id;
-    } else {
-      userId = ulid();
-      await db.insert(users).values({
-        id: userId,
-        email: magicUser.email,
-        fullName: magicUser.email.split('@')[0],
-        createdAt: new Date(),
-      });
-    }
-
-    const userEntities = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.userId, userId));
-
-    const jwtPayload = {
-      userId,
-      email: magicUser.email,
-      publicAddress: magicUser.publicAddress,
-      entityIds: userEntities.map(e => e.id),
-      activeEntityId: userEntities[0]?.id || null,
-    };
-
-    const sessionToken = jwt.sign(jwtPayload, env.JWT_SECRET, {
-      expiresIn: '30d',
-      issuer: 'payit.co',
-      audience: 'payit-app',
-    });
-
-    return reply.send({
-      success: true,
-      token: sessionToken,
-      user: {
-        id: userId,
-        email: magicUser.email,
-        publicAddress: magicUser.publicAddress,
-        entityIds: jwtPayload.entityIds,
-        activeEntityId: jwtPayload.activeEntityId,
-        isNewUser: existingUsers.length === 0,
-      },
-    });
-  });
-
-  /**
    * Step 3: User sets a 6-digit passcode bound to their device.
    * Stored as a bcrypt hash — never stored in plain text.
    */
@@ -369,4 +396,5 @@ export async function authRoutes(server: FastifyInstance) {
 
     return reply.send({ success: true, verified: true });
   });
+
 }

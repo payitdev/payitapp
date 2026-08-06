@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@magic-sdk/admin": "^2.4.2",
-    "@payit/contracts": "*",
+    "@particle-network/universal-account-sdk": "^1.0.0",
+    "@payit/contracts": "workspace:*",
+    "ethers": "^6.10.0",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {

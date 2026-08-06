@@ -1,10 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { NuvionClient, NuvionTier1Payload, NuvionTier2Payload } from '@payit/integrations';
+import { NuvionClient, ParticleClient, NuvionTier1Payload, NuvionTier2Payload } from '@payit/integrations';
 import { createDbClient, eq, and } from '@payit/db';
 import { entities, accounts } from '@payit/db/schema';
 import { ulid } from 'ulid';
+import { generateUniqueUsername } from '../utils/username.js';
 
 const nuvion = new NuvionClient();
+const particle = new ParticleClient();
 const db = createDbClient();
 
 export function assertEntityApproved(entity: { id: string; nuvionStatus: string }) {
@@ -30,7 +32,7 @@ export async function kycRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Submit Tier 1 Personal KYC — submits payload to Nuvion, marks status 'pending'.
+   * Submit Tier 1 Personal KYC — submits payload to Nuvion, marks status 'pending' unconditionally.
    * Status flips to 'approved' EXCLUSIVELY via Nuvion webhook.
    */
   server.post('/api/kyc/submit-tier1', async (request, reply) => {
@@ -65,54 +67,35 @@ export async function kycRoutes(server: FastifyInstance) {
 
       server.log.info({ res }, 'Raw Nuvion Tier 1 KYC response');
 
-      // Update entity status to 'pending' — webhook flips to 'approved'
+      // Set status to 'pending' unconditionally. Approval occurs exclusively via Nuvion webhook.
+      const newStatus = 'pending';
+
+      let uniqueUsername = entityRows[0].username;
+      if (!uniqueUsername) {
+        uniqueUsername = await generateUniqueUsername(db, kycBody.legalName, 'PERSONAL');
+      }
+
       await db
         .update(entities)
         .set({
-          nuvionTier: res.tier,
-          nuvionStatus: 'pending',
+          legalName: kycBody.legalName,
+          ...(uniqueUsername ? { username: uniqueUsername, usernameCustomized: 0 } : {}),
+          nuvionTier: 1,
+          nuvionStatus: newStatus,
           nuvionEntityId: res.nuvionEntityId,
         })
         .where(eq(entities.id, entityId));
-
-      // Provision returned accounts without generating random math fallbacks
-      for (const fa of res.fiatAccounts) {
-        if (!fa.accountNumber) {
-          server.log.warn({ fa }, 'Skipping account provisioning: Nuvion returned missing accountNumber');
-          continue;
-        }
-
-        const existing = await db
-          .select()
-          .from(accounts)
-          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, fa.currency)))
-          .limit(1);
-
-        if (existing.length === 0) {
-          await db.insert(accounts).values({
-            id: ulid(),
-            entityId,
-            nuvionAccountId: fa.nuvionAccountId,
-            accountNumber: fa.accountNumber,
-            bankName: fa.bankName,
-            accountHolderName: kycBody.legalName,
-            currency: fa.currency,
-            status: 'active',
-            createdAt: new Date(),
-          });
-        }
-      }
 
       return reply.send({
         success: true,
         message: 'Tier 1 Personal Identity Submitted to Nuvion (Awaiting Webhook Approval)',
         nuvionEntityId: res.nuvionEntityId,
-        tier: res.tier,
-        status: 'pending',
-        accountHolderName: kycBody.legalName,
+        tier: 1,
+        status: newStatus,
+        legalName: kycBody.legalName,
+        username: uniqueUsername,
         particleNetworkAddress: res.particleNetworkAddress,
-        virtualAccount: res.virtualAccount,
-        fiatAccounts: res.fiatAccounts,
+        fiatAccounts: [],
         limits: nuvion.getTierLimits(1),
       });
     } catch (err: any) {
@@ -122,8 +105,7 @@ export async function kycRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Submit Tier 2 Corporate KYB — submits payload to Nuvion, marks status 'pending'.
-   * Status flips to 'approved' EXCLUSIVELY via Nuvion webhook.
+   * Submit Tier 2 Corporate KYB — submits payload to Nuvion, marks status 'pending' unconditionally.
    */
   server.post('/api/kyc/submit-tier2', async (request, reply) => {
     const { userId, entityId, ...kybBody } = request.body as NuvionTier2Payload & {
@@ -157,52 +139,34 @@ export async function kycRoutes(server: FastifyInstance) {
 
       server.log.info({ res }, 'Raw Nuvion Tier 2 KYB response');
 
+      const newStatus = 'pending';
+
+      let uniqueUsername = entityRows[0].username;
+      if (!uniqueUsername) {
+        uniqueUsername = await generateUniqueUsername(db, kybBody.businessLegalName, 'BUSINESS');
+      }
+
       await db
         .update(entities)
         .set({
-          nuvionTier: res.tier,
-          nuvionStatus: 'pending',
+          legalName: kybBody.businessLegalName,
+          ...(uniqueUsername ? { username: uniqueUsername, usernameCustomized: 0 } : {}),
+          nuvionTier: 2,
+          nuvionStatus: newStatus,
           nuvionEntityId: res.nuvionEntityId,
         })
         .where(eq(entities.id, entityId));
-
-      for (const fa of res.fiatAccounts) {
-        if (!fa.accountNumber) {
-          server.log.warn({ fa }, 'Skipping corporate account provisioning: Nuvion returned missing accountNumber');
-          continue;
-        }
-
-        const existing = await db
-          .select()
-          .from(accounts)
-          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, fa.currency)))
-          .limit(1);
-
-        if (existing.length === 0) {
-          await db.insert(accounts).values({
-            id: ulid(),
-            entityId,
-            nuvionAccountId: fa.nuvionAccountId,
-            accountNumber: fa.accountNumber,
-            bankName: fa.bankName,
-            accountHolderName: kybBody.businessLegalName,
-            currency: fa.currency,
-            status: 'active',
-            createdAt: new Date(),
-          });
-        }
-      }
 
       return reply.send({
         success: true,
         message: 'Tier 2 Corporate Business Submitted to Nuvion (Awaiting Webhook Approval)',
         nuvionEntityId: res.nuvionEntityId,
-        tier: res.tier,
-        status: 'pending',
-        accountHolderName: kybBody.businessLegalName,
+        tier: 2,
+        status: newStatus,
+        legalName: kybBody.businessLegalName,
+        username: uniqueUsername,
         particleNetworkAddress: res.particleNetworkAddress,
-        virtualAccount: res.virtualAccount,
-        fiatAccounts: res.fiatAccounts,
+        fiatAccounts: [],
         limits: nuvion.getTierLimits(2),
       });
     } catch (err: any) {
@@ -240,15 +204,17 @@ export async function kycRoutes(server: FastifyInstance) {
       .from(accounts)
       .where(eq(accounts.entityId, entityId));
 
-    // If entity is verified (tier >= 1) but has no accounts in DB,
-    // pull live accounts from Nuvion and persist them now.
-    if (entityAccounts.length === 0 && entity.nuvionTier >= 1) {
+    const currentStatus = entity.nuvionStatus;
+    const currentTier = entity.nuvionTier;
+
+    // If entity is verified (tier >= 1) and has a valid Nuvion Entity ID,
+    // pull live accounts from Nuvion using entity.nuvionEntityId
+    if (entityAccounts.length === 0 && entity.nuvionTier >= 1 && entity.nuvionEntityId) {
       try {
-        server.log.info({ entityId }, 'Verified entity has no accounts in DB — fetching live from Nuvion');
-        const nuvRes = await nuvion.getAccountsForEntity(entityId);
+        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, 'Verified entity has no accounts in DB — fetching live from Nuvion');
+        const nuvRes = await nuvion.getAccountsForEntity(entity.nuvionEntityId);
         const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
 
-        // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
         liveAccounts.sort((a: any, b: any) => {
           const aHasUser = a.meta?.platform_user_id ? 1 : 0;
           const bHasUser = b.meta?.platform_user_id ? 1 : 0;
@@ -264,7 +230,6 @@ export async function kycRoutes(server: FastifyInstance) {
             .limit(1);
 
           if (existing.length === 0) {
-            // Fetch detailed account info from Nuvion to extract commercial bank account_details
             let detailAccNumber = a.nuvion_ban;
             let detailBankName = nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || '');
 
@@ -295,7 +260,6 @@ export async function kycRoutes(server: FastifyInstance) {
           }
         }
 
-        // Re-fetch from DB after sync
         entityAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
         server.log.info({ entityId, count: entityAccounts.length }, 'Synced live Nuvion accounts to DB');
       } catch (syncErr: any) {
@@ -303,21 +267,37 @@ export async function kycRoutes(server: FastifyInstance) {
       }
     }
 
+    let activeUsername = entity.username;
+    if (currentStatus === 'approved' && !activeUsername) {
+      activeUsername = await generateUniqueUsername(db, entity.legalName || 'user', entity.kind as 'PERSONAL' | 'BUSINESS');
+      await db.update(entities).set({ username: activeUsername }).where(eq(entities.id, entity.id));
+    }
+
+    const particleAcc = await particle.getOrCreateUniversalAccount(entity.id, entity.kind as 'PERSONAL' | 'BUSINESS');
+    if (particleAcc.solanaAddress && !entity.solanaAddress) {
+      await db.update(entities).set({ solanaAddress: particleAcc.solanaAddress }).where(eq(entities.id, entity.id));
+    }
+
     return reply.send({
       entityId: entity.id,
       entityKind: entity.kind,
       nuvionEntityId: entity.nuvionEntityId,
-      nuvionStatus: entity.nuvionStatus,
-      nuvionTier: entity.nuvionTier,
+      nuvionStatus: currentStatus,
+      nuvionTier: currentTier,
       legalName: entity.legalName,
       accountHolderName: entity.legalName || '',
-      username: entity.username,
+      username: activeUsername,
+      usernameCustomized: Boolean(entity.usernameCustomized),
       businessTag: entity.businessTag,
+      particleNetworkAddress: particleAcc.walletAddress,
+      solanaAddress: particleAcc.solanaAddress,
       accounts: entityAccounts.map(a => ({
         id: a.id,
+        nuvionAccountId: a.nuvionAccountId,
         currency: a.currency,
         accountNumber: a.accountNumber,
         bankName: a.bankName,
+        accountHolderName: a.accountHolderName || entity.legalName || 'PayIT Account',
         status: a.status,
       })),
       limits,

@@ -200,15 +200,23 @@ export async function payrollRoutes(server: FastifyInstance) {
   /**
    * List all payroll runs for an entity from DB.
    */
-  server.get('/api/payroll/runs', async (request, reply) => {
-    const { activeEntityId } = request.query as { activeEntityId?: string };
-    if (!activeEntityId) return reply.status(400).send({ error: 'activeEntityId query parameter required' });
+  const handleGetPayrollRuns = async (request: any, reply: any) => {
+    const query = request.query as { entityId?: string; activeEntityId?: string };
+    const targetEntityId = query.entityId || query.activeEntityId;
+    if (!targetEntityId) return reply.status(400).send({ error: 'entityId query parameter required' });
 
-    const runs = await db
-      .select()
-      .from(payrollRuns)
-      .where(eq(payrollRuns.entityId, activeEntityId));
+    try {
+      const runs = await db
+        .select()
+        .from(payrollRuns)
+        .where(eq(payrollRuns.entityId, targetEntityId));
 
-    return reply.send({ payrollRuns: runs });
-  });
+      return reply.send({ payrollRuns: runs });
+    } catch {
+      return reply.send({ payrollRuns: [] });
+    }
+  };
+
+  server.get('/api/payroll', handleGetPayrollRuns);
+  server.get('/api/payroll/runs', handleGetPayrollRuns);
 }

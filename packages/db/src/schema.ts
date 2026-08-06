@@ -23,11 +23,13 @@ export const entities = pgTable('entities', {
   kind: text('kind', { enum: ['PERSONAL', 'BUSINESS'] }).notNull(),
   legalName: text('legal_name').notNull(),
   username: text('username').unique(), // Personal entity unique handle
+  usernameCustomized: integer('username_customized').default(0).notNull(), // 0 = false (can edit once), 1 = true (locked)
   businessTag: text('business_tag').unique(), // Business entity tag (e.g. ACME)
   nuvionTier: integer('nuvion_tier').default(1).notNull(),
   nuvionStatus: text('nuvion_status', { enum: ['incomplete', 'pending', 'approved', 'rejected'] }).default('incomplete').notNull(),
   nuvionEntityId: text('nuvion_entity_id'),
   xpub: text('xpub'), // HD Wallet Extended Public Key (KMS isolate)
+  solanaAddress: text('solana_address'), // Solana Universal Account Address (Base58)
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => {
   return {
@@ -147,6 +149,27 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Friendships table (Mutual friends network)
+export const friendships = pgTable('friendships', {
+  id: text('id').primaryKey(),
+  requesterEntityId: text('requester_entity_id').notNull().references(() => entities.id),
+  addresseeEntityId: text('addressee_entity_id').notNull().references(() => entities.id),
+  status: text('status', { enum: ['PENDING', 'ACCEPTED', 'DECLINED', 'BLOCKED'] }).default('PENDING').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Peer-to-Peer Payment Requests table (Mutual Friends Gated)
+export const paymentRequests = pgTable('payment_requests', {
+  id: text('id').primaryKey(),
+  requesterEntityId: text('requester_entity_id').notNull().references(() => entities.id),
+  payerEntityId: text('payer_entity_id').notNull().references(() => entities.id),
+  amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
+  currency: text('currency').notNull(),
+  narration: text('narration'),
+  status: text('status', { enum: ['PENDING', 'PAID', 'DECLINED', 'EXPIRED'] }).default('PENDING').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // Deterministic Risk Events Log
 export const riskEvents = pgTable('risk_events', {
   id: text('id').primaryKey(),
@@ -154,7 +177,50 @@ export const riskEvents = pgTable('risk_events', {
   entityId: text('entity_id').notNull(),
   score: numeric('score', { precision: 6, scale: 2 }).notNull(),
   riskLevel: text('risk_level', { enum: ['LOW', 'MEDIUM', 'HIGH'] }).notNull(),
-  rulesTriggered: text('rules_triggered').notNull(), // JSON string array
+  rulesTriggered: text('rules_triggered').notNull(),
   decisionReason: text('decision_reason').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// Durable Idempotency Store (Persists across backend restarts)
+export const idempotencyKeys = pgTable('idempotency_keys', {
+  key: text('key').primaryKey(), // Composite: ${entityId}_${key}
+  entityId: text('entity_id').notNull().references(() => entities.id),
+  requestHash: text('request_hash').notNull(),
+  status: text('status', { enum: ['PROCESSING', 'COMPLETED', 'FAILED'] }).notNull(),
+  responsePayload: text('response_payload'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+});
+
+// Inbound Raw Webhooks Log (Edge Case #2 Protection)
+export const rawWebhooks = pgTable('raw_webhooks', {
+  id: text('id').primaryKey(),
+  provider: text('provider', { enum: ['NUVION', 'PARTICLE'] }).notNull(),
+  eventId: text('event_id').notNull().unique(),
+  payload: text('payload').notNull(),
+  status: text('status', { enum: ['RECEIVED', 'PROCESSED', 'FAILED'] }).default('RECEIVED').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// User Savings Goals
+export const savingsGoals = pgTable('savings_goals', {
+  id: text('id').primaryKey(),
+  entityId: text('entity_id').notNull().references(() => entities.id),
+  name: text('name').notNull(),
+  targetAmount: numeric('target_amount', { precision: 18, scale: 2 }).notNull(),
+  currentAmount: numeric('current_amount', { precision: 18, scale: 2 }).default('0.00').notNull(),
+  currency: text('currency').default('USD').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Waitlist Signups table
+export const waitlist = pgTable('waitlist', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  persona: text('persona', { enum: ['freelancer', 'founder', 'sme', 'interested'] }).notNull(),
+  preferredPlatform: text('preferred_platform', { enum: ['webapp', 'telegram', 'both'] }).default('webapp').notNull(),
+  source: text('source').default('website').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+

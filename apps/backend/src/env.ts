@@ -25,8 +25,7 @@ const EnvSchema = z.object({
   MAGIC_PUBLISHABLE_KEY: z.string().min(1, 'MAGIC_PUBLISHABLE_KEY is required'),
   MAGIC_SECRET_KEY: z.string().min(1, 'MAGIC_SECRET_KEY is required'),
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required for payroll OCR'),
-  KMS_MASTER_SECRET: z.string().min(32, 'KMS_MASTER_SECRET must be at least 32 characters for HD wallet security'),
-  PAYIT_TREASURY_FEE_WALLET: z.string().default('0x09648d98196460D63B3dB1B90c60100756dECb77'),
+  PAYIT_TREASURY_FEE_WALLET: z.string().min(10, 'PAYIT_TREASURY_FEE_WALLET is required for treasury fee sweeps'),
   PAYIT_FX_MARGIN_PERCENT: z.string().default('0.030'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
 });

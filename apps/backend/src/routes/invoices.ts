@@ -197,4 +197,43 @@ export async function invoiceRoutes(server: FastifyInstance) {
       },
     });
   });
+
+  /**
+   * Pay / Settle Invoice.
+   */
+  server.post('/api/invoices/pay', async (request, reply) => {
+    const { session, invoiceId, tag } = request.body as {
+      session?: { userId: string; activeEntityId: string; userEntityIds: string[] };
+      invoiceId?: string;
+      tag?: string;
+    };
+
+    let targetInvoice: any;
+
+    if (invoiceId) {
+      const rows = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+      targetInvoice = rows[0];
+    } else if (tag) {
+      const rows = await db.select().from(invoices).where(eq(invoices.tag, tag.toUpperCase())).limit(1);
+      targetInvoice = rows[0];
+    }
+
+    if (!targetInvoice) {
+      return reply.status(404).send({ error: 'Invoice not found' });
+    }
+
+    if (targetInvoice.status === 'paid') {
+      return reply.status(409).send({ error: 'Invoice has already been paid' });
+    }
+
+    await db.update(invoices).set({ status: 'paid' }).where(eq(invoices.id, targetInvoice.id));
+
+    return reply.send({
+      success: true,
+      invoiceId: targetInvoice.id,
+      tag: targetInvoice.tag,
+      status: 'paid',
+      message: `Invoice ${targetInvoice.tag} marked as paid successfully!`,
+    });
+  });
 }
