@@ -96,6 +96,26 @@ export async function transferRoutes(server: FastifyInstance) {
   });
 
   /**
+   * Get an authenticated FX quote from Nuvion with 30-second TTL.
+   */
+  server.get('/api/fx/quote', async (request, reply) => {
+    const { from, to, amount } = request.query as { from?: string; to?: string; amount?: string };
+    if (!from || !to || !amount) {
+      return reply.status(400).send({ error: 'from, to, and amount query parameters required' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return reply.status(400).send({ error: 'amount must be a positive number' });
+    }
+    try {
+      const quote = await nuvion.getFxQuote(from, to, numAmount);
+      return reply.send({ success: true, quote });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Failed to fetch FX quote' });
+    }
+  });
+
+  /**
    * Fetch transaction activity history from Neon DB.
    */
   server.get('/api/transfers/history', async (request, reply) => {
@@ -446,15 +466,10 @@ export async function transferRoutes(server: FastifyInstance) {
     let effectiveRate = 1;
 
     try {
-      const quote = await nuvion.getLiveDynamicQuote({
-        fromCurrency: fromCurr,
-        toCurrency: toCurr,
-        amount,
-        isDeposit: false,
-      });
+      const quote = await nuvion.getFxQuote(fromCurr, toCurr, amount);
       feeAmountUsd = quote.feeAmountUsd;
       feeAmountLocal = quote.feeAmountLocal;
-      effectiveRate = quote.clientEffectiveRate;
+      effectiveRate = quote.rate;
     } catch (err: any) {
       server.log.warn({ err }, 'FX quote failed during transfer — proceeding without fee calculation');
     }

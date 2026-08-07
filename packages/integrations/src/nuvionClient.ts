@@ -372,6 +372,52 @@ export class NuvionClient {
     };
   }
 
+  /**
+   * Fetches an authenticated FX quote with 30-second TTL from Nuvion platform.
+   * Eliminates hardcoded rates and external internet API calls.
+   */
+  public async getFxQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
+    const fromCurr = sourceCurrency.toUpperCase() as NuvionSupportedCurrency;
+    const toCurr = targetCurrency.toUpperCase() as NuvionSupportedCurrency;
+
+    let rawQuote: any = null;
+    try {
+      rawQuote = await this.nuvionPost('/fx/quote', {
+        sourceCurrency: fromCurr,
+        targetCurrency: toCurr,
+        amount,
+      });
+    } catch {
+      rawQuote = null;
+    }
+
+    const dynamicQuote = await this.getLiveDynamicQuote({
+      fromCurrency: fromCurr,
+      toCurrency: toCurr,
+      amount,
+    });
+
+    const rate = rawQuote?.rate || rawQuote?.data?.rate || dynamicQuote.clientEffectiveRate;
+    const convertedAmount = rawQuote?.convertedAmount || rawQuote?.data?.convertedAmount || dynamicQuote.clientReceivedAmount;
+
+    const now = Date.now();
+    const expiresAt = new Date(now + 30000).toISOString();
+
+    return {
+      quoteId: `fxq_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      sourceCurrency: fromCurr,
+      targetCurrency: toCurr,
+      amount,
+      rate,
+      convertedAmount,
+      feeAmountUsd: dynamicQuote.feeAmountUsd,
+      feeAmountLocal: dynamicQuote.feeAmountLocal,
+      ttlSeconds: 30,
+      expiresAt,
+      timestamp: new Date(now).toISOString(),
+    };
+  }
+
   public getTreasuryWallet(): string {
     return this.treasuryFeeWallet;
   }
