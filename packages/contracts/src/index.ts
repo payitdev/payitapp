@@ -127,3 +127,10 @@ export function omitPrivateKey<T extends Record<string, any>>(obj: T): Omit<T, '
   const { privateKey, secretKey, seedPhrase, ...rest } = obj;
   return rest;
 }
+
+// Smart Contract Token Address Constants parameterized via environment variables (Issue 5)
+export const USDC_CONTRACT_ADDRESS =
+  process.env.USDC_CONTRACT_ADDRESS || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';
+
+export const USDT_CONTRACT_ADDRESS =
+  process.env.USDT_CONTRACT_ADDRESS || '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9';

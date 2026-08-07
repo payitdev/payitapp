@@ -9,9 +9,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "fastify": "^4.26.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   }
 }

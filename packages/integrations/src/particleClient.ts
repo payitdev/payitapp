@@ -218,14 +218,17 @@ export class ParticleClient {
       receiver: recipientAddress,
     });
 
-    // Sign with entity's deterministic wallet
     const signature = owner.signMessageSync(getBytes(transaction.rootHash));
     const result = await ua.sendTransaction(transaction, signature);
+
+    if (!result || !result.transactionId || result.status === 'FAILED') {
+      throw new Error(`ONCHAIN_TRANSFER_FAILED: Gasless transfer reverted or failed on chain for asset ${asset}`);
+    }
 
     return {
       transactionId: result.transactionId,
       explorerUrl: `https://universalx.app/activity/details?id=${result.transactionId}`,
-      status: 'submitted',
+      status: result.status === 'SUCCESS' || result.status === 'submitted' ? 'submitted' : 'pending',
     };
   }
 

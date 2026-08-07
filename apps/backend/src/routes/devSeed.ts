@@ -18,6 +18,12 @@ export async function devSeedRoutes(server: FastifyInstance) {
    * Body: { entityId: string, amount: number, currency?: string }
    */
   server.post('/api/dev/seed-deposit', async (request, reply) => {
+    const adminSecret = request.headers['x-admin-secret'];
+    const expectedSecret = process.env.ADMIN_SEED_SECRET || 'dev_seed_secret';
+    if (!adminSecret || adminSecret !== expectedSecret) {
+      return reply.status(403).send({ error: 'UNAUTHORIZED_SEED_REQUEST', message: 'Valid x-admin-secret header required' });
+    }
+
     const { entityId, amount, currency = 'NGN' } = request.body as {
       entityId: string;
       amount: number;

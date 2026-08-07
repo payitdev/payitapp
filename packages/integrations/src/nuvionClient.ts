@@ -80,6 +80,18 @@ export interface TreasurySweepRecord {
   timestamp: string;
 }
 
+export class NuvionApiError extends Error {
+  public statusCode: number;
+  public providerPayload: any;
+
+  constructor(statusCode: number, message: string, providerPayload?: any) {
+    super(message);
+    this.name = 'NuvionApiError';
+    this.statusCode = statusCode;
+    this.providerPayload = providerPayload;
+  }
+}
+
 const DEFAULT_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu4q95pqcOJa8RwUH4aXA
 TMzgvhqKK+RBOMkSSFJ9ALFneKV8Wc5y8itkdKFpQ/YsKrxc6aLipVQ0JzfQqpto
@@ -171,14 +183,17 @@ export class NuvionClient {
           try {
             const parsed = JSON.parse(body);
             if (res.statusCode && res.statusCode >= 400) {
-              reject(new Error(`Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`));
+              reject(new NuvionApiError(res.statusCode, `Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`, parsed));
             } else {
               resolve(parsed);
             }
           } catch (e) {
-            reject(new Error(`Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
+            reject(new NuvionApiError(res.statusCode || 500, `Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
           }
         });
+      });
+      req.setTimeout(10000, () => {
+        req.destroy(new Error(`Nuvion API GET ${path} timed out after 10000ms`));
       });
       req.on('error', reject);
       req.end();
@@ -205,14 +220,17 @@ export class NuvionClient {
           try {
             const parsed = JSON.parse(body);
             if (res.statusCode && res.statusCode >= 400) {
-              reject(new Error(`Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`));
+              reject(new NuvionApiError(res.statusCode, `Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`, parsed));
             } else {
               resolve(parsed);
             }
           } catch (e) {
-            reject(new Error(`Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
+            reject(new NuvionApiError(res.statusCode || 500, `Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
           }
         });
+      });
+      req.setTimeout(10000, () => {
+        req.destroy(new Error(`Nuvion API POST ${path} timed out after 10000ms`));
       });
       req.on('error', reject);
       req.write(bodyData);
