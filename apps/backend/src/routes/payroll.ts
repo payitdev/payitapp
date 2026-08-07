@@ -2,10 +2,11 @@ import { FastifyInstance } from 'fastify';
 import { GeminiOcrParser } from '@payit/ai';
 import { validateEntityAccess } from '@payit/ledger';
 import { NuvionClient } from '@payit/integrations';
-import { createDbClient, eq } from '@payit/db';
-import { payrollRuns, payrollItems, entities } from '@payit/db/schema';
+import { createDbClient, eq, and } from '@payit/db';
+import { payrollRuns, payrollItems, entities, accounts, ledgerEntries } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { assertEntityApproved } from './kyc.js';
+import { getEntityBalance } from '../utils/balance.js';
 
 const ocr = new GeminiOcrParser();
 const nuvion = new NuvionClient();
@@ -19,10 +20,10 @@ export async function payrollRoutes(server: FastifyInstance) {
   server.post('/api/payroll/extract', {
     config: { rawBody: true },
   }, async (request, reply) => {
-    const { session, entityId } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
-      entityId: string;
-    };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId } = request.body as { entityId: string };
 
     try {
       validateEntityAccess(session, entityId);
@@ -112,10 +113,13 @@ export async function payrollRoutes(server: FastifyInstance) {
 
   /**
    * Step 2: Execute approved payroll run.
+   * Enforces server-side session, balance verification, real account lookup, and ledger journal entries.
    */
   server.post('/api/payroll/execute', async (request, reply) => {
-    const { session, entityId, payrollRunId, approvedItems } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, payrollRunId, approvedItems } = request.body as {
       entityId: string;
       payrollRunId: string;
       approvedItems: Array<{
@@ -142,9 +146,29 @@ export async function payrollRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: 'Payroll run not found or does not belong to this entity' });
     }
 
+    // 1. Balance verification check (C11)
+    const totalRequired = approvedItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const availableBalance = await getEntityBalance(db, entityId);
+
+    if (availableBalance < totalRequired) {
+      return reply.status(422).send({
+        error: `Insufficient funds for payroll run. Required: NGN ${totalRequired.toLocaleString('en-US')}, Available: NGN ${availableBalance.toLocaleString('en-US')}`,
+      });
+    }
+
+    // 2. Real Nuvion account lookup (C11)
+    const accountRows = await db.select().from(accounts).where(eq(accounts.entityId, entityId)).limit(1);
+    if (accountRows.length === 0) {
+      return reply.status(400).send({ error: 'No active bank account found for entity. Complete KYC first.' });
+    }
+    const nuvionAccountId = accountRows[0].nuvionAccountId;
+
     await db.update(payrollRuns).set({ status: 'processing' }).where(eq(payrollRuns.id, payrollRunId));
 
     const results: any[] = [];
+    const ledgerAccId = `${entityId}_cash`;
+    const payrollClearingAccId = `${entityId}_payroll_clearing`;
+
     for (const item of approvedItems) {
       if (!item.recipientAccountOrTag || item.amount <= 0) {
         const result = { ...item, status: 'failed' as const, errorMessage: 'Invalid recipient or zero amount' };
@@ -155,13 +179,28 @@ export async function payrollRoutes(server: FastifyInstance) {
         continue;
       }
 
+      // 3. Skip already successful items on retry to prevent double payment (C11)
+      const existingDbItem = await db.select().from(payrollItems).where(eq(payrollItems.id, item.id)).limit(1);
+      if (existingDbItem.length > 0 && existingDbItem[0].status === 'success') {
+        server.log.info({ itemId: item.id }, 'Payroll item already executed successfully. Skipping retry to prevent double payment.');
+        results.push({ ...item, status: 'success' as const });
+        continue;
+      }
+
       try {
         await nuvion.executePayout({
-          nuvionAccountId: `nacc_${entityId}`,
+          nuvionAccountId,
           destinationAccount: item.recipientAccountOrTag,
           amount: item.amount,
           currency: item.currency || 'NGN',
         });
+
+        // 4. Record double-entry ledger entries upon successful payout (C11)
+        const txId = ulid();
+        await db.insert(ledgerEntries).values([
+          { id: ulid(), entityId, transactionId: txId, ledgerAccountId: ledgerAccId, type: 'DEBIT', amount: String(item.amount), createdAt: new Date() },
+          { id: ulid(), entityId, transactionId: txId, ledgerAccountId: payrollClearingAccId, type: 'CREDIT', amount: String(item.amount), createdAt: new Date() },
+        ]);
 
         results.push({ ...item, status: 'success' as const });
         await db.update(payrollItems)

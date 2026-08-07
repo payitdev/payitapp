@@ -14,6 +14,8 @@ import { savingsRoutes } from './routes/savings.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { devSeedRoutes } from './routes/devSeed.js';
 
+import { requireAuthHook } from './middleware/requireAuth.js';
+
 export function buildServer() {
   const server = Fastify({
     logger: true,
@@ -22,6 +24,9 @@ export function buildServer() {
   server.register(cors, {
     origin: '*',
   });
+
+  // Global authentication hook enforcing server-derived JWT session
+  server.addHook('onRequest', requireAuthHook);
 
   // Health check endpoint
   server.get('/health', async () => {

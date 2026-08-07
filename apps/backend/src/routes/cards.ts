@@ -16,8 +16,10 @@ export async function cardRoutes(server: FastifyInstance) {
    * Cardholder name is the user's verified legal name.
    */
   server.post('/api/cards/issue', async (request, reply) => {
-    const { session, entityId, accountId, brand, cardType } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, accountId, brand, cardType } = request.body as {
       entityId: string;
       accountId?: string;
       brand: 'VISA' | 'MASTERCARD';
@@ -143,8 +145,10 @@ export async function cardRoutes(server: FastifyInstance) {
    * Freeze / Unfreeze Virtual Card.
    */
   server.post('/api/cards/freeze', async (request, reply) => {
-    const { session, entityId, cardId, freeze } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, cardId, freeze } = request.body as {
       entityId: string;
       cardId: string;
       freeze: boolean;

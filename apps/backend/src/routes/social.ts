@@ -7,6 +7,8 @@ import { NuvionClient } from '@payit/integrations';
 import { assertEntityApproved } from './kyc.js';
 import { generateUniqueUsername } from '../utils/username.js';
 import { getEntityBalance } from '../utils/balance.js';
+import { checkIdempotencyKey, saveIdempotencyResponse } from '../middleware/idempotency.js';
+import { DeterministicRiskEngine } from '@payit/security';
 
 const db = createDbClient();
 const nuvion = new NuvionClient();
@@ -52,8 +54,10 @@ export async function socialRoutes(server: FastifyInstance) {
    * Enforces usernameCustomized === 0, updates username, and sets usernameCustomized = 1.
    */
   server.post('/api/users/update-username', async (request, reply) => {
-    const { session, entityId, newUsername } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, newUsername } = request.body as {
       entityId: string;
       newUsername: string;
     };
@@ -114,8 +118,10 @@ export async function socialRoutes(server: FastifyInstance) {
    * Send Friend Request
    */
   server.post('/api/friends/request', async (request, reply) => {
-    const { session, entityId, targetUsernameOrId } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, targetUsernameOrId } = request.body as {
       entityId: string;
       targetUsernameOrId: string;
     };
@@ -179,8 +185,10 @@ export async function socialRoutes(server: FastifyInstance) {
    * Respond to Friend Request (ACCEPT / DECLINE)
    */
   server.post('/api/friends/respond', async (request, reply) => {
-    const { session, entityId, friendshipId, action } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, friendshipId, action } = request.body as {
       entityId: string;
       friendshipId: string;
       action: 'ACCEPT' | 'DECLINE';
@@ -249,8 +257,10 @@ export async function socialRoutes(server: FastifyInstance) {
    * Create Payment Request (GATED: MUST BE MUTUAL FRIENDS)
    */
   server.post('/api/payments/request', async (request, reply) => {
-    const { session, entityId, payerUsernameOrId, amount, currency, narration } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, payerUsernameOrId, amount, currency, narration } = request.body as {
       entityId: string;
       payerUsernameOrId: string;
       amount: number;
@@ -325,32 +335,50 @@ export async function socialRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Fulfill Payment Request (Payer approves & transfers money/crypto)
+   * Fulfill Payment Request (Payer approves & transfers money/crypto).
+   * Enforces idempotency, risk evaluation, and locked database transactions (H8 & C8).
    */
   server.post('/api/payments/fulfill', async (request, reply) => {
-    const { session, entityId, requestId } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, requestId } = request.body as {
       entityId: string;
       requestId: string;
     };
 
+    const idempotencyKey = (request.headers['x-idempotency-key'] as string) || (request.body as any)?.idempotencyKey;
+    if (idempotencyKey) {
+      const { isDuplicate, record } = await checkIdempotencyKey(idempotencyKey, entityId);
+      if (isDuplicate && record) {
+        if (record.status === 'PROCESSING') {
+          return reply.status(409).send({ error: 'A payment fulfill request with this idempotency key is processing. Please wait.' });
+        }
+        return reply.status(record.statusCode || 200).send(record.response);
+      }
+    }
+
     try {
       validateEntityAccess(session, entityId);
     } catch (err: any) {
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 403, { error: err.message });
       return reply.status(403).send({ error: err.message });
     }
 
     const reqRows = await db.select().from(paymentRequests).where(eq(paymentRequests.id, requestId)).limit(1);
     if (reqRows.length === 0) {
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 404, { error: 'Payment request not found' });
       return reply.status(404).send({ error: 'Payment request not found' });
     }
     const pr = reqRows[0];
 
     if (pr.payerEntityId !== entityId) {
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 403, { error: 'Only designated payer can fulfill request' });
       return reply.status(403).send({ error: 'Only the designated payer can fulfill this payment request' });
     }
 
     if (pr.status !== 'PENDING') {
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 400, { error: `Request already ${pr.status}` });
       return reply.status(400).send({ error: `Payment request is already in status '${pr.status}'` });
     }
 
@@ -362,41 +390,69 @@ export async function socialRoutes(server: FastifyInstance) {
       try {
         assertEntityApproved(entityRows[0]);
       } catch (err: any) {
+        if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 403, { error: err.message });
         return reply.status(403).send({ error: err.message });
       }
     }
 
-    // Atomic Balance Verification — prevent fulfilling without funds (M5)
-    const currentBalance = await getEntityBalance(db, entityId);
-
-    if (currentBalance < numAmount) {
-      return reply.status(422).send({
-        error: `Insufficient funds to fulfill this request. Your current available balance is ${currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      });
-    }
-
-    // Execute internal double-entry ledger transfer between Payer & Requester
-    const txId = ulid();
-    const payerLedgerAcc = `${entityId}_cash`;
-    const requesterLedgerAcc = `${pr.requesterEntityId}_cash`;
-
-    await db.insert(ledgerEntries).values([
-      { id: ulid(), entityId, transactionId: txId, ledgerAccountId: payerLedgerAcc, type: 'DEBIT', amount: String(numAmount), createdAt: new Date() },
-      { id: ulid(), entityId: pr.requesterEntityId, transactionId: txId, ledgerAccountId: requesterLedgerAcc, type: 'CREDIT', amount: String(numAmount), createdAt: new Date() },
-    ]);
-
-    await db.update(paymentRequests).set({ status: 'PAID' }).where(eq(paymentRequests.id, requestId));
-
-    await db.insert(auditLogs).values({
-      id: ulid(),
+    // Risk engine check (H8)
+    const riskEngine = new DeterministicRiskEngine();
+    const riskAssessment = riskEngine.evaluate({
       userId: session.userId,
       entityId,
-      action: 'PAYMENT_REQUEST_FULFILLED',
-      metadata: JSON.stringify({ requestId, txId, amount: numAmount, currency: pr.currency, requesterId: pr.requesterEntityId }),
-      createdAt: new Date(),
+      amount: numAmount,
+      recipientTagOrAccount: pr.requesterEntityId,
+      deviceId: 'mobile_app',
+      userKnownRecipients: [pr.requesterEntityId],
+      userHistory: [],
     });
 
-    return reply.send({
+    if (riskAssessment.riskLevel === 'HIGH') {
+      const errResp = { error: 'Payment request held due to security risk policy' };
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 422, errResp);
+      return reply.status(422).send(errResp);
+    }
+
+    // Atomic Balance Check & Double-Entry Transaction with Row Locking (C8)
+    let txId = ulid();
+    try {
+      await db.transaction(async (tx) => {
+        const currentBalance = await getEntityBalance(tx, entityId);
+        if (currentBalance < numAmount) {
+          throw new Error(`INSUFFICIENT_FUNDS:${currentBalance}`);
+        }
+
+        const payerLedgerAcc = `${entityId}_cash`;
+        const requesterLedgerAcc = `${pr.requesterEntityId}_cash`;
+
+        await tx.insert(ledgerEntries).values([
+          { id: ulid(), entityId, transactionId: txId, ledgerAccountId: payerLedgerAcc, type: 'DEBIT', amount: String(numAmount), createdAt: new Date() },
+          { id: ulid(), entityId: pr.requesterEntityId, transactionId: txId, ledgerAccountId: requesterLedgerAcc, type: 'CREDIT', amount: String(numAmount), createdAt: new Date() },
+        ]);
+
+        await tx.update(paymentRequests).set({ status: 'PAID' }).where(eq(paymentRequests.id, requestId));
+
+        await tx.insert(auditLogs).values({
+          id: ulid(),
+          userId: session.userId,
+          entityId,
+          action: 'PAYMENT_REQUEST_FULFILLED',
+          metadata: JSON.stringify({ requestId, txId, amount: numAmount, currency: pr.currency, requesterId: pr.requesterEntityId }),
+          createdAt: new Date(),
+        });
+      });
+    } catch (err: any) {
+      if (err.message?.startsWith('INSUFFICIENT_FUNDS')) {
+        const bal = err.message.split(':')[1];
+        const errResp = { error: `Insufficient funds to fulfill this request. Your current available balance is ${parseFloat(bal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` };
+        if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 422, errResp);
+        return reply.status(422).send(errResp);
+      }
+      if (idempotencyKey) await saveIdempotencyResponse(idempotencyKey, entityId, 500, { error: err.message });
+      return reply.status(500).send({ error: err.message || 'Payment fulfillment failed' });
+    }
+
+    const successResponse = {
       success: true,
       requestId,
       transactionId: txId,
@@ -404,7 +460,13 @@ export async function socialRoutes(server: FastifyInstance) {
       currency: pr.currency,
       status: 'PAID',
       message: 'Payment request fulfilled successfully!',
-    });
+    };
+
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(idempotencyKey, entityId, 200, successResponse);
+    }
+
+    return reply.send(successResponse);
   });
 
   /**

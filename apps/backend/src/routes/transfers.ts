@@ -253,8 +253,10 @@ export async function transferRoutes(server: FastifyInstance) {
    * Enforces entity access guard and entity approval check before execution.
    */
   server.post('/api/transfers/execute', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
     const {
-      session,
       entityId,
       recipientName,
       bankName,
@@ -280,7 +282,6 @@ export async function transferRoutes(server: FastifyInstance) {
       recipientBankName,
       recipientCryptoAddress,
     } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
       entityId: string;
       recipientName?: string;
       bankName?: string;

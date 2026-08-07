@@ -55,8 +55,10 @@ export async function savingsRoutes(server: FastifyInstance) {
    * Create New Savings Goal for Entity.
    */
   server.post('/api/savings/goal', async (request, reply) => {
-    const { session, entityId, name, targetAmount, currency } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, name, targetAmount, currency } = request.body as {
       entityId: string;
       name: string;
       targetAmount: number;
@@ -102,8 +104,10 @@ export async function savingsRoutes(server: FastifyInstance) {
    * Deposit or Withdraw from Savings pool.
    */
   server.post('/api/savings/action', async (request, reply) => {
-    const { session, entityId, type, amount } = request.body as {
-      session: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, type, amount } = request.body as {
       entityId: string;
       type: 'DEPOSIT' | 'WITHDRAW';
       amount: number;

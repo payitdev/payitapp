@@ -3,7 +3,7 @@ import { KMSKeyEnclave } from '@payit/security';
 import { validateEntityAccess } from '@payit/ledger';
 import { InvoiceSchema, omitPrivateKey } from '@payit/contracts';
 import { createDbClient, eq, and } from '@payit/db';
-import { invoices, invoiceItems, entities } from '@payit/db/schema';
+import { invoices, invoiceItems, entities, auditLogs } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { assertEntityApproved } from './kyc.js';
 
@@ -199,11 +199,13 @@ export async function invoiceRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Pay / Settle Invoice.
+   * Manual Invoice Status Override — Gated strictly to Invoice Entity Owner.
    */
   server.post('/api/invoices/pay', async (request, reply) => {
-    const { session, invoiceId, tag } = request.body as {
-      session?: { userId: string; activeEntityId: string; userEntityIds: string[] };
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { invoiceId, tag } = request.body as {
       invoiceId?: string;
       tag?: string;
     };
@@ -222,11 +224,27 @@ export async function invoiceRoutes(server: FastifyInstance) {
       return reply.status(404).send({ error: 'Invoice not found' });
     }
 
+    // Entity Owner Guard Validation (C10)
+    try {
+      validateEntityAccess(session, targetInvoice.entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: 'Only the invoice owner can manually update invoice status' });
+    }
+
     if (targetInvoice.status === 'paid') {
       return reply.status(409).send({ error: 'Invoice has already been paid' });
     }
 
     await db.update(invoices).set({ status: 'paid' }).where(eq(invoices.id, targetInvoice.id));
+
+    await db.insert(auditLogs).values({
+      id: ulid(),
+      userId: session.userId,
+      entityId: targetInvoice.entityId,
+      action: 'INVOICE_MANUALLY_MARKED_PAID_BY_OWNER',
+      metadata: JSON.stringify({ invoiceId: targetInvoice.id, tag: targetInvoice.tag }),
+      createdAt: new Date(),
+    });
 
     return reply.send({
       success: true,

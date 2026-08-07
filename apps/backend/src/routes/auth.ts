@@ -319,14 +319,17 @@ export async function authRoutes(server: FastifyInstance) {
    * Stored as a bcrypt hash — never stored in plain text.
    */
   server.post('/api/auth/set-passcode', async (request, reply) => {
-    const { userId, deviceId, passcode } = request.body as {
-      userId?: string;
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+    const userId = session.userId;
+
+    const { deviceId, passcode } = request.body as {
       deviceId?: string;
       passcode?: string;
     };
 
-    if (!userId || !deviceId || !passcode || passcode.length !== 6 || !/^\d{6}$/.test(passcode)) {
-      return reply.status(400).send({ error: 'userId, deviceId, and a 6-digit numeric passcode are required' });
+    if (!deviceId || !passcode || passcode.length !== 6 || !/^\d{6}$/.test(passcode)) {
+      return reply.status(400).send({ error: 'deviceId and a 6-digit numeric passcode are required' });
     }
 
     const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -369,14 +372,17 @@ export async function authRoutes(server: FastifyInstance) {
    * Used by the Deterministic Risk Engine for MEDIUM risk transactions.
    */
   server.post('/api/auth/verify-passcode', async (request, reply) => {
-    const { userId, deviceId, passcode } = request.body as {
-      userId?: string;
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+    const userId = session.userId;
+
+    const { deviceId, passcode } = request.body as {
       deviceId?: string;
       passcode?: string;
     };
 
-    if (!userId || !deviceId || !passcode) {
-      return reply.status(400).send({ error: 'userId, deviceId, and passcode are required' });
+    if (!deviceId || !passcode) {
+      return reply.status(400).send({ error: 'deviceId and passcode are required' });
     }
 
     const deviceRows = await db

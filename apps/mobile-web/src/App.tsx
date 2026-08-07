@@ -1444,8 +1444,10 @@ export default function App() {
                 <div className="r-title" style={{ fontSize: 13 }}>Your account address</div>
                 <div className="r-sub" style={{ margin: '0 0 4px' }}>Safe to share — this only receives funds</div>
                 <div className="key-address">
-                  <span>{activeEntity?.particleNetworkAddress || '0x71C...9e4A'}</span>
-                  <button className="copy-btn" onClick={() => navigator.clipboard.writeText(activeEntity?.particleNetworkAddress || '')}>Copy</button>
+                  <span>{activeEntity?.particleNetworkAddress || 'Link your wallet to receive crypto'}</span>
+                  {activeEntity?.particleNetworkAddress && (
+                    <button className="copy-btn" onClick={() => navigator.clipboard.writeText(activeEntity?.particleNetworkAddress || '')}>Copy</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1592,7 +1594,7 @@ export default function App() {
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>Safe to share — receives incoming USD &amp; multi-currency transfers.</div>
                     <div className="key-address" style={{ background: '#fff', padding: 10, borderRadius: 10, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <code style={{ fontSize: 11, fontWeight: 700, wordBreak: 'break-all', color: 'var(--text)' }}>
-                        {activeEntity?.particleNetworkAddress || '0x71C...9e4A'}
+                        {activeEntity?.particleNetworkAddress || 'Link your wallet to receive crypto'}
                       </code>
                       <button
                         className="copy-btn"
@@ -1614,7 +1616,7 @@ export default function App() {
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>Base58 address for Solana multi-currency transfers.</div>
                     <div className="key-address" style={{ background: '#fff', padding: 10, borderRadius: 10, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <code style={{ fontSize: 11, fontWeight: 700, wordBreak: 'break-all', color: 'var(--text)' }}>
-                        {(activeEntity as any)?.solanaAddress || `${(activeEntity?.particleNetworkAddress || '0x71C').slice(2, 30)}Sol`}
+                        {(activeEntity as any)?.solanaAddress || (activeEntity?.particleNetworkAddress ? `${activeEntity.particleNetworkAddress.slice(2, 30)}Sol` : 'Link your wallet to receive crypto')}
                       </code>
                       <button
                         className="copy-btn"
