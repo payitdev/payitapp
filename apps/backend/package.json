@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"import('fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
+    "build": "pnpm clean && tsc && node scripts/verify-build.js",
     "start": "node dist/server.js",
     "dev": "node --loader ts-node/esm src/server.ts",
     "lint": "tsc --noEmit"
