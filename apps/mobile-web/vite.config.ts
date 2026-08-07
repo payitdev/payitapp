@@ -15,20 +15,6 @@ export default defineConfig({
   optimizeDeps: {
     include: ['buffer'],
   },
-  build: {
-    rollupOptions: {
-      external: [
-        'node:fs',
-        'node:os',
-        'node:path',
-        'node:child_process',
-        'node:http',
-        'node:https',
-        'node:crypto',
-        'node:util',
-      ],
-    },
-  },
   server: {
     port: 3000,
     proxy: {
