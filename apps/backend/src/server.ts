@@ -15,6 +15,7 @@ import { waitlistRoutes } from './routes/waitlist.js';
 import { devSeedRoutes } from './routes/devSeed.js';
 
 import { requireAuthHook } from './middleware/requireAuth.js';
+import { ReconcilerEngine } from './services/reconcilerEngine.js';
 
 export function buildServer() {
   const server = Fastify({
@@ -52,10 +53,37 @@ export function buildServer() {
     server.register(devSeedRoutes);
   }
 
+  /**
+   * M7 Remediation: Admin manual audit reconciliation trigger.
+   * Header-gated via x-admin-secret.
+   */
+  server.post('/api/admin/reconcile', async (request, reply) => {
+    const adminSecret = request.headers['x-admin-secret'];
+    const expectedSecret = process.env.ADMIN_SEED_SECRET || 'dev_seed_secret';
+    if (!adminSecret || adminSecret !== expectedSecret) {
+      return reply.status(403).send({ error: 'UNAUTHORIZED_ADMIN_REQUEST', message: 'Valid x-admin-secret header required' });
+    }
+
+    try {
+      const report = await ReconcilerEngine.runAuditReconciliation();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ error: `Reconciliation audit failed: ${err.message}` });
+    }
+  });
+
   return server;
 }
 
 if (process.env.NODE_ENV !== 'test') {
+  // M7 Remediation: Scheduled 15-minute automated double-entry reconciliation audit
+  setInterval(async () => {
+    try {
+      await ReconcilerEngine.runAuditReconciliation();
+    } catch (err: any) {
+      console.error('[ReconcilerEngine Scheduled Task Error]:', err.message);
+    }
+  }, 15 * 60 * 1000);
   process.on('unhandledRejection', (reason: any) => {
     if (reason?.code === 'ECONNRESET' || reason?.message?.includes('ECONNRESET')) {
       console.warn('⚡ [Database Proxy Warning] Handled ECONNRESET idle socket reset gracefully.');

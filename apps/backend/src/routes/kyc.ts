@@ -141,16 +141,27 @@ export async function kycRoutes(server: FastifyInstance) {
 
       const newStatus = 'pending';
 
-      let uniqueUsername = entityRows[0].username;
-      if (!uniqueUsername) {
-        uniqueUsername = await generateUniqueUsername(db, kybBody.businessLegalName, 'BUSINESS');
+      // C13 Remediation: Sanitize & validate business tag, storing it directly into entities.businessTag
+      let rawTag = kybBody.businessTag || kybBody.businessLegalName || 'BUSINESS';
+      let resolvedTag = rawTag.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 15);
+      if (resolvedTag.length < 3) resolvedTag = `BIZ_${resolvedTag}`;
+
+      let tagCandidate = resolvedTag;
+      let counter = 1;
+      while (true) {
+        const existing = await db.select().from(entities).where(eq(entities.businessTag, tagCandidate)).limit(1);
+        if (existing.length === 0 || existing[0].id === entityId) {
+          break;
+        }
+        tagCandidate = `${resolvedTag.slice(0, 10)}${counter}`;
+        counter++;
       }
 
       await db
         .update(entities)
         .set({
           legalName: kybBody.businessLegalName,
-          ...(uniqueUsername ? { username: uniqueUsername, usernameCustomized: 0 } : {}),
+          businessTag: tagCandidate,
           nuvionTier: 2,
           nuvionStatus: newStatus,
           nuvionEntityId: res.nuvionEntityId,
@@ -164,7 +175,7 @@ export async function kycRoutes(server: FastifyInstance) {
         tier: 2,
         status: newStatus,
         legalName: kybBody.businessLegalName,
-        username: uniqueUsername,
+        businessTag: tagCandidate,
         particleNetworkAddress: res.particleNetworkAddress,
         fiatAccounts: [],
         limits: nuvion.getTierLimits(2),

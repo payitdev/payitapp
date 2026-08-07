@@ -34,6 +34,7 @@ export const entities = pgTable('entities', {
 }, (table) => {
   return {
     userKindIdx: uniqueIndex('idx_entities_user_kind').on(table.userId, table.kind),
+    nuvionEntityIdx: uniqueIndex('idx_entities_nuvion_entity_id').on(table.nuvionEntityId),
   };
 });
 
@@ -48,6 +49,11 @@ export const accounts = pgTable('accounts', {
   currency: text('currency').notNull(), // NGN, USD, etc.
   status: text('status').default('active').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    nuvionAccountIdx: uniqueIndex('idx_accounts_nuvion_account_id').on(table.nuvionAccountId),
+    entityCurrencyIdx: uniqueIndex('idx_accounts_entity_currency').on(table.entityId, table.currency),
+  };
 });
 
 // Wallets table with mandatory non-nullable entity_id
@@ -57,6 +63,10 @@ export const wallets = pgTable('wallets', {
   particleWalletAddress: text('particle_wallet_address').notNull(),
   chainId: integer('chain_id').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    particleWalletIdx: uniqueIndex('idx_wallets_particle_address').on(table.particleWalletAddress),
+  };
 });
 
 // Cards table with mandatory non-nullable entity_id and account_id FK

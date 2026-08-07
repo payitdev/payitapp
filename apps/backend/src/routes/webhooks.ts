@@ -183,14 +183,15 @@ export async function webhookRoutes(server: FastifyInstance) {
 
             // 1b. Record double-entry ledger entries for deposit
             const txId = ulid();
-            const ledgerAccId = `${userEntity.id}_cash`;
-            const ledgerClearId = `${userEntity.id}_inbound`;
+            const currUpper = (currency || 'NGN').toUpperCase();
+            const ledgerAccId = `${userEntity.id}_cash_${currUpper}`;
+            const ledgerClearId = `${userEntity.id}_inbound_${currUpper}`;
 
             const existingLedgerAcc = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, ledgerAccId)).limit(1);
             if (existingLedgerAcc.length === 0) {
               await db.insert(ledgerAccounts).values([
-                { id: ledgerAccId, entityId: userEntity.id, name: 'Cash / Wallet', type: 'ASSET', currency, createdAt: new Date() },
-                { id: ledgerClearId, entityId: userEntity.id, name: 'Inbound Deposit Clearing', type: 'LIABILITY', currency, createdAt: new Date() },
+                { id: ledgerAccId, entityId: userEntity.id, name: `Cash / Wallet (${currUpper})`, type: 'ASSET', currency: currUpper, createdAt: new Date() },
+                { id: ledgerClearId, entityId: userEntity.id, name: `Inbound Deposit Clearing (${currUpper})`, type: 'LIABILITY', currency: currUpper, createdAt: new Date() },
               ]);
             }
 

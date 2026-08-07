@@ -370,13 +370,14 @@ export async function transferRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: err.message });
     }
 
-    // 2b. Atomic Balance Verification via shared getEntityBalance (M5)
-    const currentBalance = await getEntityBalance(db, entityId);
+    // 2b. Atomic Balance Verification via shared currency-scoped getEntityBalance (C12)
+    const currentBalance = await getEntityBalance(db, entityId, resolvedCurrency);
 
     if (currentBalance < amount) {
       return reply.status(422).send({
-        error: `Insufficient funds. Your current available balance is ${entity.kind === 'PERSONAL' ? '₦' : '$'}${currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        error: `Insufficient funds. Your current available balance for ${resolvedCurrency} is ${resolvedCurrency === 'NGN' ? '₦' : '$'}${currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
         availableBalance: currentBalance,
+        currency: resolvedCurrency,
       });
     }
 
@@ -505,14 +506,15 @@ export async function transferRoutes(server: FastifyInstance) {
     }
 
     // 7. Record double-entry ledger entries in Neon DB ONLY after payout/crypto verification succeeds
-    const ledgerAccId = `${entityId}_cash`;
-    const ledgerClearId = `${entityId}_outbound`;
+    const currUpper = (resolvedCurrency || 'NGN').toUpperCase();
+    const ledgerAccId = `${entityId}_cash_${currUpper}`;
+    const ledgerClearId = `${entityId}_outbound_${currUpper}`;
 
     const existingLedgerAcc = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, ledgerAccId)).limit(1);
     if (existingLedgerAcc.length === 0) {
       await db.insert(ledgerAccounts).values([
-        { id: ledgerAccId, entityId, name: 'Cash / Wallet', type: 'ASSET', currency: currency || 'NGN', createdAt: new Date() },
-        { id: ledgerClearId, entityId, name: 'Outbound Transfer Clearing', type: 'LIABILITY', currency: currency || 'NGN', createdAt: new Date() },
+        { id: ledgerAccId, entityId, name: `Cash / Wallet (${currUpper})`, type: 'ASSET', currency: currUpper, createdAt: new Date() },
+        { id: ledgerClearId, entityId, name: `Outbound Transfer Clearing (${currUpper})`, type: 'LIABILITY', currency: currUpper, createdAt: new Date() },
       ]);
     }
 

@@ -41,15 +41,16 @@ export async function devSeedRoutes(server: FastifyInstance) {
     const entity = entityRows[0];
 
     const txId = ulid();
-    const ledgerAccId = `${entityId}_cash`;
-    const ledgerClearId = `${entityId}_inbound`;
+    const currUpper = (currency || 'NGN').toUpperCase();
+    const ledgerAccId = `${entityId}_cash_${currUpper}`;
+    const ledgerClearId = `${entityId}_inbound_${currUpper}`;
 
     // Ensure ledger accounts exist
     const existingAcc = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, ledgerAccId)).limit(1);
     if (existingAcc.length === 0) {
       await db.insert(ledgerAccounts).values([
-        { id: ledgerAccId, entityId, name: 'Cash / Wallet', type: 'ASSET', currency, createdAt: new Date() },
-        { id: ledgerClearId, entityId, name: 'Inbound Deposit Clearing', type: 'LIABILITY', currency, createdAt: new Date() },
+        { id: ledgerAccId, entityId, name: `Cash / Wallet (${currUpper})`, type: 'ASSET', currency: currUpper, createdAt: new Date() },
+        { id: ledgerClearId, entityId, name: `Inbound Deposit Clearing (${currUpper})`, type: 'LIABILITY', currency: currUpper, createdAt: new Date() },
       ]);
     }
 

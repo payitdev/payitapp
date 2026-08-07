@@ -19,19 +19,11 @@ async function populateEntitiesWithAccounts(entityRows: any[]) {
   const result = [];
   for (const ent of entityRows) {
     const accs = await db.select().from(accounts).where(eq(accounts.entityId, ent.id));
-    let status = ent.nuvionStatus;
-    let tier = ent.nuvionTier;
-
-    if (accs.length > 0 && status !== 'approved') {
-      status = 'approved';
-      tier = tier < 1 ? 1 : tier;
-      await db.update(entities).set({ nuvionStatus: 'approved', nuvionTier: tier }).where(eq(entities.id, ent.id));
-    }
 
     result.push({
       ...ent,
-      nuvionStatus: status,
-      nuvionTier: tier,
+      nuvionStatus: ent.nuvionStatus,
+      nuvionTier: ent.nuvionTier,
       fiatAccounts: accs.map(a => ({
         id: a.id,
         nuvionAccountId: a.nuvionAccountId,
@@ -64,8 +56,14 @@ export async function authRoutes(server: FastifyInstance) {
       if (userRows.length === 0) {
         return reply.status(401).send({ error: 'User not found' });
       }
-      const rawEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+      // H12: Deterministic entity sorting (PERSONAL before BUSINESS)
+      const rawEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId)).orderBy(entities.kind);
       const populatedEntities = await populateEntitiesWithAccounts(rawEntities);
+
+      // Select activeEntityId preferring approved entity, falling back to Personal
+      const approvedEntity = populatedEntities.find(e => e.nuvionStatus === 'approved');
+      const personalEntity = populatedEntities.find(e => e.kind === 'PERSONAL');
+      const activeEntityId = approvedEntity?.id || personalEntity?.id || populatedEntities[0]?.id || null;
 
       const deviceRows = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, payload.userId)).limit(1);
       const hasPasscode = deviceRows.length > 0;
@@ -76,7 +74,7 @@ export async function authRoutes(server: FastifyInstance) {
           id: payload.userId,
           email: payload.email,
           entities: populatedEntities,
-          activeEntityId: populatedEntities[0]?.id || null,
+          activeEntityId,
           hasPasscode,
         },
       });
@@ -137,51 +135,77 @@ export async function authRoutes(server: FastifyInstance) {
       userId = existingUsers[0].id;
     } else {
       userId = particleUserId || ulid();
-      await db.insert(users).values({
-        id: userId,
-        email: cleanEmail,
-        fullName: cleanEmail.split('@')[0],
-        createdAt: new Date(),
-      });
+      try {
+        await db.insert(users).values({
+          id: userId,
+          email: cleanEmail,
+          fullName: name || cleanEmail.split('@')[0],
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        // Scenario A Safeguard: Catch duplicate insert (23505) under concurrency & re-select
+        if (err.code === '23505' || err.message?.includes('unique constraint')) {
+          const reSelected = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+          if (reSelected.length > 0) {
+            userId = reSelected[0].id;
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Provision isolated Personal & Business entities if missing
-    let userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+    let userEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
     const hasPersonal = userEntities.some(e => e.kind === 'PERSONAL');
     const hasBusiness = userEntities.some(e => e.kind === 'BUSINESS');
 
     if (!hasPersonal) {
       const personalId = ulid();
-      await db.insert(entities).values({
-        id: personalId,
-        userId,
-        kind: 'PERSONAL',
-        legalName: '',
-        nuvionTier: 0,
-        nuvionStatus: 'incomplete',
-        createdAt: new Date(),
-      });
+      try {
+        await db.insert(entities).values({
+          id: personalId,
+          userId,
+          kind: 'PERSONAL',
+          legalName: name || cleanEmail.split('@')[0],
+          nuvionTier: 0,
+          nuvionStatus: 'incomplete',
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+      }
     }
 
     if (!hasBusiness) {
       const businessId = ulid();
-      await db.insert(entities).values({
-        id: businessId,
-        userId,
-        kind: 'BUSINESS',
-        legalName: '',
-        nuvionTier: 0,
-        nuvionStatus: 'incomplete',
-        createdAt: new Date(),
-      });
+      try {
+        await db.insert(entities).values({
+          id: businessId,
+          userId,
+          kind: 'BUSINESS',
+          legalName: '',
+          nuvionTier: 0,
+          nuvionStatus: 'incomplete',
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+      }
     }
 
-    userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+    userEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
     const populatedEntities = await populateEntitiesWithAccounts(userEntities);
+
+    const approvedEntity = populatedEntities.find(e => e.nuvionStatus === 'approved');
+    const personalEntity = populatedEntities.find(e => e.kind === 'PERSONAL');
+    const activeEntityId = approvedEntity?.id || personalEntity?.id || populatedEntities[0]?.id || null;
 
     // Save Particle Web3 wallet address to entity if provided
     if (particleWalletAddress && populatedEntities.length > 0) {
-      const primaryEntityId = populatedEntities[0].id;
+      const primaryEntityId = personalEntity?.id || populatedEntities[0].id;
       const existingWallets = await db
         .select()
         .from(wallets)
@@ -189,13 +213,17 @@ export async function authRoutes(server: FastifyInstance) {
         .limit(1);
 
       if (existingWallets.length === 0) {
-        await db.insert(wallets).values({
-          id: ulid(),
-          entityId: primaryEntityId,
-          particleWalletAddress,
-          chainId: 137, // Default Polygon chain ID
-          createdAt: new Date(),
-        });
+        try {
+          await db.insert(wallets).values({
+            id: ulid(),
+            entityId: primaryEntityId,
+            particleWalletAddress,
+            chainId: 137,
+            createdAt: new Date(),
+          });
+        } catch (err: any) {
+          if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+        }
       }
     }
 
@@ -204,7 +232,7 @@ export async function authRoutes(server: FastifyInstance) {
         userId,
         email: cleanEmail,
         entityIds: populatedEntities.map(e => e.id),
-        activeEntityId: populatedEntities[0]?.id || null,
+        activeEntityId,
       },
       env.JWT_SECRET,
       { expiresIn: '30d' }

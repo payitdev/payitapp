@@ -417,13 +417,22 @@ export async function socialRoutes(server: FastifyInstance) {
     let txId = ulid();
     try {
       await db.transaction(async (tx) => {
-        const currentBalance = await getEntityBalance(tx, entityId);
+        const reqCurr = (pr.currency || 'NGN').toUpperCase();
+        const currentBalance = await getEntityBalance(tx, entityId, reqCurr);
         if (currentBalance < numAmount) {
           throw new Error(`INSUFFICIENT_FUNDS:${currentBalance}`);
         }
 
-        const payerLedgerAcc = `${entityId}_cash`;
-        const requesterLedgerAcc = `${pr.requesterEntityId}_cash`;
+        const payerLedgerAcc = `${entityId}_cash_${reqCurr}`;
+        const requesterLedgerAcc = `${pr.requesterEntityId}_cash_${reqCurr}`;
+
+        // Ensure currency-scoped ledger account exists for requester
+        const existingReqAcc = await tx.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, requesterLedgerAcc)).limit(1);
+        if (existingReqAcc.length === 0) {
+          await tx.insert(ledgerAccounts).values([
+            { id: requesterLedgerAcc, entityId: pr.requesterEntityId, name: `Cash / Wallet (${reqCurr})`, type: 'ASSET', currency: reqCurr, createdAt: new Date() },
+          ]);
+        }
 
         await tx.insert(ledgerEntries).values([
           { id: ulid(), entityId, transactionId: txId, ledgerAccountId: payerLedgerAcc, type: 'DEBIT', amount: String(numAmount), createdAt: new Date() },

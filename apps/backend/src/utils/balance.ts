@@ -4,10 +4,16 @@
  */
 
 import { eq } from '@payit/db';
-import { ledgerEntries } from '@payit/db/schema';
+import { ledgerEntries, ledgerAccounts } from '@payit/db/schema';
 
-export async function getEntityBalance(db: any, entityId: string): Promise<number> {
-  const accountId = `${entityId}_cash`;
+export async function getEntityBalance(
+  db: any,
+  entityId: string,
+  currency: string = 'NGN',
+  accountType: 'cash' | 'savings' = 'cash'
+): Promise<number> {
+  const curr = (currency || 'NGN').toUpperCase();
+  const accountId = `${entityId}_${accountType}_${curr}`;
   const entries = await db.select().from(ledgerEntries).where(eq(ledgerEntries.ledgerAccountId, accountId));
 
   let totalCredit = 0;
@@ -24,4 +30,19 @@ export async function getEntityBalance(db: any, entityId: string): Promise<numbe
 
   const balance = totalCredit - totalDebit;
   return Math.max(0, Math.round(balance * 100) / 100);
+}
+
+export async function getAllEntityBalances(db: any, entityId: string): Promise<Array<{ currency: string; balance: number; accountType: string }>> {
+  const accounts = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.entityId, entityId));
+  const results: Array<{ currency: string; balance: number; accountType: string }> = [];
+
+  for (const acc of accounts) {
+    const parts = acc.id.split('_');
+    const accountType = parts[1] || 'cash';
+    const currency = acc.currency.toUpperCase();
+    const balance = await getEntityBalance(db, entityId, currency, accountType as any);
+    results.push({ currency, balance, accountType });
+  }
+
+  return results;
 }
