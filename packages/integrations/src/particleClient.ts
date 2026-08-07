@@ -1,19 +1,17 @@
 /**
  * Particle Network Universal Account Integration
  *
- * Uses the @particle-network/universal-account-sdk to provide:
- * - Real Universal Account addresses (Smart Account mode)
- * - Real cross-chain transfers via Universal Accounts
- * - Real unified USDC/USDT balances across all supported chains
+ * OPTION A ARCHITECTURE (User-Owned Non-Custodial Keys):
+ * - Users own their private keys via Particle Connect / Auth Core SDK client-side.
+ * - Transaction signing occurs client-side using the user's active session (useAuthCore / useConnect).
+ * - Backend does not generate, store, or custody private key material.
+ * - Backend role: Verifying on-chain receipts via Particle SDK & logging webhooks.
  *
  * Required env vars:
  *   PARTICLE_PROJECT_ID   — from dashboard.particle.network
  *   PARTICLE_CLIENT_KEY   — from dashboard.particle.network
  *   PARTICLE_SERVER_KEY   — from dashboard.particle.network
  *   PARTICLE_APP_ID       — App UUID from dashboard.particle.network (required for UA SDK)
- *
- * NOTE: In Smart Account mode (useEIP7702: false), a dedicated smart contract
- * address is created per owner EOA. This is compatible with all wallet types.
  */
 
 import { Wallet, getBytes } from 'ethers';

@@ -24,7 +24,7 @@ export class KMSKeyEnclave {
   private masterSecret: string;
 
   constructor() {
-    this.masterSecret = process.env.KMS_MASTER_SECRET || process.env.JWT_SECRET || '';
+    this.masterSecret = process.env.KMS_MASTER_SECRET || '';
     if (!this.masterSecret) {
       throw new Error('KMS_MASTER_SECRET environment variable is required for HD wallet derivation');
     }
