@@ -59,6 +59,7 @@ export interface NuvionFxRate {
   reverseRate: number;
   clearingNetwork: string;
   lastUpdated: string;
+  source: 'live_fx_endpoint' | 'account_snapshot';
 }
 
 export interface DynamicFxQuoteParams {
@@ -67,6 +68,7 @@ export interface DynamicFxQuoteParams {
   amount: number;
   isDeposit?: boolean;
   marginPercent?: number;
+  allowStale?: boolean;
 }
 
 export interface TreasurySweepRecord {
@@ -119,8 +121,9 @@ const CURRENCY_META: Record<NuvionSupportedCurrency, { name: string; symbol: str
   UGX: { name: 'Ugandan Shilling', symbol: 'USh', clearingNetwork: 'UNPSS / MTN Mobile Money' },
 };
 
-// Rate cache: 90-second TTL to avoid hammering Nuvion API on every request
+// Rate cache: 90-second TTL & Request Coalescing Promise Lock to prevent cache stampedes
 let _rateCache: { rates: NuvionFxRate[]; fetchedAt: number } | null = null;
+let _inFlightFetch: Promise<NuvionFxRate[]> | null = null;
 const CACHE_TTL_MS = 90_000;
 
 const resolveNuvionBankName = (curr: string, rawBank?: string): string => {
@@ -254,7 +257,7 @@ export class NuvionClient {
 
   /**
    * Fetches LIVE FX rates directly from Nuvion API endpoints.
-   * Relies 100% on Nuvion's live platform quotes — zero hardcoded rate values or cross ratio fallbacks.
+   * Merges /fx/rates and /accounts per-currency with request coalescing to prevent cache stampedes.
    */
   public async getLiveFxRates(): Promise<NuvionFxRate[]> {
     const now = Date.now();
@@ -262,87 +265,125 @@ export class NuvionClient {
       return _rateCache.rates;
     }
 
-    const timestamp = new Date().toISOString();
-    const rates: NuvionFxRate[] = [];
-    const currencies: NuvionSupportedCurrency[] = ['NGN', 'USD', 'EUR', 'GBP', 'KES', 'GHS', 'ZAR', 'CAD', 'AED', 'UGX', 'TZS'];
-
-    let nuvionRatesMap: Record<string, number> = {};
-
-    // 1. Query Nuvion FX rates endpoint
-    try {
-      const ratesRes = await this.nuvionGet('/fx/rates');
-      const ratesData: any[] = ratesRes?.data?.rates || ratesRes?.data || (Array.isArray(ratesRes) ? ratesRes : []);
-      for (const item of ratesData) {
-        if (item.currency && item.rateToNgn) {
-          nuvionRatesMap[item.currency] = parseFloat(item.rateToNgn);
-        } else if (item.pair && item.rate) {
-          const parts = String(item.pair).split('/');
-          if (parts[1] === 'NGN') {
-            nuvionRatesMap[parts[0]] = parseFloat(item.rate);
-          }
-        }
-      }
-    } catch {
-      // Endpoint /fx/rates not available — try /accounts meta
+    if (_inFlightFetch) {
+      return _inFlightFetch;
     }
 
-    // 2. Query Nuvion accounts endpoint to extract live exchange rates
-    if (Object.keys(nuvionRatesMap).length === 0) {
+    _inFlightFetch = (async () => {
       try {
-        const accountsRes = await this.nuvionGet('/accounts');
-        const accountsList: any[] = accountsRes?.data?.data || accountsRes?.data || [];
-        for (const acc of accountsList) {
-          if (acc.currency && acc.meta) {
-            const rate = parseFloat(acc.meta.exchange_rate || acc.meta.rate_to_ngn || acc.meta.rate || '0');
-            if (rate > 0) nuvionRatesMap[acc.currency] = rate;
+        const timestamp = new Date().toISOString();
+        const rates: NuvionFxRate[] = [];
+        const currencies: NuvionSupportedCurrency[] = ['NGN', 'USD', 'EUR', 'GBP', 'KES', 'GHS', 'ZAR', 'CAD', 'AED', 'UGX', 'TZS'];
+
+        const nuvionLiveRatesMap: Record<string, number> = {};
+        const nuvionAccountRatesMap: Record<string, number> = {};
+
+        // 1. Fetch from live /fx/rates endpoint
+        try {
+          const ratesRes = await this.nuvionGet('/fx/rates');
+          const ratesData: any[] = ratesRes?.data?.rates || ratesRes?.data || (Array.isArray(ratesRes) ? ratesRes : []);
+          for (const item of ratesData) {
+            if (item.currency && item.rateToNgn) {
+              nuvionLiveRatesMap[item.currency] = parseFloat(item.rateToNgn);
+            } else if (item.pair && item.rate) {
+              const parts = String(item.pair).split('/');
+              if (parts[1] === 'NGN') {
+                nuvionLiveRatesMap[parts[0]] = parseFloat(item.rate);
+              }
+            }
           }
+        } catch {
+          // Endpoint /fx/rates unavailable or partial — proceed to per-currency account fallback
         }
-      } catch (err: any) {
-        throw new Error(`Failed to fetch live FX rates from Nuvion API: ${err.message}`);
+
+        // 2. Fetch from /accounts endpoint to collect per-currency account_snapshot meta rates
+        try {
+          const accountsRes = await this.nuvionGet('/accounts');
+          const accountsList: any[] = accountsRes?.data?.data || accountsRes?.data || [];
+          for (const acc of accountsList) {
+            if (acc.currency && acc.meta) {
+              const rate = parseFloat(acc.meta.exchange_rate || acc.meta.rate_to_ngn || acc.meta.rate || '0');
+              if (rate > 0) {
+                nuvionAccountRatesMap[acc.currency] = rate;
+              }
+            }
+          }
+        } catch {
+          // Endpoint /accounts unavailable or partial
+        }
+
+        for (const currency of currencies) {
+          const meta = CURRENCY_META[currency];
+          let rateToNgn = 1.0;
+          let source: 'live_fx_endpoint' | 'account_snapshot' = 'live_fx_endpoint';
+
+          if (currency === 'NGN') {
+            rateToNgn = 1.0;
+            source = 'live_fx_endpoint';
+          } else if (nuvionLiveRatesMap[currency] && nuvionLiveRatesMap[currency] > 0) {
+            rateToNgn = nuvionLiveRatesMap[currency];
+            source = 'live_fx_endpoint';
+          } else if (nuvionAccountRatesMap[currency] && nuvionAccountRatesMap[currency] > 0) {
+            rateToNgn = nuvionAccountRatesMap[currency];
+            source = 'account_snapshot';
+          } else {
+            console.error(`[NuvionClient] Live FX rate unavailable for ${currency}`);
+            continue;
+          }
+
+          rates.push({
+            currency,
+            name: meta.name,
+            symbol: meta.symbol,
+            rateToNgn,
+            reverseRate: rateToNgn > 0 ? 1 / rateToNgn : 0,
+            clearingNetwork: meta.clearingNetwork,
+            lastUpdated: timestamp,
+            source,
+          });
+        }
+
+        if (rates.length === 0) {
+          throw new Error('Total FX outage: Zero currencies resolved from Nuvion API');
+        }
+
+        _rateCache = { rates, fetchedAt: Date.now() };
+        return rates;
+      } finally {
+        _inFlightFetch = null;
       }
-    }
+    })();
 
-    for (const currency of currencies) {
-      const meta = CURRENCY_META[currency];
-      let rateToNgn = 1.0;
-
-      if (currency === 'NGN') {
-        rateToNgn = 1.0;
-      } else if (nuvionRatesMap[currency] && nuvionRatesMap[currency] > 0) {
-        rateToNgn = nuvionRatesMap[currency];
-      } else {
-        throw new Error(`Live FX rate for currency '${currency}' is currently unavailable from Nuvion API.`);
-      }
-
-      rates.push({
-        currency,
-        name: meta.name,
-        symbol: meta.symbol,
-        rateToNgn,
-        reverseRate: rateToNgn > 0 ? 1 / rateToNgn : 0,
-        clearingNetwork: meta.clearingNetwork,
-        lastUpdated: timestamp,
-      });
-    }
-
-    _rateCache = { rates, fetchedAt: now };
-    return rates;
+    return _inFlightFetch;
   }
 
   /**
    * Generates a DYNAMIC FX QUOTE using LIVE Nuvion rates.
    * Applies PayIT margin on top — no hardcoded rate values anywhere.
+   * 
+   * SECURITY & LIQUIDITY GUARD:
+   * By default (allowStale = false), account_snapshot rates are explicitly blocked.
+   * Account meta rates are captured during virtual account creation and can be stale, so they must
+   * never be used to calculate financial conversions or move real money in production.
    */
   public async getLiveDynamicQuote(params: DynamicFxQuoteParams) {
     const rates = await this.getLiveFxRates();
     const margin = params.marginPercent !== undefined ? params.marginPercent : this.defaultMarginPercent;
     const isDeposit = params.isDeposit !== undefined ? params.isDeposit : true;
+    const allowStale = params.allowStale ?? false;
 
     const fromRate = rates.find(r => r.currency === params.fromCurrency);
     const toRate = rates.find(r => r.currency === params.toCurrency);
 
     if (!fromRate) throw new Error(`Live FX rate unavailable for ${params.fromCurrency}`);
     if (!toRate) throw new Error(`Live FX rate unavailable for ${params.toCurrency}`);
+
+    if (!allowStale && fromRate.source === 'account_snapshot') {
+      throw new Error(`Live FX rate unavailable for ${params.fromCurrency} (only stale account snapshot available)`);
+    }
+    if (!allowStale && toRate.source === 'account_snapshot') {
+      throw new Error(`Live FX rate unavailable for ${params.toCurrency} (only stale account snapshot available)`);
+    }
 
     const nuvionBaseExchangeRate = fromRate.rateToNgn / toRate.rateToNgn;
     const clientEffectiveRate = nuvionBaseExchangeRate * (1 - margin);
@@ -376,9 +417,13 @@ export class NuvionClient {
 
   /**
    * Fetches an authenticated FX quote with 30-second TTL from Nuvion platform.
-   * Eliminates hardcoded rates and external internet API calls.
+   * 
+   * AUTHORITATIVE RATE SOURCE RATIONALE:
+   * dynamicQuote is the sole authoritative source of truth for rate, convertedAmount, feeAmountUsd,
+   * and feeAmountLocal. Raw quotes from provider endpoints lack PayIT's platform margin; using dynamicQuote
+   * guarantees all client-facing fields reconcile 100% with each other and accurately include margin.
    */
-  public async getFxQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
+  public async getFxQuote(sourceCurrency: string, targetCurrency: string, amount: number, allowStale: boolean = false) {
     const fromCurr = sourceCurrency.toUpperCase() as NuvionSupportedCurrency;
     const toCurr = targetCurrency.toUpperCase() as NuvionSupportedCurrency;
 
@@ -397,10 +442,11 @@ export class NuvionClient {
       fromCurrency: fromCurr,
       toCurrency: toCurr,
       amount,
+      allowStale,
     });
 
-    const rate = rawQuote?.rate || rawQuote?.data?.rate || dynamicQuote.clientEffectiveRate;
-    const convertedAmount = rawQuote?.convertedAmount || rawQuote?.data?.convertedAmount || dynamicQuote.clientReceivedAmount;
+    const rate = dynamicQuote.clientEffectiveRate;
+    const convertedAmount = dynamicQuote.clientReceivedAmount;
 
     const now = Date.now();
     const expiresAt = new Date(now + 30000).toISOString();
@@ -417,6 +463,7 @@ export class NuvionClient {
       ttlSeconds: 30,
       expiresAt,
       timestamp: new Date(now).toISOString(),
+      rawProviderQuote: rawQuote,
     };
   }
 
