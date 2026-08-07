@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+
+// Backend API base URL — set VITE_API_BASE_URL in your environment (.env.production, hosting
+// provider dashboard, etc). Falls back to localhost only for local development.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowUpRight, 
@@ -86,7 +91,7 @@ export default function App() {
     setSubmitError('');
 
     try {
-      const response = await fetch('http://localhost:4000/api/waitlist', {
+      const response = await fetch(`${API_BASE_URL}/api/waitlist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -97,17 +102,22 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit waitlist signup');
+        throw new Error(data.error || 'Failed to submit waitlist signup. Please try again.');
       }
 
       setIsSubmitted(true);
     } catch (err: any) {
-      console.warn('Waitlist API warning:', err.message);
-      // Clean optimistic fallback if network is offline
-      setIsSubmitted(true);
+      // A failed request must NEVER be shown to the user as a success —
+      // only flip isSubmitted on a real, confirmed 2xx response from the backend.
+      console.error('Waitlist submission failed:', err);
+      setSubmitError(
+        err.message === 'Failed to fetch'
+          ? "We couldn't reach our servers. Please check your connection and try again."
+          : err.message || 'Something went wrong. Please try again in a moment.'
+      );
     } finally {
       setIsSubmitting(false);
     }
