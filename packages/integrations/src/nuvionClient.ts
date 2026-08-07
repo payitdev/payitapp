@@ -253,8 +253,8 @@ export class NuvionClient {
   }
 
   /**
-   * Fetches LIVE FX rates directly from Nuvion API endpoints (/accounts and /accounts/rates).
-   * Relies 100% on Nuvion's live platform quotes — zero third-party or external market feeds.
+   * Fetches LIVE FX rates directly from Nuvion API endpoints.
+   * Relies 100% on Nuvion's live platform quotes — zero hardcoded rate values or cross ratio fallbacks.
    */
   public async getLiveFxRates(): Promise<NuvionFxRate[]> {
     const now = Date.now();
@@ -268,36 +268,39 @@ export class NuvionClient {
 
     let nuvionRatesMap: Record<string, number> = {};
 
+    // 1. Query Nuvion FX rates endpoint
     try {
-      // Query Nuvion API /accounts to extract live settlement exchange rates offered by Nuvion
-      const accountsRes = await this.nuvionGet('/accounts');
-      const accountsList: any[] = accountsRes?.data?.data || [];
-
-      // Extract Nuvion rate fields from active Nuvion currency accounts
-      for (const acc of accountsList) {
-        if (acc.currency && acc.meta) {
-          const rate = parseFloat(acc.meta.exchange_rate || acc.meta.rate_to_ngn || acc.meta.rate || '0');
-          if (rate > 0) nuvionRatesMap[acc.currency] = rate;
+      const ratesRes = await this.nuvionGet('/fx/rates');
+      const ratesData: any[] = ratesRes?.data?.rates || ratesRes?.data || (Array.isArray(ratesRes) ? ratesRes : []);
+      for (const item of ratesData) {
+        if (item.currency && item.rateToNgn) {
+          nuvionRatesMap[item.currency] = parseFloat(item.rateToNgn);
+        } else if (item.pair && item.rate) {
+          const parts = String(item.pair).split('/');
+          if (parts[1] === 'NGN') {
+            nuvionRatesMap[parts[0]] = parseFloat(item.rate);
+          }
         }
       }
-    } catch (err: any) {
-      console.error('Error querying Nuvion live account rates:', err.message);
+    } catch {
+      // Endpoint /fx/rates not available — try /accounts meta
     }
 
-    const usdToNgnNuvion = nuvionRatesMap['USD'] || 1450.0;
-
-    const CROSS_RATIOS: Record<string, number> = {
-      USD: 1.0,
-      EUR: 0.868,
-      GBP: 0.744,
-      CAD: 1.406,
-      AED: 3.673,
-      KES: 129.4,
-      ZAR: 17.47,
-      GHS: 12.46,
-      UGX: 3670.0,
-      TZS: 2580.0,
-    };
+    // 2. Query Nuvion accounts endpoint to extract live exchange rates
+    if (Object.keys(nuvionRatesMap).length === 0) {
+      try {
+        const accountsRes = await this.nuvionGet('/accounts');
+        const accountsList: any[] = accountsRes?.data?.data || accountsRes?.data || [];
+        for (const acc of accountsList) {
+          if (acc.currency && acc.meta) {
+            const rate = parseFloat(acc.meta.exchange_rate || acc.meta.rate_to_ngn || acc.meta.rate || '0');
+            if (rate > 0) nuvionRatesMap[acc.currency] = rate;
+          }
+        }
+      } catch (err: any) {
+        throw new Error(`Failed to fetch live FX rates from Nuvion API: ${err.message}`);
+      }
+    }
 
     for (const currency of currencies) {
       const meta = CURRENCY_META[currency];
@@ -305,11 +308,10 @@ export class NuvionClient {
 
       if (currency === 'NGN') {
         rateToNgn = 1.0;
-      } else if (nuvionRatesMap[currency]) {
+      } else if (nuvionRatesMap[currency] && nuvionRatesMap[currency] > 0) {
         rateToNgn = nuvionRatesMap[currency];
       } else {
-        const ratio = CROSS_RATIOS[currency] || 1.0;
-        rateToNgn = usdToNgnNuvion / ratio;
+        throw new Error(`Live FX rate for currency '${currency}' is currently unavailable from Nuvion API.`);
       }
 
       rates.push({
