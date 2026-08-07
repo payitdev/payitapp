@@ -275,10 +275,11 @@ export class ParticleClient {
    * their browser-connected wallet (via Particle Connect frontend SDK).
    */
   private deriveOwnerWallet(entityId: string, kind: string): Wallet {
-    const secret = process.env.KMS_MASTER_SECRET || 'payit_kms_enclave_master_secret_2026_prod_replace_me';
+    const secret = process.env.KMS_MASTER_SECRET;
+    if (!secret) {
+      throw new Error('CRITICAL SECURITY ERROR: KMS_MASTER_SECRET environment variable is missing.');
+    }
     const seed = `particle_ua_${kind}_${entityId}_${secret}`;
-    // Create a deterministic private key by hashing the seed
-    // ethers Wallet.fromPhrase would need a valid mnemonic, so we use createHash directly
     const { createHash } = require('crypto');
     const privateKey = '0x' + createHash('sha256').update(seed).digest('hex');
     return new Wallet(privateKey);

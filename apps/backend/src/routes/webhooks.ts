@@ -151,7 +151,9 @@ export async function webhookRoutes(server: FastifyInstance) {
             : [];
 
           if (ent.length === 0) {
-            ent = await db.select().from(entities).limit(1);
+            server.log.error({ targetEntityId, eventId }, 'Nuvion deposit webhook target entity not found. Quarantining event.');
+            await db.update(rawWebhooks).set({ status: 'FAILED' }).where(eq(rawWebhooks.eventId, eventId));
+            return;
           }
 
           if (ent.length > 0) {

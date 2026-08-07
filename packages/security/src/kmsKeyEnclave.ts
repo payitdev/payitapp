@@ -1,5 +1,6 @@
 import hdkey from 'hdkey';
 import { createHash } from 'crypto';
+import { computeAddress } from 'ethers';
 
 /**
  * HD Wallet Key Derivation using BIP-32 / BIP-44 standard.
@@ -70,12 +71,8 @@ export class KMSKeyEnclave {
     const childNode = parentNode.derive(`m/0/${hdIndex}`);
     const childPublicKey = childNode.publicKey;
 
-    // Derive Ethereum address from uncompressed public key using Keccak-256
-    // Ethereum address = last 20 bytes of keccak256(pubKey[1:])
-    // We approximate with SHA-256 for pure Node.js (no secp256k1 dependency risk)
-    // In production with full secp256k1 available, use ethers.js computeAddress()
-    const pubKeyHash = createHash('sha256').update(childPublicKey).digest('hex');
-    const receivingAddress = `0x${pubKeyHash.slice(-40)}`;
+    // Standard Ethereum address derivation using keccak256 via ethers computeAddress
+    const receivingAddress = computeAddress('0x' + childPublicKey.toString('hex'));
 
     return {
       hdIndex,

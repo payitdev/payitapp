@@ -15,9 +15,9 @@ export async function getEntityBalance(db: any, entityId: string): Promise<numbe
 
   for (const entry of entries) {
     const amt = parseFloat(entry.amount || '0');
-    if (entry.entryType === 'CREDIT') {
+    if (entry.type === 'CREDIT') {
       totalCredit += amt;
-    } else if (entry.entryType === 'DEBIT') {
+    } else if (entry.type === 'DEBIT') {
       totalDebit += amt;
     }
   }

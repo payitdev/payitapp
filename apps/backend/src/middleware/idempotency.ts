@@ -36,7 +36,7 @@ export async function checkIdempotencyKey(
 
   // 1. Check L1 Memory cache
   const cached = memoryStore.get(compositeKey);
-  if (cached) {
+  if (cached && cached.status !== 'FAILED') {
     return { isDuplicate: true, record: cached };
   }
 
@@ -45,15 +45,21 @@ export async function checkIdempotencyKey(
     const dbRows = await db.select().from(idempotencyKeys).where(eq(idempotencyKeys.key, compositeKey)).limit(1);
     if (dbRows.length > 0) {
       const dbRow = dbRows[0];
-      const parsedPayload = dbRow.responsePayload ? JSON.parse(dbRow.responsePayload) : null;
-      const rec: IdempotencyRecord = {
-        status: dbRow.status as any,
-        statusCode: parsedPayload?.statusCode || 200,
-        response: parsedPayload?.response || parsedPayload,
-        createdAt: dbRow.createdAt.getTime(),
-      };
-      memoryStore.set(compositeKey, rec);
-      return { isDuplicate: true, record: rec };
+      if (dbRow.status !== 'FAILED') {
+        const parsedPayload = dbRow.responsePayload ? JSON.parse(dbRow.responsePayload) : null;
+        const rec: IdempotencyRecord = {
+          status: dbRow.status as any,
+          statusCode: parsedPayload?.statusCode || 200,
+          response: parsedPayload?.response || parsedPayload,
+          createdAt: dbRow.createdAt.getTime(),
+        };
+        memoryStore.set(compositeKey, rec);
+        return { isDuplicate: true, record: rec };
+      } else {
+        // Clear FAILED row so a fresh attempt can lock
+        await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, compositeKey));
+        memoryStore.delete(compositeKey);
+      }
     }
 
     // Insert lock into DB
