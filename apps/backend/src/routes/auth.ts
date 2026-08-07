@@ -19,9 +19,12 @@ async function populateEntitiesWithAccounts(entityRows: any[]) {
   const result = [];
   for (const ent of entityRows) {
     const accs = await db.select().from(accounts).where(eq(accounts.entityId, ent.id));
+    const walletRows = await db.select().from(wallets).where(eq(wallets.entityId, ent.id)).limit(1);
+    const particleNetworkAddress = walletRows[0]?.particleWalletAddress || null;
 
     result.push({
       ...ent,
+      particleNetworkAddress,
       nuvionStatus: ent.nuvionStatus,
       nuvionTier: ent.nuvionTier,
       fiatAccounts: accs.map(a => ({
@@ -197,15 +200,11 @@ export async function authRoutes(server: FastifyInstance) {
     }
 
     userEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
-    const populatedEntities = await populateEntitiesWithAccounts(userEntities);
-
-    const approvedEntity = populatedEntities.find(e => e.nuvionStatus === 'approved');
-    const personalEntity = populatedEntities.find(e => e.kind === 'PERSONAL');
-    const activeEntityId = approvedEntity?.id || personalEntity?.id || populatedEntities[0]?.id || null;
+    const personalEntity = userEntities.find(e => e.kind === 'PERSONAL');
 
     // Save Particle Web3 wallet address to entity if provided
-    if (particleWalletAddress && populatedEntities.length > 0) {
-      const primaryEntityId = personalEntity?.id || populatedEntities[0].id;
+    if (particleWalletAddress && userEntities.length > 0) {
+      const primaryEntityId = personalEntity?.id || userEntities[0].id;
       const existingWallets = await db
         .select()
         .from(wallets)
@@ -226,6 +225,11 @@ export async function authRoutes(server: FastifyInstance) {
         }
       }
     }
+
+    const populatedEntities = await populateEntitiesWithAccounts(userEntities);
+
+    const approvedEntity = populatedEntities.find(e => e.nuvionStatus === 'approved');
+    const activeEntityId = approvedEntity?.id || personalEntity?.id || populatedEntities[0]?.id || null;
 
     const sessionToken = jwt.sign(
       {

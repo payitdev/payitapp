@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { setActiveEntityId } from './apiClient';
+import { apiFetch, setActiveEntityId } from './apiClient';
 import {
   CreditCard,
   FileText,
@@ -128,10 +128,10 @@ export default function App() {
   const userInfo = useUserInfo();
 
   useEffect(() => {
-    if (userInfo && !currentUser) {
+    if (userInfo && !currentUser && !isLoggingIn) {
       const particleUser = formatParticleUserInfo(userInfo, 'google');
       const emailToUse = particleUser.email;
-      fetch(`${API_BASE_URL}/api/auth/particle-login`, {
+      apiFetch(`${API_BASE_URL}/api/auth/particle-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,12 +148,13 @@ export default function App() {
           if (userObj) {
             localStorage.setItem('payit_current_user', JSON.stringify(userObj));
             setCurrentUser(userObj);
+            setActiveEntityId(userObj.activeEntityId || null);
             buildEntitiesMap(userObj);
           }
         })
         .catch(err => console.warn('[ParticleAuth] Auto-login error:', err));
     }
-  }, [userInfo, currentUser]);
+  }, [userInfo, currentUser, isLoggingIn]);
 
   // Active Account / Entity State
   const [accountType, setAccountType] = useState<'PERSONAL' | 'BUSINESS'>('PERSONAL');
@@ -285,22 +286,27 @@ export default function App() {
     if (!token) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/session`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401) {
+      const res = await apiFetch(`${API_BASE_URL}/api/auth/session`);
+      if (!res.ok) {
         localStorage.removeItem('payit_auth_token');
         localStorage.removeItem('payit_current_user');
         setCurrentUser(null);
+        setActiveEntityId(null);
         return;
       }
       const data = await res.json();
       if (data.user) {
         localStorage.setItem('payit_current_user', JSON.stringify(data.user));
         setCurrentUser(data.user);
+        setActiveEntityId(data.user.activeEntityId || null);
         buildEntitiesMap(data.user);
       }
-    } catch {}
+    } catch {
+      localStorage.removeItem('payit_auth_token');
+      localStorage.removeItem('payit_current_user');
+      setCurrentUser(null);
+      setActiveEntityId(null);
+    }
   };
 
   const handleParticleSocialSignIn = async (provider: 'google' | 'apple' | 'email') => {
@@ -327,7 +333,7 @@ export default function App() {
       const particleUser = formatParticleUserInfo(rawInfo, provider, userEmail);
       const emailToUse = particleUser.email || (provider === 'email' ? userEmail : '') || `user_${provider}@particle-user.com`;
 
-      const res = await fetch(`${API_BASE_URL}/api/auth/particle-login`, {
+      const res = await apiFetch(`${API_BASE_URL}/api/auth/particle-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -349,6 +355,7 @@ export default function App() {
 
       localStorage.setItem('payit_current_user', JSON.stringify(userObj));
       setCurrentUser(userObj);
+      setActiveEntityId(userObj.activeEntityId || null);
       buildEntitiesMap(userObj);
     } catch (err: any) {
       setAuthError(err.message || 'Particle Auth failed. Please try again.');
@@ -361,6 +368,7 @@ export default function App() {
     localStorage.removeItem('payit_auth_token');
     localStorage.removeItem('payit_current_user');
     setCurrentUser(null);
+    setActiveEntityId(null);
     setEntitiesMap({});
     setUserEmail('');
   };
@@ -388,7 +396,7 @@ export default function App() {
 
   const fetchEntityDetails = async (userId: string, entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/kyc/status?entityId=${entityId}&userId=${userId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/kyc/status?entityId=${entityId}&userId=${userId}`, { signal });
       const data = await res.json();
       if (signal.aborted) return;
 
@@ -422,7 +430,7 @@ export default function App() {
 
   const fetchBalance = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/transfers/balance?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/transfers/balance?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.balance !== undefined) {
         setAvailableBalance(data.balance);
@@ -432,7 +440,7 @@ export default function App() {
 
   const fetchSavingsSummary = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/savings/summary?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/savings/summary?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted) {
         setSavingsPool(data.savingsPool || 0);
@@ -444,7 +452,7 @@ export default function App() {
 
   const fetchLiveFxRates = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/fx/rates`);
+      const res = await apiFetch(`${API_BASE_URL}/api/fx/rates`);
       const data = await res.json();
       if (data.rates) setFxRates(data.rates);
     } catch {}
@@ -452,7 +460,7 @@ export default function App() {
 
   const fetchCards = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/cards?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/cards?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.cards) setIssuedCards(data.cards);
     } catch {}
@@ -460,7 +468,7 @@ export default function App() {
 
   const fetchInvoices = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/invoices?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/invoices?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.invoices) setInvoicesList(data.invoices);
     } catch {}
@@ -468,7 +476,7 @@ export default function App() {
 
   const fetchPayroll = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/payroll?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/payroll?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.payrollRuns) setPayrollRunsList(data.payrollRuns);
     } catch {}
@@ -476,7 +484,7 @@ export default function App() {
 
   const fetchRequests = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/payments/requests?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/payments/requests?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.requests) {
         setPendingRequests(data.requests.filter((r: any) => r.status === 'pending'));
@@ -487,7 +495,7 @@ export default function App() {
 
   const fetchFriends = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/friends/list?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/friends/list?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.friends) setFriendsList(data.friends);
     } catch {}
@@ -495,7 +503,7 @@ export default function App() {
 
   const fetchTransactions = async (entityId: string, signal: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/transfers/history?entityId=${entityId}`, { signal });
+      const res = await apiFetch(`${API_BASE_URL}/api/transfers/history?entityId=${entityId}`, { signal });
       const data = await res.json();
       if (!signal.aborted && data.transactions) {
         setTransactions(data.transactions.map((tx: any) => ({
