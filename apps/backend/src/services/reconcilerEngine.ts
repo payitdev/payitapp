@@ -1,5 +1,5 @@
 import { createDbClient, sql } from '@payit/db';
-import { ledgerEntries, auditLogs } from '@payit/db/schema';
+import { ledgerEntries, auditLogs, reconciliationLogs } from '@payit/db/schema';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
@@ -17,6 +17,7 @@ export class ReconcilerEngine {
   /**
    * Run automated audit check of double-entry ledger equality:
    * Sum(DEBIT) must equal Sum(CREDIT) globally and per transaction_id.
+   * Persists discrepancy logs into reconciliationLogs database table (Issue 16).
    */
   public static async runAuditReconciliation(): Promise<ReconciliationReport> {
     const timestamp = new Date().toISOString();
@@ -69,6 +70,18 @@ export class ReconcilerEngine {
       entityId: 'SYSTEM',
       action: 'RECONCILIATION_RUN',
       metadata: JSON.stringify(report),
+      createdAt: new Date(),
+    });
+
+    // Persist to reconciliationLogs table in DB (Issue 16)
+    await db.insert(reconciliationLogs).values({
+      id: ulid(),
+      userId: 'SYSTEM_RECONCILER',
+      entityId: 'SYSTEM',
+      ledgerBalance: String(totalDebits),
+      onChainBalance: String(totalCredits),
+      discrepancy: String(discrepancy),
+      status: report.isBalanced ? 'MATCHED' : 'DISCREPANCY_DETECTED',
       createdAt: new Date(),
     });
 

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { validateEntityAccess } from '@payit/ledger';
-import { createDbClient, eq } from '@payit/db';
+import { createDbClient, eq, and } from '@payit/db';
 import { auditLogs, entities, savingsGoals } from '@payit/db/schema';
 import { ulid } from 'ulid';
 
@@ -54,15 +54,16 @@ export async function savingsRoutes(server: FastifyInstance) {
   /**
    * Create New Savings Goal for Entity.
    */
-  server.post('/api/savings/goal', async (request, reply) => {
+  server.post('/api/savings/goals', async (request, reply) => {
     const session = request.session;
     if (!session) return reply.status(401).send({ error: 'Authentication required' });
 
-    const { entityId, name, targetAmount, currency } = request.body as {
+    const { entityId, name, targetAmount, currency, lockPeriodDays } = request.body as {
       entityId: string;
       name: string;
       targetAmount: number;
       currency?: string;
+      lockPeriodDays?: number;
     };
 
     try {
@@ -72,10 +73,14 @@ export async function savingsRoutes(server: FastifyInstance) {
     }
 
     if (!name || !targetAmount || targetAmount <= 0) {
-      return reply.status(400).send({ error: 'Goal name and valid target amount required' });
+      return reply.status(400).send({ error: 'Goal name and positive target amount are required' });
     }
 
     const goalId = ulid();
+    const lockPeriodEnd = lockPeriodDays && lockPeriodDays > 0
+      ? new Date(Date.now() + lockPeriodDays * 24 * 60 * 60 * 1000)
+      : null;
+
     await db.insert(savingsGoals).values({
       id: goalId,
       entityId,
@@ -83,6 +88,7 @@ export async function savingsRoutes(server: FastifyInstance) {
       targetAmount: String(targetAmount),
       currentAmount: '0.00',
       currency: currency || 'USD',
+      lockPeriodEnd,
       createdAt: new Date(),
     });
 
@@ -95,20 +101,22 @@ export async function savingsRoutes(server: FastifyInstance) {
         targetAmount,
         currentAmount: 0.00,
         currency: currency || 'USD',
+        lockPeriodEnd: lockPeriodEnd ? lockPeriodEnd.toISOString() : null,
       },
       message: `Savings goal "${name}" created successfully!`,
     });
   });
 
   /**
-   * Deposit or Withdraw from Savings pool.
+   * Deposit or Withdraw from Savings pool with premature lock guard (Issue 13).
    */
   server.post('/api/savings/action', async (request, reply) => {
     const session = request.session;
     if (!session) return reply.status(401).send({ error: 'Authentication required' });
 
-    const { entityId, type, amount } = request.body as {
+    const { entityId, goalId, type, amount } = request.body as {
       entityId: string;
+      goalId?: string;
       type: 'DEPOSIT' | 'WITHDRAW';
       amount: number;
     };
@@ -121,6 +129,20 @@ export async function savingsRoutes(server: FastifyInstance) {
 
     if (!amount || amount <= 0) {
       return reply.status(400).send({ error: 'Amount must be greater than zero' });
+    }
+
+    if (goalId) {
+      const goalRows = await db.select().from(savingsGoals).where(and(eq(savingsGoals.id, goalId), eq(savingsGoals.entityId, entityId))).limit(1);
+      if (goalRows.length > 0) {
+        const goal = goalRows[0];
+        if (type === 'WITHDRAW' && goal.lockPeriodEnd && new Date() < new Date(goal.lockPeriodEnd)) {
+          return reply.status(400).send({
+            error: 'VAULT_LOCKED',
+            message: `Cannot withdraw from savings vault until lock period ends on ${new Date(goal.lockPeriodEnd).toLocaleDateString('en-US')}`,
+            lockPeriodEnd: goal.lockPeriodEnd,
+          });
+        }
+      }
     }
 
     const action = type === 'DEPOSIT' ? 'SAVINGS_DEPOSIT' : 'SAVINGS_WITHDRAW';

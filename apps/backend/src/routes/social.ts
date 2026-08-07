@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { validateEntityAccess } from '@payit/ledger';
 import { createDbClient, eq, and, or, sql } from '@payit/db';
-import { entities, friendships, paymentRequests, auditLogs, ledgerEntries, ledgerAccounts } from '@payit/db/schema';
+import { entities, friendships, paymentRequests, auditLogs, ledgerEntries, ledgerAccounts, contacts } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { NuvionClient } from '@payit/integrations';
 import { assertEntityApproved } from './kyc.js';
@@ -486,5 +486,102 @@ export async function socialRoutes(server: FastifyInstance) {
     } catch {
       return reply.send({ requests: [] });
     }
+  });
+
+  /**
+   * Save a new contact / beneficiary (Issue 9)
+   */
+  server.post('/api/social/contacts', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, name, paytag, accountNumber, bankCode, bankName } = request.body as {
+      entityId: string;
+      name: string;
+      paytag?: string;
+      accountNumber?: string;
+      bankCode?: string;
+      bankName?: string;
+    };
+
+    if (!entityId || !name) {
+      return reply.status(400).send({ error: 'entityId and name are required' });
+    }
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    let type: 'INTERNAL' | 'EXTERNAL' = 'INTERNAL';
+
+    if (paytag) {
+      const formattedPaytag = paytag.replace(/^\$/, '').toLowerCase();
+      const targetUser = await db
+        .select()
+        .from(entities)
+        .where(sql`LOWER(${entities.username}) = ${formattedPaytag}`)
+        .limit(1);
+
+      if (targetUser.length === 0) {
+        return reply.status(404).send({ error: `PayIT user with paytag '$${formattedPaytag}' not found` });
+      }
+    } else if (accountNumber && bankCode) {
+      type = 'EXTERNAL';
+    } else {
+      return reply.status(400).send({ error: 'Provide either a valid paytag or an accountNumber + bankCode' });
+    }
+
+    const contactId = ulid();
+    await db.insert(contacts).values({
+      id: contactId,
+      entityId,
+      name,
+      paytag: paytag ? paytag.toLowerCase() : null,
+      accountNumber: accountNumber || null,
+      bankCode: bankCode || null,
+      bankName: bankName || null,
+      type,
+      createdAt: new Date(),
+    });
+
+    return reply.status(201).send({
+      success: true,
+      contact: {
+        id: contactId,
+        entityId,
+        name,
+        paytag,
+        accountNumber,
+        bankCode,
+        bankName,
+        type,
+      },
+    });
+  });
+
+  /**
+   * Fetch all saved contacts for an entity (Issue 9)
+   */
+  server.get('/api/social/contacts', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId } = request.query as { entityId?: string };
+    if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const userContacts = await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.entityId, entityId));
+
+    return reply.send({ contacts: userContacts });
   });
 }

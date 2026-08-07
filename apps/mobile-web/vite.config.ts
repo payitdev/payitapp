@@ -10,6 +10,11 @@ export default defineConfig({
   resolve: {
     alias: {
       buffer: 'buffer',
+      '@aws-sdk/credential-provider-login': 'buffer',
+      '@aws-sdk/credential-provider-web-identity': 'buffer',
+      '@aws-sdk/credential-provider-process': 'buffer',
+      '@aws-sdk/credential-providers': 'buffer',
+      '@aws-sdk/token-providers': 'buffer',
     },
   },
   optimizeDeps: {

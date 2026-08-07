@@ -1,4 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { z } from 'zod';
+
+const PayrollItemSchema = z.object({
+  recipientName: z.string().default(''),
+  recipientAccountOrTag: z.string().default(''),
+  amount: z.union([z.number(), z.string()]).transform(val => typeof val === 'number' ? val : parseFloat(val) || 0),
+  confidence: z.number().optional().default(0.8),
+});
+
+const PayrollArraySchema = z.array(PayrollItemSchema);
 
 export interface ExtractedPayrollItem {
   id: string;
@@ -97,29 +107,24 @@ RULES:
       .replace(/\s*```$/i, '')
       .trim();
 
-    let parsed: Array<{
-      recipientName: string;
-      recipientAccountOrTag: string;
-      amount: number;
-      confidence: number;
-    }>;
-
+    let rawJson: unknown;
     try {
-      parsed = JSON.parse(cleaned);
+      rawJson = JSON.parse(cleaned);
     } catch (e) {
       throw new Error(`Gemini OCR returned unparseable response for file "${fileName}": ${rawText.slice(0, 200)}`);
     }
 
-    if (!Array.isArray(parsed)) {
-      throw new Error(`Gemini OCR did not return an array for file "${fileName}"`);
+    const validationResult = PayrollArraySchema.safeParse(rawJson);
+    if (!validationResult.success) {
+      throw new Error(`Gemini OCR returned invalid schema format for file "${fileName}": ${validationResult.error.message}`);
     }
 
-    return parsed.map((item, idx) => ({
+    return validationResult.data.map((item, idx) => ({
       id: `item_${idx + 1}_${Date.now()}`,
-      recipientName: String(item.recipientName || '').trim(),
-      recipientAccountOrTag: String(item.recipientAccountOrTag || '').trim(),
-      amount: parseFloat(String(item.amount || 0)),
-      confidenceScore: typeof item.confidence === 'number' ? item.confidence : 0.8,
+      recipientName: item.recipientName.trim(),
+      recipientAccountOrTag: item.recipientAccountOrTag.trim(),
+      amount: item.amount,
+      confidenceScore: item.confidence,
     }));
   }
 }

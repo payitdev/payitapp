@@ -42,7 +42,7 @@ export const accounts = pgTable('accounts', {
   id: text('id').primaryKey(),
   entityId: text('entity_id').notNull().references(() => entities.id),
   nuvionAccountId: text('nuvion_account_id').notNull(),
-  accountNumber: text('account_number').notNull(),
+  accountNumber: text('account_number').notNull().unique(),
   bankName: text('bank_name').notNull(),
   accountHolderName: text('account_holder_name').notNull(),
   currency: text('currency').notNull(), // NGN, USD, etc.
@@ -211,6 +211,32 @@ export const savingsGoals = pgTable('savings_goals', {
   targetAmount: numeric('target_amount', { precision: 18, scale: 2 }).notNull(),
   currentAmount: numeric('current_amount', { precision: 18, scale: 2 }).default('0.00').notNull(),
   currency: text('currency').default('USD').notNull(),
+  lockPeriodEnd: timestamp('lock_period_end'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Saved Contacts & Beneficiaries table
+export const contacts = pgTable('contacts', {
+  id: text('id').primaryKey(),
+  entityId: text('entity_id').notNull().references(() => entities.id),
+  name: text('name').notNull(),
+  paytag: text('paytag'),
+  accountNumber: text('account_number'),
+  bankCode: text('bank_code'),
+  bankName: text('bank_name'),
+  type: text('type', { enum: ['INTERNAL', 'EXTERNAL'] }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Persisted Reconciliation Audit Logs
+export const reconciliationLogs = pgTable('reconciliation_logs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id'),
+  entityId: text('entity_id'),
+  ledgerBalance: numeric('ledger_balance', { precision: 18, scale: 2 }),
+  onChainBalance: numeric('on_chain_balance', { precision: 18, scale: 2 }),
+  discrepancy: numeric('discrepancy', { precision: 18, scale: 2 }),
+  status: text('status', { enum: ['MATCHED', 'DISCREPANCY_DETECTED'] }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
