@@ -13,6 +13,7 @@
     "@magic-sdk/admin": "^2.4.2",
     "@particle-network/universal-account-sdk": "^1.0.0",
     "@payit/contracts": "workspace:*",
+    "axios": "^1.7.9",
     "ethers": "^6.10.0",
     "jsonwebtoken": "^9.0.2"
   },
