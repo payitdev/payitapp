@@ -46,8 +46,9 @@ services:
   - type: web
     name: payit-mobile-web
     env: static
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter payit-mobile-web build
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm -r build
     staticPublishPath: ./apps/mobile-web/dist
+
     envVars:
       - key: VITE_API_BASE_URL
         fromService:
