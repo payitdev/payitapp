@@ -565,7 +565,14 @@ export class NuvionClient {
       const nuvRes = await this.nuvionGet('/accounts');
       const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
       if (Array.isArray(rawList) && rawList.length > 0) {
-        for (const item of rawList) {
+        const nameClean = accountHolderName.toLowerCase().trim();
+        const matched = rawList.filter((item: any) => {
+          const dn = (item.display_name || '').toLowerCase().trim();
+          return dn.includes(nameClean) || nameClean.includes(dn);
+        });
+
+        const listToPush = matched.length > 0 ? matched : [];
+        for (const item of listToPush) {
           if (!liveAccounts.some(existing => existing.id === item.id)) {
             liveAccounts.push(item);
           }
@@ -662,7 +669,14 @@ export class NuvionClient {
       const nuvRes = await this.nuvionGet('/accounts');
       const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
       if (Array.isArray(rawList) && rawList.length > 0) {
-        for (const item of rawList) {
+        const nameClean = accountHolderName.toLowerCase().trim();
+        const matched = rawList.filter((item: any) => {
+          const dn = (item.display_name || '').toLowerCase().trim();
+          return dn.includes(nameClean) || nameClean.includes(dn);
+        });
+
+        const listToPush = matched.length > 0 ? matched : [];
+        for (const item of listToPush) {
           if (!liveAccounts.some(existing => existing.id === item.id)) {
             liveAccounts.push(item);
           }
