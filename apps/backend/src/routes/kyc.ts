@@ -139,7 +139,8 @@ export async function kycRoutes(server: FastifyInstance) {
 
       server.log.info({ res }, 'Raw Nuvion Tier 2 KYB response');
 
-      const newStatus = 'pending';
+      const returnedAccounts = res.fiatAccounts || [];
+      const newStatus = returnedAccounts.length > 0 ? 'approved' : (res.status || 'pending');
 
       // C13 Remediation: Sanitize & validate business tag, storing it directly into entities.businessTag
       let rawTag = kybBody.businessTag || kybBody.businessLegalName || 'BUSINESS';
@@ -165,19 +166,50 @@ export async function kycRoutes(server: FastifyInstance) {
           nuvionTier: 2,
           nuvionStatus: newStatus,
           nuvionEntityId: res.nuvionEntityId,
+          solanaAddress: res.solanaAddress,
         })
         .where(eq(entities.id, entityId));
 
+
+      // Persist any generated fiat accounts directly to database
+      const insertedAccounts: any[] = [];
+      for (const fa of returnedAccounts) {
+        if (!fa.accountNumber) continue;
+        const existingAcc = await db.select().from(accounts).where(eq(accounts.nuvionAccountId, fa.nuvionAccountId)).limit(1);
+        if (existingAcc.length === 0) {
+          const accId = ulid();
+          await db.insert(accounts).values({
+            id: accId,
+            entityId,
+            nuvionAccountId: fa.nuvionAccountId,
+            currency: fa.currency || 'USD',
+            bankName: fa.bankName || 'Nuvion Partner Bank',
+            accountNumber: fa.accountNumber,
+            accountHolderName: fa.accountHolderName || kybBody.businessLegalName,
+            status: 'active',
+            createdAt: new Date(),
+          });
+          insertedAccounts.push({
+            id: accId,
+            currency: fa.currency || 'USD',
+            bankName: fa.bankName || 'Nuvion Partner Bank',
+            accountNumber: fa.accountNumber,
+          });
+        } else {
+          insertedAccounts.push(existingAcc[0]);
+        }
+      }
+
       return reply.send({
         success: true,
-        message: 'Tier 2 Corporate Business Submitted to Nuvion (Awaiting Webhook Approval)',
+        message: newStatus === 'approved' ? 'Business identity verified & virtual accounts active!' : 'Business details submitted. Verification pending approval.',
         nuvionEntityId: res.nuvionEntityId,
         tier: 2,
         status: newStatus,
         legalName: kybBody.businessLegalName,
         businessTag: tagCandidate,
         particleNetworkAddress: res.particleNetworkAddress,
-        fiatAccounts: [],
+        fiatAccounts: insertedAccounts,
         limits: nuvion.getTierLimits(2),
       });
     } catch (err: any) {
@@ -185,6 +217,7 @@ export async function kycRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: err.message || 'KYB submission failed on Nuvion API' });
     }
   });
+
 
   /**
    * Get current entity KYC/KYB status from Neon DB.
@@ -215,18 +248,27 @@ export async function kycRoutes(server: FastifyInstance) {
       .from(accounts)
       .where(eq(accounts.entityId, entityId));
 
-    const currentStatus = entity.nuvionStatus;
-    const currentTier = entity.nuvionTier;
+    let currentStatus = entity.nuvionStatus;
+    let currentTier = entity.nuvionTier;
 
-    // If entity is verified (tier >= 1) and has a valid Nuvion Entity ID,
+    // If entity has no DB accounts but is pending or tier >= 1,
     // pull live accounts from Nuvion using entity.nuvionEntityId
-    if (entityAccounts.length === 0 && entity.nuvionTier >= 1 && entity.nuvionEntityId) {
+    if (entityAccounts.length === 0 && (entity.nuvionTier >= 1 || entity.nuvionStatus === 'pending') && entity.nuvionEntityId) {
       try {
-        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, 'Verified entity has no accounts in DB — fetching live from Nuvion');
+        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, 'Checking live Nuvion accounts for pending/verified entity');
         const nuvRes = await nuvion.getAccountsForEntity(entity.nuvionEntityId);
         const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
 
+        if (Array.isArray(liveAccounts) && liveAccounts.length > 0) {
+          // Live accounts found — update entity status to approved in DB
+          const newTier = entity.kind === 'BUSINESS' ? 2 : 1;
+          await db.update(entities).set({ nuvionStatus: 'approved', nuvionTier: newTier }).where(eq(entities.id, entityId));
+          currentStatus = 'approved';
+          currentTier = newTier;
+        }
+
         liveAccounts.sort((a: any, b: any) => {
+
           const aHasUser = a.meta?.platform_user_id ? 1 : 0;
           const bHasUser = b.meta?.platform_user_id ? 1 : 0;
           if (aHasUser !== bHasUser) return bHasUser - aHasUser;

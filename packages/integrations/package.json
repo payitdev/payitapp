@@ -6,12 +6,13 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "node --test dist/particleAuth.test.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@magic-sdk/admin": "^2.4.2",
     "@particle-network/universal-account-sdk": "^1.0.0",
-    "@payit/contracts": "*",
+    "@payit/contracts": "workspace:*",
     "ethers": "^6.10.0",
     "jsonwebtoken": "^9.0.2"
   },

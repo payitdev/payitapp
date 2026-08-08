@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@payit/contracts": "*",
+    "@payit/contracts": "workspace:*",
     "ethers": "^6.10.0",
     "hdkey": "^2.1.0"
   },

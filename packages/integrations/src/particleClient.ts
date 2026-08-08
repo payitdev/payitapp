@@ -129,13 +129,27 @@ export class ParticleClient {
     let solanaAddress: string | undefined;
 
     try {
-      const addresses = await ua.getUniversalAccountAddress();
-      walletAddress = addresses.evmUniversalAccount || addresses.evm || owner.address;
-      solanaAddress = addresses.solana || undefined;
+      let addresses: any;
+      if (typeof ua.getUniversalAccountAddress === 'function') {
+        addresses = await ua.getUniversalAccountAddress();
+      } else if (typeof ua.getSmartAccountAddress === 'function') {
+        addresses = await ua.getSmartAccountAddress();
+      } else if (typeof ua.getAddresses === 'function') {
+        addresses = await ua.getAddresses();
+      } else if (typeof ua.getAccount === 'function') {
+        addresses = await ua.getAccount();
+      } else if (ua.addresses) {
+        addresses = ua.addresses;
+      }
+
+      if (addresses) {
+        walletAddress = addresses.evmUniversalAccount || addresses.evm || addresses.smartAccountAddress || owner.address;
+        solanaAddress = addresses.solana || addresses.solanaAddress || undefined;
+      }
     } catch (err: any) {
-      // UA address fetch failed — return owner EOA as fallback
-      console.warn('[ParticleClient] UA address fetch failed, using owner EOA:', err?.message);
+      console.warn('[ParticleClient] UA address derivation notice:', err?.message);
     }
+
 
     let usdcBalance = 0;
     let usdtBalance = 0;

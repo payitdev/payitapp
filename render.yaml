@@ -1,0 +1,60 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. PayIT Backend API Web Service
+  # Public HTTPS URL receives live Nuvion webhooks at /webhooks/nuvion
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: payit-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm -r build
+    startCommand: pnpm --filter payit-backend start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: NUVION_API_KEY
+        sync: false
+      - key: NUVION_API_BASE_URL
+        value: https://api.nuvion.co
+      - key: NUVION_PUBLIC_KEY
+        sync: false
+      - key: NUVION_WEBHOOK_SECRET
+        sync: false
+      - key: PARTICLE_PROJECT_ID
+        sync: false
+      - key: PARTICLE_CLIENT_KEY
+        sync: false
+      - key: PARTICLE_SERVER_KEY
+        sync: false
+      - key: PARTICLE_APP_ID
+        sync: false
+      - key: MAGIC_PUBLISHABLE_KEY
+        sync: false
+      - key: MAGIC_SECRET_KEY
+        sync: false
+      - key: KMS_MASTER_SECRET
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 2. PayIT Mobile Web Frontend
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: payit-mobile-web
+    env: static
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter payit-mobile-web build
+    staticPublishPath: ./apps/mobile-web/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: payit-backend
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

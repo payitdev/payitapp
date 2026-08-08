@@ -28,8 +28,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         authTypes: ['email', 'google', 'apple'] as any,
         themeType: 'dark',
         fiatCoin: 'USD',
+        promptSettingConfig: {
+          promptPaymentPasswordSettingWhenSign: 0,
+          promptMasterPasswordSettingWhenLogin: 0,
+        },
         wallet: {
-          visible: true,
+          visible: false,
           customStyle: {},
         },
       }}

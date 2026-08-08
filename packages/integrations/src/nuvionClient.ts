@@ -472,16 +472,48 @@ export class NuvionClient {
   }
 
   /**
-   * Encrypts sensitive KYC/KYB PII payload using Nuvion RSA Public Key
+   * Encrypts sensitive KYC/KYB PII payload using Nuvion RSA Public Key.
+   * Employs hybrid encryption (AES-256-GCM for payload + RSA-OAEP for AES key) to handle arbitrarily large KYB data.
    */
   public encryptSensitivePayload(data: object): string {
-    const buffer = Buffer.from(JSON.stringify(data), 'utf8');
-    const encrypted = crypto.publicEncrypt(
+    const jsonString = JSON.stringify(data);
+    const buffer = Buffer.from(jsonString, 'utf8');
+
+    try {
+      // Direct RSA encryption if payload fits within RSA-2048 OAEP limit (< 190 bytes)
+      if (buffer.length <= 190) {
+        const encrypted = crypto.publicEncrypt(
+          { key: this.publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+          buffer
+        );
+        return encrypted.toString('base64');
+      }
+    } catch {
+      // If direct encryption fails or payload is larger, fall back to Hybrid AES-256-GCM + RSA
+    }
+
+    // Hybrid Encryption: AES-256-GCM for data + RSA-OAEP for AES key
+    const aesKey = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, iv);
+
+    const ciphertext = Buffer.concat([cipher.update(buffer), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    const encryptedKey = crypto.publicEncrypt(
       { key: this.publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
-      buffer
+      aesKey
     );
-    return encrypted.toString('base64');
+
+    return JSON.stringify({
+      version: 'hybrid_v1',
+      encryptedKey: encryptedKey.toString('base64'),
+      iv: iv.toString('base64'),
+      authTag: authTag.toString('base64'),
+      ciphertext: ciphertext.toString('base64'),
+    });
   }
+
 
   /**
    * Sweeps fee to Treasury Wallet — records the sweep for on-chain execution
