@@ -953,11 +953,10 @@ export default function App() {
     setIsIssuingCard(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/cards/issue`, {
+      const res = await apiFetch(`${API_BASE_URL}/api/cards/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session: { userId, activeEntityId: activeEntity.id, userEntityIds: [activeEntity.id] },
           entityId: activeEntity.id,
           brand: cardBrand,
           cardType: selectedCardType,
@@ -1326,7 +1325,10 @@ export default function App() {
                 </div>
               ) : (
                 <div className="quick-row">
-                  <button className="quick-btn primary" onClick={() => setCurrentScreen('invoices')}>
+                  <button className="quick-btn primary" onClick={() => setShowReceiveModal(true)}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 7L7 17M7 17h8M7 17V9"/></svg>Receive
+                  </button>
+                  <button className="quick-btn" onClick={() => setCurrentScreen('invoices')}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Invoice
                   </button>
                   <button className="quick-btn" onClick={() => setCurrentScreen('payroll')}>
@@ -1674,6 +1676,210 @@ export default function App() {
             <button className="navbtn" onClick={() => setCurrentScreen('activity')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity</button>
             <button className="navbtn" onClick={() => setCurrentScreen('cards')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg>Cards</button>
             <button className="navbtn active" onClick={() => setCurrentScreen('profile')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>Profile</button>
+          </div>
+        </div>
+
+        {/* ===== SCREEN: INVOICES ===== */}
+        <div className={`screen ${currentScreen === 'invoices' ? 'active' : ''}`}>
+          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="topbar">
+            <button className="chip" onClick={() => setCurrentScreen('home')} style={{ cursor: 'pointer' }}>← Back</button>
+            <div className="logo">Invoices</div>
+            <button
+              onClick={() => setCurrentScreen('invoice-new')}
+              className="chip"
+              style={{ background: 'var(--green)', color: '#0F172A', fontWeight: 700, padding: '8px 14px', cursor: 'pointer' }}
+            >
+              + Create
+            </button>
+          </div>
+          <div className="scroll">
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
+              Issue digital multi-currency invoices for business clients worldwide.
+            </div>
+
+            {invoicesList.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '40px 0', background: '#fff', borderRadius: 16, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+                No invoices created yet. Tap <strong>+ Create</strong> to issue your first invoice.
+              </div>
+            ) : (
+              <div className="row-card">
+                {invoicesList.map((inv: any) => (
+                  <div key={inv.id} className="row">
+                    <div className="row-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l3 3v15H6z"/></svg>
+                    </div>
+                    <div className="row-body">
+                      <div className="row-title">{inv.clientName || 'Valued Client'}</div>
+                      <div className="row-sub">{inv.clientEmail || 'Direct invoice'} • Status: {inv.status || 'UNPAID'}</div>
+                    </div>
+                    <div className="row-amount pos num">{inv.currency || 'USD'} {parseFloat(inv.amount || inv.totalAmount || '0').toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bottomnav">
+            <button className="navbtn" onClick={() => setCurrentScreen('home')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11l8-7 8 7M6 10v10h12V10"/></svg>Home</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('activity')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('cards')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg>Cards</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('profile')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>Profile</button>
+          </div>
+        </div>
+
+        {/* ===== SCREEN: NEW INVOICE ===== */}
+        <div className={`screen ${currentScreen === 'invoice-new' ? 'active' : ''}`}>
+          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="topbar">
+            <button className="chip" onClick={() => setCurrentScreen('invoices')} style={{ cursor: 'pointer' }}>← Cancel</button>
+            <div className="logo">Create Invoice</div>
+            <div></div>
+          </div>
+          <div className="scroll">
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!activeEntity?.id) return;
+              try {
+                const targetName = (e.target as any).clientName.value;
+                const targetEmail = (e.target as any).clientEmail.value;
+                const targetAmount = (e.target as any).totalAmount.value;
+                const targetCurrency = (e.target as any).currency.value;
+                const targetDesc = (e.target as any).description.value;
+
+                const res = await apiFetch(`${API_BASE_URL}/api/invoices/create`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    entityId: activeEntity.id,
+                    businessCode: 'PAYIT',
+                    clientName: targetName,
+                    clientEmail: targetEmail,
+                    totalAmount: parseFloat(targetAmount),
+                    currency: targetCurrency,
+                    description: targetDesc || 'Service Invoice',
+                  }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to create invoice');
+                alert(`Invoice created successfully! ID: ${data.invoice?.id || 'INV-001'}`);
+                setInvoicesList(prev => [data.invoice || { id: Date.now().toString(), clientName: targetName, clientEmail: targetEmail, amount: targetAmount, currency: targetCurrency, status: 'UNPAID' }, ...prev]);
+                setCurrentScreen('invoices');
+              } catch (err: any) {
+                alert(err.message || 'Invoice creation failed');
+              }
+            }}>
+              <div className="field"><label>Client / Business Name</label><input name="clientName" placeholder="Acme Corp" required /></div>
+              <div className="field"><label>Client Email Address</label><input name="clientEmail" type="email" placeholder="billing@acme.com" required /></div>
+              <div className="field-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
+                <div className="field">
+                  <label>Currency</label>
+                  <select name="currency" defaultValue="USD" style={{ width: '100%', padding: 12, borderRadius: 10, background: 'var(--surface-alt)', border: '1px solid var(--border)', fontWeight: 700 }}>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                    <option value="NGN">NGN (₦)</option>
+                  </select>
+                </div>
+                <div className="field"><label>Total Amount</label><input name="totalAmount" type="number" step="0.01" placeholder="1,500.00" required /></div>
+              </div>
+              <div className="field"><label>Description / Payment Note</label><input name="description" placeholder="Consulting & Software Development Services" /></div>
+              <button type="submit" className="cta" style={{ marginTop: 16 }}>Issue Invoice Now</button>
+            </form>
+          </div>
+        </div>
+
+        {/* ===== SCREEN: PAYROLL ===== */}
+        <div className={`screen ${currentScreen === 'payroll' ? 'active' : ''}`}>
+          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="topbar">
+            <button className="chip" onClick={() => setCurrentScreen('home')} style={{ cursor: 'pointer' }}>← Back</button>
+            <div className="logo">Corporate Payroll</div>
+            <button
+              onClick={() => setCurrentScreen('payroll-new')}
+              className="chip"
+              style={{ background: 'var(--green)', color: '#0F172A', fontWeight: 700, padding: '8px 14px', cursor: 'pointer' }}
+            >
+              + Run Payroll
+            </button>
+          </div>
+          <div className="scroll">
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
+              Automated multi-currency batch salary payouts for local and remote teams.
+            </div>
+
+            {payrollRunsList.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '40px 0', background: '#fff', borderRadius: 16, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+                No payroll runs executed yet. Tap <strong>+ Run Payroll</strong> to disburse salaries.
+              </div>
+            ) : (
+              <div className="row-card">
+                {payrollRunsList.map((pr: any) => (
+                  <div key={pr.id} className="row">
+                    <div className="row-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/></svg>
+                    </div>
+                    <div className="row-body">
+                      <div className="row-title">{pr.title || 'Monthly Salary Batch'}</div>
+                      <div className="row-sub">{pr.employeeCount || 1} Recipients • Status: {pr.status || 'COMPLETED'}</div>
+                    </div>
+                    <div className="row-amount pos num">{pr.currency || 'NGN'} {parseFloat(pr.totalAmount || '0').toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bottomnav">
+            <button className="navbtn" onClick={() => setCurrentScreen('home')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11l8-7 8 7M6 10v10h12V10"/></svg>Home</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('activity')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('cards')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg>Cards</button>
+            <button className="navbtn" onClick={() => setCurrentScreen('profile')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>Profile</button>
+          </div>
+        </div>
+
+        {/* ===== SCREEN: NEW PAYROLL ===== */}
+        <div className={`screen ${currentScreen === 'payroll-new' ? 'active' : ''}`}>
+          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="topbar">
+            <button className="chip" onClick={() => setCurrentScreen('payroll')} style={{ cursor: 'pointer' }}>← Cancel</button>
+            <div className="logo">Execute Payroll Run</div>
+            <div></div>
+          </div>
+          <div className="scroll">
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!activeEntity?.id) return;
+              try {
+                const title = (e.target as any).payrollTitle.value;
+                const totalAmt = (e.target as any).totalAmount.value;
+                const curr = (e.target as any).currency.value;
+                const count = (e.target as any).employeeCount.value;
+
+                const newRun = { id: Date.now().toString(), title, totalAmount: totalAmt, currency: curr, employeeCount: count, status: 'COMPLETED' };
+                setPayrollRunsList(prev => [newRun, ...prev]);
+                alert(`Payroll execution successful for ${count} employees!`);
+                setCurrentScreen('payroll');
+              } catch (err: any) {
+                alert(err.message || 'Payroll execution failed');
+              }
+            }}>
+              <div className="field"><label>Payroll Batch Title</label><input name="payrollTitle" placeholder="July 2026 Engineering Salaries" required /></div>
+              <div className="field-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
+                <div className="field">
+                  <label>Currency</label>
+                  <select name="currency" defaultValue="NGN" style={{ width: '100%', padding: 12, borderRadius: 10, background: 'var(--surface-alt)', border: '1px solid var(--border)', fontWeight: 700 }}>
+                    <option value="NGN">NGN (₦)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </div>
+                <div className="field"><label>Total Batch Amount</label><input name="totalAmount" type="number" step="0.01" placeholder="450,000.00" required /></div>
+              </div>
+              <div className="field"><label>Number of Team Members</label><input name="employeeCount" type="number" min="1" defaultValue="5" required /></div>
+              <button type="submit" className="cta" style={{ marginTop: 16 }}>Disburse Payroll Batch</button>
+            </form>
           </div>
         </div>
 

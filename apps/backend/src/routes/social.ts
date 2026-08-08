@@ -478,24 +478,7 @@ export async function socialRoutes(server: FastifyInstance) {
     return reply.send(successResponse);
   });
 
-  /**
-   * List all payment requests for an entity.
-   */
-  server.get('/api/payments/requests', async (request, reply) => {
-    const { entityId } = request.query as { entityId?: string };
-    if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
 
-    try {
-      const reqs = await db
-        .select()
-        .from(paymentRequests)
-        .where(or(eq(paymentRequests.requesterEntityId, entityId), eq(paymentRequests.payerEntityId, entityId)));
-
-      return reply.send({ requests: reqs });
-    } catch {
-      return reply.send({ requests: [] });
-    }
-  });
 
   /**
    * Universal Identity Resolution Endpoint
