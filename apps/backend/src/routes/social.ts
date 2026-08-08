@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { validateEntityAccess } from '@payit/ledger';
 import { createDbClient, eq, and, or, sql } from '@payit/db';
-import { entities, friendships, paymentRequests, auditLogs, ledgerEntries, ledgerAccounts, contacts } from '@payit/db/schema';
+import { entities, accounts, friendships, paymentRequests, auditLogs, ledgerEntries, ledgerAccounts, contacts } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { NuvionClient } from '@payit/integrations';
 import { assertEntityApproved } from './kyc.js';
@@ -498,7 +498,129 @@ export async function socialRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Save a new contact / beneficiary (Issue 9)
+   * Universal Identity Resolution Endpoint
+   * Accepts any query (@username, 10-digit BAN, EVM address, Solana address)
+   * Resolves target entity and checks mutual relationship status with caller.
+   */
+  server.get('/api/users/resolve-identity', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { query, entityId } = request.query as { query?: string; entityId?: string };
+    if (!query || !entityId) {
+      return reply.status(400).send({ error: 'query and entityId parameters are required' });
+    }
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const cleanQuery = query.trim();
+    const formattedUsername = cleanQuery.startsWith('@') ? cleanQuery.toLowerCase() : `@${cleanQuery.toLowerCase()}`;
+
+    // 1. Search by Username, entityId, businessTag, or solanaAddress
+    let matchedEntity: any = null;
+    const directMatches = await db
+      .select()
+      .from(entities)
+      .where(
+        or(
+          eq(entities.id, cleanQuery),
+          sql`LOWER(${entities.username}) = ${formattedUsername}`,
+          sql`LOWER(${entities.businessTag}) = ${cleanQuery.toUpperCase()}`,
+          eq(entities.solanaAddress, cleanQuery)
+        )
+      )
+      .limit(1);
+
+    if (directMatches.length > 0) {
+      matchedEntity = directMatches[0];
+    } else {
+      // 2. Search by Account Number (Nuvion BAN)
+      const accMatches = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.accountNumber, cleanQuery))
+        .limit(1);
+
+      if (accMatches.length > 0) {
+        const entRows = await db.select().from(entities).where(eq(entities.id, accMatches[0].entityId)).limit(1);
+        if (entRows.length > 0) matchedEntity = entRows[0];
+      }
+    }
+
+    if (!matchedEntity) {
+      return reply.status(404).send({ found: false, message: 'No PayIT user found for this identifier' });
+    }
+
+    // 3. Resolve Primary Account Number
+    const targetAccounts = await db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.entityId, matchedEntity.id))
+      .limit(1);
+
+    const primaryAccount = targetAccounts[0] || null;
+
+    // 4. Check Mutual Relationship Status
+    let relationshipStatus: 'MUTUAL_CONTACT' | 'ONE_WAY_CONTACT' | 'STRANGER' = 'STRANGER';
+
+    if (matchedEntity.id === entityId) {
+      relationshipStatus = 'MUTUAL_CONTACT';
+    } else {
+      const mySavedContact = await db
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.entityId, entityId), or(eq(contacts.targetEntityId, matchedEntity.id), sql`LOWER(${contacts.paytag}) = ${matchedEntity.username?.toLowerCase() || ''}`)))
+        .limit(1);
+
+      const theirSavedContact = await db
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.entityId, matchedEntity.id), eq(contacts.targetEntityId, entityId)))
+        .limit(1);
+
+      const friendshipRows = await db
+        .select()
+        .from(friendships)
+        .where(
+          and(
+            or(
+              and(eq(friendships.requesterEntityId, entityId), eq(friendships.addresseeEntityId, matchedEntity.id)),
+              and(eq(friendships.requesterEntityId, matchedEntity.id), eq(friendships.addresseeEntityId, entityId))
+            ),
+            eq(friendships.status, 'ACCEPTED')
+          )
+        )
+        .limit(1);
+
+      if (friendshipRows.length > 0 || (mySavedContact.length > 0 && theirSavedContact.length > 0)) {
+        relationshipStatus = 'MUTUAL_CONTACT';
+      } else if (mySavedContact.length > 0) {
+        relationshipStatus = 'ONE_WAY_CONTACT';
+      }
+    }
+
+    return reply.send({
+      found: true,
+      identity: {
+        entityId: matchedEntity.id,
+        legalName: matchedEntity.legalName || 'PayIT User',
+        username: matchedEntity.username || `@user_${matchedEntity.id.slice(-4).toLowerCase()}`,
+        businessTag: matchedEntity.businessTag,
+        accountNumber: primaryAccount?.accountNumber || null,
+        bankName: primaryAccount?.bankName || 'Nuvion Partner Bank',
+        solanaAddress: matchedEntity.solanaAddress || null,
+        relationshipStatus,
+        isSelf: matchedEntity.id === entityId,
+      },
+    });
+  });
+
+  /**
+   * Save a new contact / beneficiary with Universal Binding
    */
   server.post('/api/social/contacts', async (request, reply) => {
     const session = request.session;
@@ -524,30 +646,80 @@ export async function socialRoutes(server: FastifyInstance) {
     }
 
     let type: 'INTERNAL' | 'EXTERNAL' = 'INTERNAL';
+    let targetEntityId: string | null = null;
+    let resolvedPaytag = paytag ? paytag.replace(/^\$/, '').toLowerCase() : null;
 
     if (paytag) {
-      const formattedPaytag = paytag.replace(/^\$/, '').toLowerCase();
+      const formattedPaytag = `@${resolvedPaytag}`;
       const targetUser = await db
         .select()
         .from(entities)
         .where(sql`LOWER(${entities.username}) = ${formattedPaytag}`)
         .limit(1);
 
-      if (targetUser.length === 0) {
-        return reply.status(404).send({ error: `PayIT user with paytag '$${formattedPaytag}' not found` });
+      if (targetUser.length > 0) {
+        targetEntityId = targetUser[0].id;
+        resolvedPaytag = targetUser[0].username;
       }
-    } else if (accountNumber && bankCode) {
-      type = 'EXTERNAL';
-    } else {
-      return reply.status(400).send({ error: 'Provide either a valid paytag or an accountNumber + bankCode' });
+    } else if (accountNumber) {
+      const accMatch = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.accountNumber, accountNumber))
+        .limit(1);
+
+      if (accMatch.length > 0) {
+        targetEntityId = accMatch[0].entityId;
+        const entMatch = await db.select().from(entities).where(eq(entities.id, targetEntityId!)).limit(1);
+        if (entMatch.length > 0) {
+          resolvedPaytag = entMatch[0].username;
+        }
+      } else if (bankCode) {
+        type = 'EXTERNAL';
+      }
+    }
+
+    // Auto-create/upgrade friendship if both users have saved each other
+    if (targetEntityId && targetEntityId !== entityId) {
+      const inverseContact = await db
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.entityId, targetEntityId), eq(contacts.targetEntityId, entityId)))
+        .limit(1);
+
+      if (inverseContact.length > 0) {
+        const existingFriendship = await db
+          .select()
+          .from(friendships)
+          .where(
+            or(
+              and(eq(friendships.requesterEntityId, entityId), eq(friendships.addresseeEntityId, targetEntityId)),
+              and(eq(friendships.requesterEntityId, targetEntityId), eq(friendships.addresseeEntityId, entityId))
+            )
+          )
+          .limit(1);
+
+        if (existingFriendship.length === 0) {
+          await db.insert(friendships).values({
+            id: ulid(),
+            requesterEntityId: entityId,
+            addresseeEntityId: targetEntityId,
+            status: 'ACCEPTED',
+            createdAt: new Date(),
+          });
+        } else if (existingFriendship[0].status !== 'ACCEPTED') {
+          await db.update(friendships).set({ status: 'ACCEPTED' }).where(eq(friendships.id, existingFriendship[0].id));
+        }
+      }
     }
 
     const contactId = ulid();
     await db.insert(contacts).values({
       id: contactId,
       entityId,
+      targetEntityId: targetEntityId || null,
       name,
-      paytag: paytag ? paytag.toLowerCase() : null,
+      paytag: resolvedPaytag,
       accountNumber: accountNumber || null,
       bankCode: bankCode || null,
       bankName: bankName || null,
@@ -560,8 +732,9 @@ export async function socialRoutes(server: FastifyInstance) {
       contact: {
         id: contactId,
         entityId,
+        targetEntityId,
         name,
-        paytag,
+        paytag: resolvedPaytag,
         accountNumber,
         bankCode,
         bankName,
@@ -571,7 +744,7 @@ export async function socialRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Fetch all saved contacts for an entity (Issue 9)
+   * Fetch all saved contacts with relationship status
    */
   server.get('/api/social/contacts', async (request, reply) => {
     const session = request.session;
@@ -593,4 +766,112 @@ export async function socialRoutes(server: FastifyInstance) {
 
     return reply.send({ contacts: userContacts });
   });
+
+  /**
+   * Get Inbound & Outbound Payment Requests (Separated into Trusted vs Stranger Inbox)
+   */
+  server.get('/api/payments/requests', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId } = request.query as { entityId?: string };
+    if (!entityId) return reply.status(400).send({ error: 'entityId query parameter required' });
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const inbound = await db
+      .select()
+      .from(paymentRequests)
+      .where(eq(paymentRequests.payerEntityId, entityId));
+
+    const outbound = await db
+      .select()
+      .from(paymentRequests)
+      .where(eq(paymentRequests.requesterEntityId, entityId));
+
+    // Map requester details
+    const trustedInbound: any[] = [];
+    const strangerInbound: any[] = [];
+
+    for (const reqItem of inbound) {
+      const reqEntityRows = await db.select().from(entities).where(eq(entities.id, reqItem.requesterEntityId)).limit(1);
+      const reqEntity = reqEntityRows[0] || null;
+
+      // Check if mutual contact
+      const isMutual = await db
+        .select()
+        .from(friendships)
+        .where(
+          and(
+            or(
+              and(eq(friendships.requesterEntityId, entityId), eq(friendships.addresseeEntityId, reqItem.requesterEntityId)),
+              and(eq(friendships.requesterEntityId, reqItem.requesterEntityId), eq(friendships.addresseeEntityId, entityId))
+            ),
+            eq(friendships.status, 'ACCEPTED')
+          )
+        )
+        .limit(1);
+
+      const itemData = {
+        id: reqItem.id,
+        amount: reqItem.amount,
+        currency: reqItem.currency,
+        narration: reqItem.narration,
+        status: reqItem.status,
+        createdAt: reqItem.createdAt,
+        requester: {
+          entityId: reqItem.requesterEntityId,
+          legalName: reqEntity?.legalName || 'PayIT User',
+          username: reqEntity?.username || `@user_${reqItem.requesterEntityId.slice(-4).toLowerCase()}`,
+        },
+        isMutualContact: isMutual.length > 0,
+      };
+
+      if (isMutual.length > 0) {
+        trustedInbound.push(itemData);
+      } else {
+        strangerInbound.push(itemData);
+      }
+    }
+
+    return reply.send({
+      inbound: {
+        trusted: trustedInbound,
+        strangers: strangerInbound,
+      },
+      outbound,
+    });
+  });
+
+  /**
+   * Decline Payment Request
+   */
+  server.post('/api/payments/decline', async (request, reply) => {
+    const session = request.session;
+    if (!session) return reply.status(401).send({ error: 'Authentication required' });
+
+    const { entityId, requestId } = request.body as { entityId: string; requestId: string };
+
+    try {
+      validateEntityAccess(session, entityId);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    const reqRows = await db.select().from(paymentRequests).where(eq(paymentRequests.id, requestId)).limit(1);
+    if (reqRows.length === 0) return reply.status(404).send({ error: 'Payment request not found' });
+
+    if (reqRows[0].payerEntityId !== entityId) {
+      return reply.status(403).send({ error: 'Only the designated payer can decline this request' });
+    }
+
+    await db.update(paymentRequests).set({ status: 'DECLINED' }).where(eq(paymentRequests.id, requestId));
+
+    return reply.send({ success: true, message: 'Payment request declined' });
+  });
 }
+

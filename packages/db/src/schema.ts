@@ -229,6 +229,7 @@ export const savingsGoals = pgTable('savings_goals', {
 export const contacts = pgTable('contacts', {
   id: text('id').primaryKey(),
   entityId: text('entity_id').notNull().references(() => entities.id),
+  targetEntityId: text('target_entity_id').references(() => entities.id),
   name: text('name').notNull(),
   paytag: text('paytag'),
   accountNumber: text('account_number'),

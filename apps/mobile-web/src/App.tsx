@@ -34,6 +34,10 @@ import {
 
 import { useConnect, useUserInfo } from '@particle-network/auth-core-modal';
 import { formatParticleUserInfo } from './particleAuth';
+import { UsernameCustomizationModal } from './components/UsernameCustomizationModal';
+import { PaymentRequestHubModal } from './components/PaymentRequestHubModal';
+import { ContactsManagerModal } from './components/ContactsManagerModal';
+
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
@@ -331,6 +335,7 @@ export default function App() {
   const [showKycModal, setShowKycModal] = useState(false);
   const [showTrackerModal, setShowTrackerModal] = useState(false);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [showContactsModal, setShowContactsModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showNewGoalModal, setShowNewGoalModal] = useState(false);
@@ -1311,6 +1316,9 @@ export default function App() {
                   </button>
                   <button className="quick-btn" onClick={() => setShowRequestModal(true)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4a4 4 0 00-4 4v3.2c0 .9-.32 1.77-.9 2.46L6 15h12l-1.1-1.34a3.9 3.9 0 01-.9-2.46V8a4 4 0 00-4-4z"/><path d="M10 18a2 2 0 004 0"/></svg>Request
+                  </button>
+                  <button className="quick-btn" onClick={() => setShowContactsModal(true)}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Contacts
                   </button>
                   <button className="quick-btn" onClick={() => setShowSaveModal(true)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3M12 18v3M5 12H3M21 12h-2M6.3 6.3L5 5M19 19l-1.3-1.3M6.3 17.7L5 19M19 5l-1.3 1.3"/><circle cx="12" cy="12" r="4.5"/></svg>Save
@@ -2381,6 +2389,43 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ===== NEW PROD SOCIAL COMPONENTS ===== */}
+        <UsernameCustomizationModal
+          isOpen={!!(activeEntity && !activeEntity.usernameCustomized && !showUsernameModal)}
+          entityId={activeEntity?.id || ''}
+          currentUsername={activeEntity?.username}
+          onSuccess={(newHandle) => {
+            if (activeEntity) {
+              setEntitiesMap(prev => ({
+                ...prev,
+                [accountType]: {
+                  ...prev[accountType],
+                  username: newHandle,
+                  usernameCustomized: true as any,
+                }
+              }));
+            }
+          }}
+        />
+
+        <PaymentRequestHubModal
+          isOpen={showRequestModal}
+          entityId={activeEntity?.id || ''}
+          onClose={() => setShowRequestModal(false)}
+          onPaymentSuccess={() => {
+            // Balance refresh
+          }}
+        />
+
+        <ContactsManagerModal
+          isOpen={showContactsModal}
+          entityId={activeEntity?.id || ''}
+          onClose={() => setShowContactsModal(false)}
+          onSelectContactForTransfer={() => {
+            setShowSendModal(true);
+          }}
+        />
 
       </div>
     </div>
