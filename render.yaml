@@ -8,7 +8,7 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm -r build
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm -r build
     startCommand: pnpm --filter payit-backend start
     envVars:
       - key: PORT
@@ -46,7 +46,7 @@ services:
   - type: web
     name: payit-mobile-web
     env: static
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm -r build
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm -r build
     staticPublishPath: ./apps/mobile-web/dist
 
     envVars:
@@ -66,7 +66,7 @@ services:
   - type: web
     name: payit-website
     env: static
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter payit-website build
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm --filter payit-website build
     staticPublishPath: ./apps/website/dist
     envVars:
       - key: VITE_API_BASE_URL
