@@ -22,13 +22,14 @@ declare module 'fastify' {
 
 const PUBLIC_PREFIXES = [
   '/health',
-  '/api/auth/magic-link',
-  '/api/auth/verify-code',
-  '/api/auth/particle-login',
+  '/api/auth/',
   '/webhooks/',
   '/api/waitlist',
   '/api/invoices/public/',
+  '/api/fx/rates',
+  '/api/users/check-username',
 ];
+
 
 export async function requireAuthHook(request: FastifyRequest, reply: FastifyReply) {
   const url = request.url.split('?')[0];
