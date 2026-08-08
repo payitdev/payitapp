@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UniversalIdentityCard, ResolvedIdentity } from './UniversalIdentityCard';
+import { apiFetch } from '../apiClient';
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
 interface ContactItem {
   id: string;
@@ -50,10 +53,7 @@ export const ContactsManagerModal: React.FC<Props> = ({
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch(`/api/social/contacts?entityId=${encodeURIComponent(entityId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch(`${API_BASE_URL}/api/social/contacts?entityId=${encodeURIComponent(entityId)}`);
       const data = await res.json();
       if (res.ok) {
         setContactsList(data.contacts || []);
@@ -74,10 +74,7 @@ export const ContactsManagerModal: React.FC<Props> = ({
     setResolvedContact(null);
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch(`/api/users/resolve-identity?query=${encodeURIComponent(addInput.trim())}&entityId=${encodeURIComponent(entityId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch(`${API_BASE_URL}/api/users/resolve-identity?query=${encodeURIComponent(addInput.trim())}&entityId=${encodeURIComponent(entityId)}`);
       const data = await res.json();
       if (res.ok && data.found) {
         setResolvedContact(data.identity);
@@ -97,12 +94,10 @@ export const ContactsManagerModal: React.FC<Props> = ({
     setErrorMsg('');
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch('/api/social/contacts', {
+      const res = await apiFetch(`${API_BASE_URL}/api/social/contacts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           entityId,

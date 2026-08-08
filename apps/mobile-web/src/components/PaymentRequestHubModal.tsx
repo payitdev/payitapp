@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UniversalIdentityCard, ResolvedIdentity } from './UniversalIdentityCard';
+import { apiFetch } from '../apiClient';
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
 interface PaymentRequestItem {
   id: string;
@@ -67,10 +70,7 @@ export const PaymentRequestHubModal: React.FC<Props> = ({
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch(`/api/payments/requests?entityId=${encodeURIComponent(entityId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch(`${API_BASE_URL}/api/payments/requests?entityId=${encodeURIComponent(entityId)}`);
       const data = await res.json();
       if (res.ok) {
         setTrustedRequests(data.inbound?.trusted || []);
@@ -93,10 +93,7 @@ export const PaymentRequestHubModal: React.FC<Props> = ({
     setResolvedTarget(null);
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch(`/api/users/resolve-identity?query=${encodeURIComponent(recipientQuery.trim())}&entityId=${encodeURIComponent(entityId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch(`${API_BASE_URL}/api/users/resolve-identity?query=${encodeURIComponent(recipientQuery.trim())}&entityId=${encodeURIComponent(entityId)}`);
       const data = await res.json();
       if (res.ok && data.found) {
         setResolvedTarget(data.identity);
@@ -121,12 +118,10 @@ export const PaymentRequestHubModal: React.FC<Props> = ({
     setSuccessMsg('');
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch('/api/payments/request', {
+      const res = await apiFetch(`${API_BASE_URL}/api/payments/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           entityId,
@@ -161,12 +156,10 @@ export const PaymentRequestHubModal: React.FC<Props> = ({
     setErrorMsg('');
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch('/api/payments/fulfill', {
+      const res = await apiFetch(`${API_BASE_URL}/api/payments/fulfill`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           entityId,
@@ -191,12 +184,10 @@ export const PaymentRequestHubModal: React.FC<Props> = ({
 
   const handleDeclineRequest = async (requestId: string) => {
     try {
-      const token = localStorage.getItem('payit_session_token');
-      await fetch('/api/payments/decline', {
+      await apiFetch(`${API_BASE_URL}/api/payments/decline`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ entityId, requestId }),
       });

@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../apiClient';
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
 interface Props {
   isOpen: boolean;
@@ -46,7 +49,7 @@ export const UsernameCustomizationModal: React.FC<Props> = ({
     setIsChecking(true);
     setErrorMsg('');
     try {
-      const res = await fetch(`/api/users/check-username?username=${encodeURIComponent(usernameInput)}`);
+      const res = await apiFetch(`${API_BASE_URL}/api/users/check-username?username=${encodeURIComponent(usernameInput)}`);
       const data = await res.json();
       if (res.ok) {
         setAvailabilityMessage({ available: data.available, text: data.message });
@@ -70,12 +73,10 @@ export const UsernameCustomizationModal: React.FC<Props> = ({
     setErrorMsg('');
 
     try {
-      const token = localStorage.getItem('payit_session_token');
-      const res = await fetch('/api/users/update-username', {
+      const res = await apiFetch(`${API_BASE_URL}/api/users/update-username`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           entityId,
