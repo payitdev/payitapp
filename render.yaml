@@ -58,3 +58,23 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+  # ---------------------------------------------------------------------------
+  # 3. PayIT Marketing Landing Website
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: payit-website
+    env: static
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter payit-website build
+    staticPublishPath: ./apps/website/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: payit-backend
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
