@@ -166,9 +166,10 @@ export async function kycRoutes(server: FastifyInstance) {
           nuvionTier: 2,
           nuvionStatus: newStatus,
           nuvionEntityId: res.nuvionEntityId,
-          solanaAddress: res.solanaAddress,
+          solanaAddress: (res as any).solanaAddress || res.particleNetworkAddress,
         })
         .where(eq(entities.id, entityId));
+
 
 
       // Persist any generated fiat accounts directly to database
