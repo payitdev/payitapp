@@ -594,15 +594,18 @@ export class NuvionClient {
       let detailAccNumber = a.nuvion_ban;
       let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
 
-      try {
-        const detailRes = await this.getAccountById(a.id);
-        const accDetails = detailRes?.data?.account_details?.[0];
-        if (accDetails) {
-          detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
-          detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+      // Only query individual account details if account_number is missing in summary payload
+      if (!detailAccNumber) {
+        try {
+          const detailRes = await this.getAccountById(a.id);
+          const accDetails = detailRes?.data?.account_details?.[0];
+          if (accDetails) {
+            detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
+            detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+          }
+        } catch (err: any) {
+          console.warn(`[NuvionClient] Could not fetch details for account ${a.id}: ${err.message}`);
         }
-      } catch (err: any) {
-        console.warn(`[NuvionClient] Could not fetch details for account ${a.id}: ${err.message}`);
       }
 
       if (detailAccNumber) {
@@ -688,15 +691,18 @@ export class NuvionClient {
       let detailAccNumber = a.nuvion_ban;
       let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
 
-      try {
-        const detailRes = await this.getAccountById(a.id);
-        const accDetails = detailRes?.data?.account_details?.[0];
-        if (accDetails) {
-          detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
-          detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+      // Only query individual account details if account_number is missing in summary payload
+      if (!detailAccNumber) {
+        try {
+          const detailRes = await this.getAccountById(a.id);
+          const accDetails = detailRes?.data?.account_details?.[0];
+          if (accDetails) {
+            detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
+            detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+          }
+        } catch (err: any) {
+          console.warn(`[NuvionClient] Could not fetch details for corporate account ${a.id}: ${err.message}`);
         }
-      } catch (err: any) {
-        console.warn(`[NuvionClient] Could not fetch details for corporate account ${a.id}: ${err.message}`);
       }
 
       if (detailAccNumber) {
