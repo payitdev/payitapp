@@ -1,6 +1,8 @@
+import axios from 'axios';
 import crypto from 'crypto';
 import https from 'https';
 import { ParticleClient } from './particleClient';
+
 
 export interface NuvionTier1Payload {
   legalName: string;
@@ -170,76 +172,40 @@ export class NuvionClient {
   }
 
   private async nuvionGet(path: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const url = new URL(`${this.baseUrl}${path}`);
-      const req = https.request(url, {
-        method: 'GET',
+    try {
+      const response = await axios.get(`${this.baseUrl}${path}`, {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
-          'x-api-key': this.apiKey,
           'Accept': 'application/json',
         },
-      }, (res) => {
-        let body = '';
-        res.on('data', chunk => body += chunk);
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(body);
-            if (res.statusCode && res.statusCode >= 400) {
-              reject(new NuvionApiError(res.statusCode, `Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`, parsed));
-            } else {
-              resolve(parsed);
-            }
-          } catch (e) {
-            reject(new NuvionApiError(res.statusCode || 500, `Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
-          }
-        });
+        timeout: 15000,
       });
-      req.setTimeout(10000, () => {
-        req.destroy(new Error(`Nuvion API GET ${path} timed out after 10000ms`));
-      });
-      req.on('error', reject);
-      req.end();
-    });
+      return response.data;
+    } catch (err: any) {
+      const status = err.response?.status || 500;
+      const data = err.response?.data || { message: err.message };
+      throw new NuvionApiError(status, `Nuvion API error ${status}: ${JSON.stringify(data)}`, data);
+    }
   }
 
   private async nuvionPost(path: string, payload: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const url = new URL(`${this.baseUrl}${path}`);
-      const bodyData = JSON.stringify(payload);
-      const req = https.request(url, {
-        method: 'POST',
+    try {
+      const response = await axios.post(`${this.baseUrl}${path}`, payload, {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
-          'x-api-key': this.apiKey,
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(bodyData),
           'Accept': 'application/json',
         },
-      }, (res) => {
-        let body = '';
-        res.on('data', chunk => body += chunk);
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(body);
-            if (res.statusCode && res.statusCode >= 400) {
-              reject(new NuvionApiError(res.statusCode, `Nuvion API error ${res.statusCode}: ${JSON.stringify(parsed)}`, parsed));
-            } else {
-              resolve(parsed);
-            }
-          } catch (e) {
-            reject(new NuvionApiError(res.statusCode || 500, `Nuvion API returned non-JSON for ${path}: ${body.slice(0, 200)}`));
-          }
-        });
+        timeout: 15000,
       });
-      req.setTimeout(10000, () => {
-        req.destroy(new Error(`Nuvion API POST ${path} timed out after 10000ms`));
-      });
-      req.on('error', reject);
-      req.write(bodyData);
-      req.end();
-    });
+      return response.data;
+    } catch (err: any) {
+      const status = err.response?.status || 500;
+      const data = err.response?.data || { message: err.message };
+      throw new NuvionApiError(status, `Nuvion API error ${status}: ${JSON.stringify(data)}`, data);
+    }
   }
+
 
   /**
    * Fetches raw account objects directly from GET /accounts on Nuvion API.
