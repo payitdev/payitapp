@@ -55,7 +55,12 @@ export async function requireAuthHook(request: FastifyRequest, reply: FastifyRep
     }
 
     const userEntityIds = userEntities.map(e => e.id);
-    const activeEntityId = userEntities[0]?.id || '';
+    const headerEntityId = (request.headers['x-entity-id'] || request.headers['X-Entity-Id']) as string | undefined;
+
+    let activeEntityId = userEntities[0]?.id || '';
+    if (headerEntityId && userEntityIds.includes(headerEntityId)) {
+      activeEntityId = headerEntityId;
+    }
 
     request.session = {
       userId: payload.userId,
