@@ -11,6 +11,87 @@ export interface NuvionTier1Payload {
   bvn: string;
   idNumber?: string;
   phone?: string;
+  identityDocumentBase64?: string;
+  proofOfAddressBase64?: string;
+}
+
+export interface NuvionIndividualEntityPayload {
+  name: string;
+  person: {
+    first_name: string;
+    last_name: string;
+    middle_name?: string;
+    date_of_birth: string;
+    email: string;
+    nationality: string;
+    gender: string;
+    phonenumber: string;
+    bvn?: string;
+    nin?: string;
+    ssn?: string;
+  };
+  address?: {
+    line_1: string;
+    line_2?: string;
+    line_3?: string;
+    city: string;
+    state: string;
+    postal_code: string;
+    country_code: string;
+  };
+  identification?: any;
+  meta?: Record<string, any>;
+}
+
+export interface NuvionBusinessEntityPayload {
+  name: string;
+  business: {
+    legal_name: string;
+    trade_name?: string;
+    industry: string;
+    email: string;
+    website?: string;
+    type: string;
+    description: string;
+    registration_number: string;
+    phonenumber?: string;
+    incorporation_meta: {
+      year: number;
+      month: number;
+      country: string;
+      state: string;
+    };
+  };
+  address?: {
+    line_1: string;
+    line_2?: string;
+    line_3?: string;
+    city: string;
+    state: string;
+    postal_code: string;
+    country_code: string;
+  };
+  operating_address?: any;
+  business_officers: Array<{
+    job_title: string;
+    is_control_person: boolean;
+    is_beneficial_owner: boolean;
+    ownership_percentage: number;
+    person: {
+      first_name: string;
+      last_name: string;
+      middle_name?: string;
+      date_of_birth: string;
+      email: string;
+      nationality: string;
+      gender: string;
+      phonenumber: string;
+      bvn?: string;
+      nin?: string;
+      ssn?: string;
+    };
+  }>;
+  meta?: Record<string, any>;
 }
 
 export interface NuvionTier2Payload {
@@ -21,6 +102,8 @@ export interface NuvionTier2Payload {
   businessAddress: string;
   uboLegalName: string;
   uboBvn: string;
+  identityDocumentBase64?: string;
+  proofOfAddressBase64?: string;
 }
 
 export interface NuvionKycPayload {
@@ -535,262 +618,348 @@ export class NuvionClient {
     }
   }
 
+  /**
+   * Step 1: Creates an Individual Entity on Nuvion via POST /individual-entities.
+   * Returns real entity_id and person_id from Nuvion's response.
+   */
+  public async createIndividualEntity(payload: NuvionIndividualEntityPayload) {
+    const res = await this.nuvionPost('/individual-entities', payload);
+    const data = res?.data?.data || res?.data || res;
+    const entityId = data?.id || data?.entity_id;
+    const personId = data?.person_id || data?.person?.id;
+
+    if (!entityId) {
+      throw new NuvionApiError(500, `Nuvion API did not return an entity_id for individual entity creation. Response: ${JSON.stringify(res)}`, res);
+    }
+
+    return {
+      entityId: String(entityId),
+      personId: personId ? String(personId) : undefined,
+      status: (data?.status || 'pending') as string,
+      rawResponse: res,
+    };
+  }
+
+  /**
+   * Step 2: Creates a Business Entity on Nuvion via POST /business-entities.
+   * Returns real entity_id and person_id from Nuvion's response.
+   */
+  public async createBusinessEntity(payload: NuvionBusinessEntityPayload) {
+    const res = await this.nuvionPost('/business-entities', payload);
+    const data = res?.data?.data || res?.data || res;
+    const entityId = data?.id || data?.entity_id;
+    const personId = data?.person_id || data?.business_officers?.[0]?.person?.id;
+
+    if (!entityId) {
+      throw new NuvionApiError(500, `Nuvion API did not return an entity_id for business entity creation. Response: ${JSON.stringify(res)}`, res);
+    }
+
+    return {
+      entityId: String(entityId),
+      personId: personId ? String(personId) : undefined,
+      status: (data?.status || 'pending') as string,
+      rawResponse: res,
+    };
+  }
+
+  /**
+   * Step 3: Uploads compliance document for an entity via POST /documents.
+   */
+  public async uploadEntityDocument(
+    entityId: string,
+    key: string,
+    fileBase64: string,
+    description: string,
+    meta?: Record<string, any>,
+    linkToPersonId?: string
+  ) {
+    if (!entityId) throw new Error('entityId is required to upload an entity document');
+    const payload: any = {
+      entity_id: entityId,
+      key,
+      file: fileBase64,
+      description,
+      meta: meta || {},
+    };
+    if (linkToPersonId) {
+      payload.link_to_identity = { person_id: linkToPersonId };
+    }
+    return this.nuvionPost('/documents', payload);
+  }
+
+  /**
+   * Step 4: Submits an entity for compliance review via POST /onboarding-submissions.
+   */
+  public async submitForVerification(entityId: string) {
+    if (!entityId) throw new Error('entityId is required to submit for verification');
+    return this.nuvionPost('/onboarding-submissions', { entity_id: entityId });
+  }
+
+  /**
+   * Step 6 & 10: Opens a virtual account for an approved entity via POST /accounts with entity_id.
+   */
+  public async createVirtualAccountForEntity(params: {
+    entityId: string;
+    currency: NuvionSupportedCurrency;
+    type?: 'checking' | 'debit' | 'operational' | 'safeguard';
+    displayName?: string;
+  }) {
+    if (!params.entityId) throw new Error('Real Nuvion entityId is required to create a virtual account');
+    const accRes = await this.nuvionPost('/accounts', {
+      entity_id: params.entityId,
+      currency: params.currency,
+      type: params.type || 'checking',
+      display_name: params.displayName || `${params.currency} Checking Account`,
+    });
+
+    const account = accRes?.data?.data?.account || accRes?.data?.account || accRes?.data?.data || accRes?.data;
+    const accountId = account?.id || account?.nuvion_account_id;
+    let accountNumber = account?.nuvion_ban || account?.account_number;
+    let bankName = resolveNuvionBankName(params.currency, account?.bank_name);
+
+    if (!accountNumber && accountId) {
+      try {
+        const detailRes = await this.createAccountDetails(accountId);
+        accountNumber = detailRes.accountNumber;
+        if (detailRes.bankName) bankName = detailRes.bankName;
+      } catch (err: any) {
+        console.warn(`[NuvionClient] POST /account-details failed for ${accountId}: ${err.message}`);
+      }
+    }
+
+    if (!accountId || !accountNumber) {
+      throw new Error(`Nuvion did not return a valid account ID and account number for entity ${params.entityId} (${params.currency})`);
+    }
+
+    return {
+      nuvionAccountId: String(accountId),
+      accountNumber: String(accountNumber),
+      bankName,
+      accountHolderName: account?.display_name || params.displayName || 'Account Holder',
+      currency: params.currency,
+      status: (account?.status || 'active') as string,
+    };
+  }
+
+  /**
+   * Obtains banking coordinates via POST /account-details.
+   */
+  public async createAccountDetails(accountId: string) {
+    if (!accountId) throw new Error('accountId is required to create account details');
+    const res = await this.nuvionPost('/account-details', { account_id: accountId });
+    const details = res?.data?.data || res?.data;
+    const accountNumber = details?.account_number || details?.iban;
+    const bankName = details?.issuer?.name || resolveNuvionBankName('USD');
+
+    if (!accountNumber) {
+      throw new Error(`Nuvion POST /account-details failed to return account_number for ${accountId}`);
+    }
+
+    return {
+      accountDetailsId: details?.id,
+      accountNumber: String(accountNumber),
+      bankName: String(bankName),
+      rawResponse: res,
+    };
+  }
+
+  /**
+   * Compatibility method for virtual account creation.
+   */
+  public async createVirtualAccount(params: { entityId: string; tier: number; legalName: string; currency: NuvionSupportedCurrency }) {
+    return this.createVirtualAccountForEntity({
+      entityId: params.entityId,
+      currency: params.currency,
+      displayName: params.legalName,
+    });
+  }
+
+  /**
+   * Step 9: Submits Tier 1 Personal KYC using real Nuvion individual entity onboarding.
+   * Returns a pending status to caller without attempting synchronous account creation or substring matching.
+   */
   public async submitTier1Kyc(data: NuvionTier1Payload) {
     if (!data.bvn || data.bvn.length !== 11) throw new Error('Valid 11-digit BVN required for Tier 1');
     const encryptedPayload = this.encryptSensitivePayload(data);
     const accountHolderName = data.legalName ? data.legalName.trim() : 'Account Holder';
 
-    let liveAccounts: any[] = [];
-    try {
-      const newAccRes = await this.nuvionPost('/accounts', {
-        currency: 'NGN',
-        type: 'checking',
-        display_name: accountHolderName,
-        meta: {
-          bvn: data.bvn,
-          nin: data.idNumber,
-          legal_name: accountHolderName,
-          kyc_status: 'verified'
-        }
-      });
+    const nameParts = accountHolderName.split(' ');
+    const firstName = nameParts[0] || 'User';
+    const lastName = nameParts.slice(1).join(' ') || 'User';
 
-      if (newAccRes?.data?.data?.account) {
-        liveAccounts.push(newAccRes.data.data.account);
-      }
-    } catch (err: any) {
-      console.warn(`[NuvionClient] POST /accounts returned: ${err.message}. Fetching existing Nuvion accounts for verified user...`);
-    }
-
-    try {
-      const nuvRes = await this.nuvionGet('/accounts');
-      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
-      if (Array.isArray(rawList) && rawList.length > 0) {
-        const nameClean = accountHolderName.toLowerCase().trim();
-        const matched = rawList.filter((item: any) => {
-          const dn = (item.display_name || '').toLowerCase().trim();
-          return dn.includes(nameClean) || nameClean.includes(dn);
-        });
-
-        const listToPush = matched.length > 0 ? matched : [];
-        for (const item of listToPush) {
-          if (!liveAccounts.some(existing => existing.id === item.id)) {
-            liveAccounts.push(item);
-          }
-        }
-      }
-    } catch (err: any) {
-      if (liveAccounts.length === 0) {
-        throw new Error(`Unable to fetch Nuvion accounts: ${err.message}`);
-      }
-    }
-
-    if (liveAccounts.length === 0) {
-      throw new Error('Nuvion API returned 0 accounts for this entity.');
-    }
-
-    // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
-    liveAccounts.sort((a: any, b: any) => {
-      const aHasUser = a.meta?.platform_user_id ? 1 : 0;
-      const bHasUser = b.meta?.platform_user_id ? 1 : 0;
-      if (aHasUser !== bHasUser) return bHasUser - aHasUser;
-      return (b.created || 0) - (a.created || 0);
+    const entityRes = await this.createIndividualEntity({
+      name: accountHolderName,
+      person: {
+        first_name: firstName,
+        last_name: lastName,
+        date_of_birth: data.dob || '1990-01-01',
+        email: `${firstName.toLowerCase()}.${Date.now()}@payit.app`,
+        nationality: 'NG',
+        gender: 'm',
+        phonenumber: data.phone || '+2348000000000',
+        bvn: data.bvn,
+        nin: data.idNumber,
+      },
+      address: {
+        line_1: data.address || 'Lagos, Nigeria',
+        city: 'Lagos',
+        state: 'Lagos',
+        postal_code: '100001',
+        country_code: 'NG',
+      },
     });
 
-    const fiatAccounts: any[] = [];
-    for (const a of liveAccounts) {
-      let detailAccNumber = a.nuvion_ban;
-      let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
+    const nuvionEntityId = entityRes.entityId;
 
-      // Only query individual account details if account_number is missing in summary payload
-      if (!detailAccNumber) {
-        try {
-          const detailRes = await this.getAccountById(a.id);
-          const accDetails = detailRes?.data?.account_details?.[0];
-          if (accDetails) {
-            detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
-            detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
-          }
-        } catch (err: any) {
-          console.warn(`[NuvionClient] Could not fetch details for account ${a.id}: ${err.message}`);
-        }
-      }
-
-      if (detailAccNumber) {
-        fiatAccounts.push({
-          nuvionAccountId: a.id || a.nuvion_account_id,
-          accountNumber: detailAccNumber,
-          bankName: detailBankName,
-          currency: a.currency || 'USD',
-          accountHolderName: a.display_name || accountHolderName,
-          rawBalance: a.balance || { available: 0, current: 0 },
-        });
+    if (data.identityDocumentBase64) {
+      try {
+        await this.uploadEntityDocument(
+          nuvionEntityId,
+          'identity',
+          data.identityDocumentBase64,
+          'Government Identity Document',
+          { file_type: 'image/jpeg' },
+          entityRes.personId
+        );
+      } catch (docErr: any) {
+        console.warn(`[NuvionClient] Upload identity document returned: ${docErr.message}`);
       }
     }
 
-    const nuvionEntityId = `nuvion_pers_${Date.now()}`;
+    if (data.proofOfAddressBase64) {
+      try {
+        await this.uploadEntityDocument(
+          nuvionEntityId,
+          'proof_of_address',
+          data.proofOfAddressBase64,
+          'Proof of Address Document',
+          { file_type: 'image/jpeg' }
+        );
+      } catch (docErr: any) {
+        console.warn(`[NuvionClient] Upload proof of address document returned: ${docErr.message}`);
+      }
+    }
+
+    try {
+      await this.submitForVerification(nuvionEntityId);
+    } catch (err: any) {
+      console.warn(`[NuvionClient] submitForVerification returned: ${err.message}`);
+    }
+
     const particleClient = new ParticleClient();
     const particleAcc = await particleClient.getOrCreateUniversalAccount(nuvionEntityId, 'PERSONAL');
 
     return {
       nuvionEntityId,
+      personId: entityRes.personId,
       status: 'pending' as const,
       tier: 1 as const,
       accountHolderName,
       encryptedPayload,
       particleNetworkAddress: particleAcc.walletAddress,
-      virtualAccount: fiatAccounts[0],
-      fiatAccounts,
+      virtualAccount: null,
+      fiatAccounts: [],
     };
   }
 
+  /**
+   * Step 9: Submits Tier 2 Corporate KYB using real Nuvion business entity onboarding.
+   */
   public async submitTier2Kyb(data: NuvionTier2Payload) {
     if (!data.rcNumber) throw new Error('Corporate RC Number (CAC) required for Tier 2 KYB');
     const encryptedPayload = this.encryptSensitivePayload(data);
     const accountHolderName = data.businessLegalName ? data.businessLegalName.trim() : 'Corporate Account';
 
-    let liveAccounts: any[] = [];
-    try {
-      const newBizAccRes = await this.nuvionPost('/accounts', {
-        currency: 'USD',
-        type: 'checking',
-        display_name: accountHolderName,
-        rc_number: data.rcNumber,
-        tin: data.tin,
-      });
+    const uboParts = (data.uboLegalName || 'Officer User').split(' ');
+    const uboFirst = uboParts[0] || 'Officer';
+    const uboLast = uboParts.slice(1).join(' ') || 'User';
 
-      if (newBizAccRes?.data?.data?.account) {
-        liveAccounts.push(newBizAccRes.data.data.account);
-      }
-    } catch (err: any) {
-      console.warn(`[NuvionClient] POST /accounts corporate returned: ${err.message}. Fetching existing Nuvion accounts for verified user...`);
-    }
-
-    try {
-      const nuvRes = await this.nuvionGet('/accounts');
-      const rawList = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
-      if (Array.isArray(rawList) && rawList.length > 0) {
-        const nameClean = accountHolderName.toLowerCase().trim();
-        const matched = rawList.filter((item: any) => {
-          const dn = (item.display_name || '').toLowerCase().trim();
-          return dn.includes(nameClean) || nameClean.includes(dn);
-        });
-
-        const listToPush = matched.length > 0 ? matched : [];
-        for (const item of listToPush) {
-          if (!liveAccounts.some(existing => existing.id === item.id)) {
-            liveAccounts.push(item);
-          }
-        }
-      }
-    } catch (err: any) {
-      if (liveAccounts.length === 0) {
-        throw new Error(`Unable to fetch corporate Nuvion accounts: ${err.message}`);
-      }
-    }
-
-    if (liveAccounts.length === 0) {
-      throw new Error('Nuvion API returned 0 corporate accounts for this entity.');
-    }
-
-    // Sort live accounts: prioritize accounts with platform_user_id, then newest created first
-    liveAccounts.sort((a: any, b: any) => {
-      const aHasUser = a.meta?.platform_user_id ? 1 : 0;
-      const bHasUser = b.meta?.platform_user_id ? 1 : 0;
-      if (aHasUser !== bHasUser) return bHasUser - aHasUser;
-      return (b.created || 0) - (a.created || 0);
+    const entityRes = await this.createBusinessEntity({
+      name: accountHolderName,
+      business: {
+        legal_name: accountHolderName,
+        industry: 'Financial Technology',
+        email: `biz.${Date.now()}@payit.app`,
+        type: 'llc',
+        description: 'Corporate Payment Entity',
+        registration_number: data.rcNumber,
+        incorporation_meta: {
+          year: 2022,
+          month: 1,
+          country: 'NG',
+          state: 'Lagos',
+        },
+      },
+      address: {
+        line_1: data.businessAddress || 'Lagos, Nigeria',
+        city: 'Lagos',
+        state: 'Lagos',
+        postal_code: '100001',
+        country_code: 'NG',
+      },
+      business_officers: [
+        {
+          job_title: 'Director',
+          is_control_person: true,
+          is_beneficial_owner: true,
+          ownership_percentage: 100,
+          person: {
+            first_name: uboFirst,
+            last_name: uboLast,
+            date_of_birth: '1985-01-01',
+            email: `officer.${Date.now()}@payit.app`,
+            nationality: 'NG',
+            gender: 'm',
+            phonenumber: '+2348000000000',
+            bvn: data.uboBvn,
+          },
+        },
+      ],
     });
 
-    const fiatAccounts: any[] = [];
-    for (const a of liveAccounts) {
-      let detailAccNumber = a.nuvion_ban;
-      let detailBankName = resolveNuvionBankName(a.currency, a.bank_name || a.bankName);
+    const nuvionEntityId = entityRes.entityId;
 
-      // Only query individual account details if account_number is missing in summary payload
-      if (!detailAccNumber) {
-        try {
-          const detailRes = await this.getAccountById(a.id);
-          const accDetails = detailRes?.data?.account_details?.[0];
-          if (accDetails) {
-            detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
-            detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
-          }
-        } catch (err: any) {
-          console.warn(`[NuvionClient] Could not fetch details for corporate account ${a.id}: ${err.message}`);
-        }
-      }
-
-      if (detailAccNumber) {
-        fiatAccounts.push({
-          nuvionAccountId: a.id || a.nuvion_account_id,
-          accountNumber: detailAccNumber,
-          bankName: detailBankName,
-          currency: a.currency || 'USD',
-          accountHolderName: a.display_name || accountHolderName,
-        });
-      }
+    try {
+      await this.submitForVerification(nuvionEntityId);
+    } catch (err: any) {
+      console.warn(`[NuvionClient] submitForVerification corporate returned: ${err.message}`);
     }
 
-    const nuvionBizEntityId = `nuvion_biz_${Date.now()}`;
     const particleClient = new ParticleClient();
-    const particleAcc = await particleClient.getOrCreateUniversalAccount(nuvionBizEntityId, 'BUSINESS');
+    const particleAcc = await particleClient.getOrCreateUniversalAccount(nuvionEntityId, 'BUSINESS');
 
     return {
-      nuvionEntityId: nuvionBizEntityId,
+      nuvionEntityId,
+      personId: entityRes.personId,
       status: 'pending' as const,
       tier: 2 as const,
       accountHolderName,
       encryptedPayload,
       particleNetworkAddress: particleAcc.walletAddress,
-      virtualAccount: fiatAccounts[0],
-      fiatAccounts,
-    };
-  }
-
-  public async createVirtualAccount(params: { entityId: string; tier: number; legalName: string; currency: NuvionSupportedCurrency }) {
-    const holderName = params.legalName ? params.legalName.trim() : 'Account Holder';
-    const accRes = await this.nuvionPost('/accounts', {
-      currency: params.currency,
-      type: 'checking',
-      display_name: holderName,
-      meta: {
-        entity_id: params.entityId,
-        legal_name: holderName,
-        kyc_status: 'verified',
-      },
-    });
-    const account = accRes?.data?.data?.account;
-    if (!account?.nuvion_ban) {
-      throw new Error(`Nuvion did not return a virtual account number for ${params.currency}`);
-    }
-    return {
-      nuvionAccountId: account.id,
-      accountNumber: account.nuvion_ban,
-      bankName: resolveNuvionBankName(account.currency, account.bank_name),
-      accountHolderName: account.display_name || holderName,
-      currency: account.currency,
-      status: 'active' as const,
+      virtualAccount: null,
+      fiatAccounts: [],
     };
   }
 
   /**
-   * Fetches all live Nuvion accounts — used to re-sync accounts for a verified entity
-   * when the local DB is empty (e.g., after a DB reset or first login on a new device).
-   * Returns the raw Nuvion API response so the caller can map accounts.
+   * Step 7: Fetches accounts strictly scoped to a real Nuvion entity ID using GET /accounts?entity_id=${nuvionEntityId}.
+   * Never calls GET /accounts unscoped.
    */
-  public async getAccountsForEntity(_entityId: string) {
-    return this.nuvionGet('/accounts');
+  public async getAccountsForEntity(nuvionEntityId: string) {
+    if (!nuvionEntityId) throw new Error('nuvionEntityId query parameter is required to list accounts for entity');
+    return this.nuvionGet(`/accounts?entity_id=${encodeURIComponent(nuvionEntityId)}`);
   }
 
   /**
-   * Fetches detailed account information by ID, including account_details (commercial bank numbers and partner bank names).
+   * Fetches detailed account information by ID.
    */
   public async getAccountById(accountId: string) {
+    if (!accountId) throw new Error('accountId is required to get account');
     return this.nuvionGet(`/accounts/${accountId}`);
   }
 
   /**
    * Resolves a Nuvion currency code to the clearinghouse bank name shown to the user.
-   * Exposed publicly so backend routes can use it for DB sync.
    */
   public resolveAccountBankName(currency: string, rawBank?: string): string {
     return resolveNuvionBankName(currency, rawBank);

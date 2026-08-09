@@ -1,17 +1,23 @@
-import { createDbClient, eq } from '@payit/db';
+import { createDbClient } from '@payit/db';
 import { entities, accounts } from '@payit/db/schema';
 
 const db = createDbClient();
 
 async function check() {
   const allEntities = await db.select().from(entities);
-  console.log('--- ALL ENTITIES IN NEON DB ---');
+  console.log(`FOUND ${allEntities.length} ENTITIES IN NEON DB:`);
   for (const e of allEntities) {
-    console.log(`ID: ${e.id} | Kind: ${e.kind} | Name: ${e.legalName} | NuvionEntityId: ${e.nuvionEntityId}`);
-    const accs = await db.select().from(accounts).where(eq(accounts.entityId, e.id));
-    console.log(`  Linked Accounts (${accs.length}):`);
+    console.log(`\nEntity ID: ${e.id}`);
+    console.log(`  Legal Name: "${e.legalName}"`);
+    console.log(`  Kind: ${e.kind} | Status: ${e.nuvionStatus} | Tier: ${e.nuvionTier}`);
+    console.log(`  NuvionEntityId: ${e.nuvionEntityId}`);
+
+    const accs = await db.select().from(accounts).where((accounts as any).entityId ? (accounts as any).entityId : undefined);
+    console.log(`  Linked Accounts:`);
     for (const a of accs) {
-      console.log(`    - [${a.currency}] BAN: ${a.accountNumber} | Bank: ${a.bankName} | Holder: ${a.accountHolderName}`);
+      if (a.entityId === e.id) {
+        console.log(`    -> [${a.currency}] BAN: ${a.accountNumber} | Bank: ${a.bankName} | Holder: ${a.accountHolderName} | NuvionAccId: ${a.nuvionAccountId}`);
+      }
     }
   }
 }

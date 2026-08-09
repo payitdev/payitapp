@@ -139,10 +139,9 @@ export async function kycRoutes(server: FastifyInstance) {
 
       server.log.info({ res }, 'Raw Nuvion Tier 2 KYB response');
 
-      const returnedAccounts = res.fiatAccounts || [];
-      const newStatus = returnedAccounts.length > 0 ? 'approved' : (res.status || 'pending');
+      const newStatus = 'pending';
 
-      // C13 Remediation: Sanitize & validate business tag, storing it directly into entities.businessTag
+      // Sanitize & validate business tag, storing it directly into entities.businessTag
       let rawTag = kybBody.businessTag || kybBody.businessLegalName || 'BUSINESS';
       let resolvedTag = rawTag.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 15);
       if (resolvedTag.length < 3) resolvedTag = `BIZ_${resolvedTag}`;
@@ -170,47 +169,16 @@ export async function kycRoutes(server: FastifyInstance) {
         })
         .where(eq(entities.id, entityId));
 
-
-
-      // Persist any generated fiat accounts directly to database
-      const insertedAccounts: any[] = [];
-      for (const fa of returnedAccounts) {
-        if (!fa.accountNumber) continue;
-        const existingAcc = await db.select().from(accounts).where(eq(accounts.nuvionAccountId, fa.nuvionAccountId)).limit(1);
-        if (existingAcc.length === 0) {
-          const accId = ulid();
-          await db.insert(accounts).values({
-            id: accId,
-            entityId,
-            nuvionAccountId: fa.nuvionAccountId,
-            currency: fa.currency || 'USD',
-            bankName: fa.bankName || 'Nuvion Partner Bank',
-            accountNumber: fa.accountNumber,
-            accountHolderName: fa.accountHolderName || kybBody.businessLegalName,
-            status: 'active',
-            createdAt: new Date(),
-          });
-          insertedAccounts.push({
-            id: accId,
-            currency: fa.currency || 'USD',
-            bankName: fa.bankName || 'Nuvion Partner Bank',
-            accountNumber: fa.accountNumber,
-          });
-        } else {
-          insertedAccounts.push(existingAcc[0]);
-        }
-      }
-
       return reply.send({
         success: true,
-        message: newStatus === 'approved' ? 'Business identity verified & virtual accounts active!' : 'Business details submitted. Verification pending approval.',
+        message: 'Business details submitted to Nuvion. Verification pending approval.',
         nuvionEntityId: res.nuvionEntityId,
         tier: 2,
         status: newStatus,
         legalName: kybBody.businessLegalName,
         businessTag: tagCandidate,
         particleNetworkAddress: res.particleNetworkAddress,
-        fiatAccounts: insertedAccounts,
+        fiatAccounts: [],
         limits: nuvion.getTierLimits(2),
       });
     } catch (err: any) {
@@ -252,31 +220,28 @@ export async function kycRoutes(server: FastifyInstance) {
     let currentStatus = entity.nuvionStatus;
     let currentTier = entity.nuvionTier;
 
-    // If entity has no DB accounts but is pending or tier >= 1,
-    // pull live accounts from Nuvion using entity.nuvionEntityId
+    // SECONDARY POLLING FALLBACK: If primary webhook notification was delayed or missed,
+    // query accounts strictly scoped by the entity's real nuvionEntityId.
     if (entityAccounts.length === 0 && (entity.nuvionTier >= 1 || entity.nuvionStatus === 'pending') && entity.nuvionEntityId) {
       try {
-        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, 'Checking live Nuvion accounts for pending/verified entity');
+        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, '[Secondary Polling Fallback] Checking live entity-scoped Nuvion accounts');
         const nuvRes = await nuvion.getAccountsForEntity(entity.nuvionEntityId);
         const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
 
         if (Array.isArray(liveAccounts) && liveAccounts.length > 0) {
-          // Live accounts found — update entity status to approved in DB
           const newTier = entity.kind === 'BUSINESS' ? 2 : 1;
           await db.update(entities).set({ nuvionStatus: 'approved', nuvionTier: newTier }).where(eq(entities.id, entityId));
           currentStatus = 'approved';
           currentTier = newTier;
         }
 
-        liveAccounts.sort((a: any, b: any) => {
-
-          const aHasUser = a.meta?.platform_user_id ? 1 : 0;
-          const bHasUser = b.meta?.platform_user_id ? 1 : 0;
-          if (aHasUser !== bHasUser) return bHasUser - aHasUser;
-          return (b.created || 0) - (a.created || 0);
-        });
-
         for (const a of liveAccounts) {
+          // Strict entity isolation check: verify account is scoped to this Nuvion entity ID
+          const accEntityId = a.entity_id || a.meta?.entity_id;
+          if (accEntityId && accEntityId !== entity.nuvionEntityId) {
+            continue;
+          }
+
           const currency = a.currency || 'NGN';
 
           const existing = await db.select().from(accounts)
@@ -284,18 +249,17 @@ export async function kycRoutes(server: FastifyInstance) {
             .limit(1);
 
           if (existing.length === 0) {
-            let detailAccNumber = a.nuvion_ban;
+            let detailAccNumber = a.nuvion_ban || a.account_number;
             let detailBankName = nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || '');
 
-            try {
-              const detailRes = await nuvion.getAccountById(a.id);
-              const accDetails = detailRes?.data?.account_details?.[0];
-              if (accDetails) {
-                detailAccNumber = accDetails.account_number || accDetails.iban || accDetails.issuer?.meta?.account_number || detailAccNumber;
-                detailBankName = accDetails.issuer?.name || accDetails.issuer?.meta?.bank_name || detailBankName;
+            if (!detailAccNumber && a.id) {
+              try {
+                const detailRes = await nuvion.createAccountDetails(a.id);
+                detailAccNumber = detailRes.accountNumber;
+                if (detailRes.bankName) detailBankName = detailRes.bankName;
+              } catch (err: any) {
+                server.log.warn({ accId: a.id, err: err.message }, 'Could not fetch account_details; using primary account number');
               }
-            } catch (err: any) {
-              server.log.warn({ accId: a.id, err: err.message }, 'Could not fetch account_details; using primary account number');
             }
 
             if (!detailAccNumber) continue;
@@ -315,9 +279,9 @@ export async function kycRoutes(server: FastifyInstance) {
         }
 
         entityAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
-        server.log.info({ entityId, count: entityAccounts.length }, 'Synced live Nuvion accounts to DB');
+        server.log.info({ entityId, count: entityAccounts.length }, 'Synced entity-scoped live Nuvion accounts to DB via secondary polling fallback');
       } catch (syncErr: any) {
-        server.log.warn({ syncErr: syncErr.message, entityId }, 'Failed to sync live Nuvion accounts — returning empty');
+        server.log.warn({ syncErr: syncErr.message, entityId }, 'Secondary polling fallback sync failed');
       }
     }
 

@@ -30,6 +30,8 @@ export const entities = pgTable('entities', {
   nuvionEntityId: text('nuvion_entity_id'),
   xpub: text('xpub'), // HD Wallet Extended Public Key (KMS isolate)
   solanaAddress: text('solana_address'), // Solana Universal Account Address (Base58)
+  accountBackfilled: integer('account_backfilled').default(0).notNull(),
+  accountBackfilledAt: timestamp('account_backfilled_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => {
   return {
@@ -54,6 +56,19 @@ export const accounts = pgTable('accounts', {
     nuvionAccountIdx: uniqueIndex('idx_accounts_nuvion_account_id').on(table.nuvionAccountId),
     entityCurrencyIdx: uniqueIndex('idx_accounts_entity_currency').on(table.entityId, table.currency),
   };
+});
+
+// Archived accounts table to preserve old account history for audit purposes
+export const archivedAccounts = pgTable('archived_accounts', {
+  id: text('id').primaryKey(),
+  entityId: text('entity_id').notNull().references(() => entities.id),
+  nuvionAccountId: text('nuvion_account_id').notNull(),
+  accountNumber: text('account_number').notNull(),
+  bankName: text('bank_name').notNull(),
+  accountHolderName: text('account_holder_name'),
+  currency: text('currency').notNull(),
+  archivedReason: text('archived_reason').default('MISASSIGNED_MERCHANT_ACCOUNT_BACKFILL').notNull(),
+  archivedAt: timestamp('archived_at').defaultNow().notNull(),
 });
 
 // Wallets table with mandatory non-nullable entity_id

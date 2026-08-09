@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq, or } from '@payit/db';
-import { auditLogs, entities, invoices, rawWebhooks, ledgerAccounts, ledgerEntries } from '@payit/db/schema';
+import { auditLogs, entities, accounts, invoices, rawWebhooks, ledgerAccounts, ledgerEntries } from '@payit/db/schema';
 import { normalizeNuvionNgnAmount, NuvionClient, ParticleClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 import crypto from 'crypto';
@@ -16,6 +16,43 @@ function timingSafeCheck(receivedSignature?: string, expectedSignature?: string)
   const b = Buffer.from(expectedSignature, 'utf-8');
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+export async function onEntityApproved(dbClient: any, localEntityId: string, nuvionEntityId: string, kind: 'PERSONAL' | 'BUSINESS', legalName?: string) {
+  const existingAccounts = await dbClient
+    .select()
+    .from(accounts)
+    .where(eq(accounts.entityId, localEntityId));
+
+  const targetCurrencies: ('NGN' | 'USD')[] = kind === 'BUSINESS' ? ['USD', 'NGN'] : ['NGN'];
+
+  for (const currency of targetCurrencies) {
+    const hasCurr = existingAccounts.some((a: any) => a.currency === currency);
+    if (!hasCurr) {
+      try {
+        const created = await nuvion.createVirtualAccountForEntity({
+          entityId: nuvionEntityId,
+          currency,
+          displayName: legalName || `${kind} ${currency} Account`,
+        });
+
+        const accId = ulid();
+        await dbClient.insert(accounts).values({
+          id: accId,
+          entityId: localEntityId,
+          nuvionAccountId: created.nuvionAccountId,
+          accountNumber: created.accountNumber,
+          bankName: created.bankName,
+          accountHolderName: created.accountHolderName,
+          currency: created.currency,
+          status: created.status,
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        console.error(`[onEntityApproved] Failed to open virtual account for entity ${localEntityId} (${currency}):`, err.message);
+      }
+    }
+  }
 }
 
 export async function webhookRoutes(server: FastifyInstance) {
@@ -103,29 +140,41 @@ export async function webhookRoutes(server: FastifyInstance) {
           createdAt: new Date(),
         });
 
-        if (payload.nuvionEntityId && payload.status) {
+        // Defensive parsing for entities.updated / entity status events
+        const targetNuvionEntityId = payload.nuvionEntityId || payload.entityId || (payload as any).entity_id || (payload as any).data?.id || (payload as any).id;
+        const newStatus = payload.status || (payload as any).data?.status;
+
+        if (targetNuvionEntityId && newStatus) {
           const entityRows = await db
             .select()
             .from(entities)
-            .where(eq(entities.nuvionEntityId, payload.nuvionEntityId))
+            .where(eq(entities.nuvionEntityId, targetNuvionEntityId))
             .limit(1);
 
           if (entityRows.length > 0) {
+            const currentEntity = entityRows[0];
+            const updatedTier = payload.tier || (currentEntity.kind === 'BUSINESS' ? 2 : 1);
+
             await db
               .update(entities)
               .set({
-                nuvionStatus: payload.status,
-                ...(payload.tier ? { nuvionTier: payload.tier } : {}),
+                nuvionStatus: newStatus,
+                nuvionTier: updatedTier,
                 ...(confirmedName ? { legalName: confirmedName } : {}),
               })
-              .where(eq(entities.nuvionEntityId, payload.nuvionEntityId));
+              .where(eq(entities.nuvionEntityId, targetNuvionEntityId));
 
             server.log.info({
-              nuvionEntityId: payload.nuvionEntityId,
-              newStatus: payload.status,
+              nuvionEntityId: targetNuvionEntityId,
+              newStatus,
               confirmedName,
               reason: payload.reason,
-            }, 'Entity status and verified name updated from Nuvion webhook');
+            }, 'Entity status updated from Nuvion webhook');
+
+            // Step 10: Trigger account creation when status reaches "approved"
+            if (newStatus === 'approved') {
+              await onEntityApproved(db, currentEntity.id, targetNuvionEntityId, currentEntity.kind as 'PERSONAL' | 'BUSINESS', confirmedName || currentEntity.legalName);
+            }
           }
         }
 

@@ -351,6 +351,8 @@ export default function App() {
   const [kycRcNumber, setKycRcNumber] = useState('');
   const [kycTin, setKycTin] = useState('');
   const [kycUboName, setKycUboName] = useState('');
+  const [kycIdentityFile, setKycIdentityFile] = useState<string>('');
+  const [kycAddressFile, setKycAddressFile] = useState<string>('');
   const [isSubmittingKyc, setIsSubmittingKyc] = useState(false);
 
   // Send Form State
@@ -708,8 +710,8 @@ export default function App() {
     }
 
     const payload = isPersonal
-      ? { userId, entityId: activeEntity.id, legalName: kycLegalName, phone: kycPhone, bvn: kycBvn, dob: kycDob, address: kycAddress }
-      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn };
+      ? { userId, entityId: activeEntity.id, legalName: kycLegalName, phone: kycPhone, bvn: kycBvn, dob: kycDob, address: kycAddress, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile }
+      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile };
 
     try {
       const res = await apiFetch(endpoint, {
@@ -737,6 +739,8 @@ export default function App() {
       setKycLegalName('');
       setKycBvn('');
       setKycPhone('');
+      setKycIdentityFile('');
+      setKycAddressFile('');
       if (activeAbortController.current) {
         fetchEntityDetails(userId, activeEntity.id, activeAbortController.current.signal);
       }
@@ -1916,6 +1920,49 @@ export default function App() {
                     <div className="field"><label>Director BVN / NIN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
                   </>
                 )}
+
+                {/* Compliance Document Uploads */}
+                <div style={{ marginTop: 12, marginBottom: 14, background: 'var(--surface-alt)', padding: 12, borderRadius: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text)' }}>
+                    Compliance Documents (Optional Image / PDF Upload)
+                  </div>
+                  
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 11 }}>Government Identity Document (Passport / National ID / Driver's License)</label>
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => setKycIdentityFile(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ fontSize: 12 }}
+                    />
+                    {kycIdentityFile && <span style={{ fontSize: 10, color: 'var(--green-dark)', fontWeight: 700 }}>✓ Identity document attached</span>}
+                  </div>
+
+                  <div className="field">
+                    <label style={{ fontSize: 11 }}>Proof of Address (Utility Bill / Bank Statement)</label>
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => setKycAddressFile(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ fontSize: 12 }}
+                    />
+                    {kycAddressFile && <span style={{ fontSize: 10, color: 'var(--green-dark)', fontWeight: 700 }}>✓ Proof of address attached</span>}
+                  </div>
+                </div>
 
                 <button type="submit" disabled={isSubmittingKyc} className="cta">
                   {isSubmittingKyc ? 'Submitting to Nuvion Compliance...' : 'Submit Credentials to Nuvion'}
