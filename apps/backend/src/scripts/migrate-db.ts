@@ -1,6 +1,5 @@
 import 'dotenv/config';
-import { createDbClient } from '@payit/db';
-import { sql } from 'drizzle-orm';
+import { createDbClient, sql } from '@payit/db';
 
 const db = createDbClient();
 
