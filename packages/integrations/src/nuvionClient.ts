@@ -296,6 +296,7 @@ export class NuvionClient {
   public async getRawAccounts(): Promise<any[]> {
     try {
       const res = await this.nuvionGet('/accounts');
+      // Expects response envelope shape: { data: { data: [...] } } or { data: [...] } or direct array. Must be confirmed against a real Nuvion GET /accounts response before being trusted in production.
       const list = res?.data?.data?.data || res?.data?.data?.accounts || res?.data?.accounts || res?.data?.data || (Array.isArray(res?.data) ? res.data : []);
       return Array.isArray(list) ? list : [];
     } catch (err: any) {
@@ -330,6 +331,7 @@ export class NuvionClient {
         // 1. Fetch from live /fx/rates endpoint
         try {
           const ratesRes = await this.nuvionGet('/fx/rates');
+          // Expects response envelope shape: { data: { rates: [...] } } or { data: [...] }. Must be confirmed against a real Nuvion GET /fx/rates response before being trusted in production.
           const ratesData: any[] = ratesRes?.data?.rates || ratesRes?.data || (Array.isArray(ratesRes) ? ratesRes : []);
           for (const item of ratesData) {
             if (item.currency && item.rateToNgn) {
@@ -712,29 +714,40 @@ export class NuvionClient {
       display_name: params.displayName || `${params.currency} Checking Account`,
     });
 
-    const account = accRes?.data?.data?.account || accRes?.data?.account || accRes?.data?.data || accRes?.data;
-    const accountId = account?.id || account?.nuvion_account_id;
-    let accountNumber = account?.nuvion_ban || account?.account_number;
-    let bankName = resolveNuvionBankName(params.currency, account?.bank_name);
+    // Log raw response temporarily to confirm response envelope shape against sandbox
+    console.log('[NuvionClient] POST /accounts raw response:', JSON.stringify(accRes, null, 2));
 
-    if (!accountNumber && accountId) {
-      try {
-        const detailRes = await this.createAccountDetails(accountId);
-        accountNumber = detailRes.accountNumber;
-        if (detailRes.bankName) bankName = detailRes.bankName;
-      } catch (err: any) {
-        console.warn(`[NuvionClient] POST /account-details failed for ${accountId}: ${err.message}`);
-      }
+    // Expects response envelope shape: { data: { account: {...} } } or { data: {...} } or direct account object. Must be confirmed against a real Nuvion POST /accounts response before being trusted in production.
+    const account = accRes?.data?.account || accRes?.data?.data || accRes?.data;
+    const accountId = account?.id || account?.nuvion_account_id;
+
+    if (!accountId) {
+      throw new Error(`Nuvion did not return a valid account ID for entity ${params.entityId} (${params.currency})`);
     }
 
-    if (!accountId || !accountNumber) {
-      throw new Error(`Nuvion did not return a valid account ID and account number for entity ${params.entityId} (${params.currency})`);
+    // Always call POST /account-details with { account_id: accountId } to get real receivable account_number and issuer.name
+    const detailRes = await this.createAccountDetails(accountId);
+    const isStablecoin = ['USC', 'UST', 'RLD'].includes(String(params.currency).toUpperCase());
+
+    if (isStablecoin && detailRes.status === 'pending') {
+      return {
+        nuvionAccountId: String(accountId),
+        accountNumber: '',
+        bankName: detailRes.bankName,
+        accountHolderName: account?.display_name || params.displayName || 'Account Holder',
+        currency: params.currency,
+        status: 'provisioning',
+      };
+    }
+
+    if (!detailRes.accountNumber && !isStablecoin) {
+      throw new Error(`Nuvion POST /account-details failed to return a valid account number for account ${accountId}`);
     }
 
     return {
       nuvionAccountId: String(accountId),
-      accountNumber: String(accountNumber),
-      bankName,
+      accountNumber: detailRes.accountNumber,
+      bankName: detailRes.bankName,
       accountHolderName: account?.display_name || params.displayName || 'Account Holder',
       currency: params.currency,
       status: (account?.status || 'active') as string,
@@ -742,23 +755,80 @@ export class NuvionClient {
   }
 
   /**
-   * Obtains banking coordinates via POST /account-details.
+   * Creates a counterparty resource for payouts via POST /counterparties.
+   * Scoped to entityId, accepts individual or business profile shape per Nuvion docs.
+   */
+  public async createCounterparty(
+    entityId: string,
+    type: 'individual' | 'business',
+    profile: {
+      first_name?: string;
+      last_name?: string;
+      legal_name?: string;
+      relationship?: string;
+      email?: string;
+      address?: any;
+      registered_address?: any;
+    }
+  ) {
+    if (!entityId) throw new Error('entityId is required to create a counterparty');
+    const res = await this.nuvionPost('/counterparties', {
+      entity_id: entityId,
+      type,
+      profile,
+    });
+    // Expects response envelope shape: { data: { counterparty: {...} } } or direct object. Must be confirmed against a real Nuvion POST /counterparties response before being trusted in production.
+    const counterparty = res?.data?.data?.counterparty || res?.data?.counterparty || res?.data?.data || res?.data;
+    if (!counterparty?.id) {
+      throw new Error(`Nuvion createCounterparty failed: ${res?.data?.message || 'Unknown error'}`);
+    }
+    return counterparty;
+  }
+
+  /**
+   * Registers entity webhook endpoint via POST /entity-webhooks.
+   * Subscribes to entities, account_details, and outflows events for 1 year (31536000s).
+   */
+  public async registerWebhook(entityId: string, url: string) {
+    if (!entityId || !url) throw new Error('entityId and url are required to register webhook');
+    const res = await this.nuvionPost('/entity-webhooks', {
+      entity_id: entityId,
+      url,
+      expires_in: 31536000,
+      enabled_events: [
+        'entities.created',
+        'entities.updated',
+        'account_details.created',
+        'account_details.updated',
+        'outflows.created',
+        'outflows.completed',
+        'outflows.failed',
+        'outflows.cancelled',
+        'outflows.refunded',
+      ],
+    });
+    // Expects response envelope shape: { data: { webhook: {...} } } or direct object. Must be confirmed against a real Nuvion POST /entity-webhooks response before being trusted in production.
+    return res?.data?.data || res?.data?.webhook || res?.data;
+  }
+
+  /**
+   * Obtains banking coordinates via POST /account-details with { account_id: accountId }.
+   * Returns real receivable account_number and issuer.name.
    */
   public async createAccountDetails(accountId: string) {
     if (!accountId) throw new Error('accountId is required to create account details');
     const res = await this.nuvionPost('/account-details', { account_id: accountId });
-    const details = res?.data?.data || res?.data;
-    const accountNumber = details?.account_number || details?.iban;
-    const bankName = details?.issuer?.name || resolveNuvionBankName('USD');
-
-    if (!accountNumber) {
-      throw new Error(`Nuvion POST /account-details failed to return account_number for ${accountId}`);
-    }
+    // Expects response envelope shape: { data: { account_details: {...} } } or { data: {...} }. Must be confirmed against a real Nuvion POST /account-details response before being trusted in production.
+    const details = res?.data?.data || res?.data?.account_details || res?.data;
+    const accountNumber = details?.account_number || details?.iban || details?.sort_code;
+    const bankName = details?.issuer?.name || details?.bank_name || resolveNuvionBankName('USD');
+    const status = details?.status || 'active';
 
     return {
       accountDetailsId: details?.id,
-      accountNumber: String(accountNumber),
+      accountNumber: accountNumber ? String(accountNumber) : '',
       bankName: String(bankName),
+      status: String(status),
       rawResponse: res,
     };
   }
@@ -787,6 +857,7 @@ export class NuvionClient {
     const firstName = nameParts[0] || 'User';
     const lastName = nameParts.slice(1).join(' ') || 'User';
 
+    // Expects response shape from createIndividualEntity: { entityId, personId }. Must be confirmed against a real Nuvion POST /individual-entities response before being trusted in production.
     const entityRes = await this.createIndividualEntity({
       name: accountHolderName,
       person: {
@@ -874,6 +945,7 @@ export class NuvionClient {
     const uboFirst = uboParts[0] || 'Officer';
     const uboLast = uboParts.slice(1).join(' ') || 'User';
 
+    // Expects response shape from createBusinessEntity: { entityId, personId }. Must be confirmed against a real Nuvion POST /business-entities response before being trusted in production.
     const entityRes = await this.createBusinessEntity({
       name: accountHolderName,
       business: {
@@ -976,6 +1048,7 @@ export class NuvionClient {
       cardholder_name: params.cardholderName,
       brand: params.brand,
     });
+    // Expects response envelope shape: { data: { data: { card: {...} } } }. Must be confirmed against a real Nuvion POST /cards response before being trusted in production.
     const card = cardRes?.data?.data?.card;
     if (!card?.id) {
       throw new Error(`Nuvion card issuance failed: ${cardRes?.data?.message || 'Unknown error'}`);
@@ -1002,13 +1075,17 @@ export class NuvionClient {
     };
   }
 
-  public async executePayout(params: { nuvionAccountId: string; destinationAccount: string; amount: number; currency: string }) {
+  public async executePayout(params: { nuvionAccountId: string; destinationAccount: string; amount: number; currency: string; entityId?: string; counterpartyId?: string }) {
+    // NOTE: The destination_account field and overall POST /payouts request body payload need manual verification against Nuvion payouts documentation once the /payouts API reference page is confirmed.
     const payoutRes = await this.nuvionPost('/payouts', {
+      ...(params.entityId ? { entity_id: params.entityId } : {}),
       source_account_id: params.nuvionAccountId,
       destination_account: params.destinationAccount,
+      ...(params.counterpartyId ? { counterparty_id: params.counterpartyId } : {}),
       amount: params.amount,
       currency: params.currency,
     });
+    // Expects response envelope shape: { data: { data: { payout: {...} } } }. Must be confirmed against a real Nuvion POST /payouts response before being trusted in production.
     const payout = payoutRes?.data?.data?.payout || payoutRes?.data?.data;
     if (!payout) {
       throw new Error(`Nuvion payout failed: ${payoutRes?.data?.message || 'Unknown error'}`);
@@ -1029,6 +1106,7 @@ export class NuvionClient {
   public async getOutboundPayoutStatus(payoutId: string) {
     try {
       const res = await this.nuvionGet(`/payouts/${payoutId}`);
+      // Expects response envelope shape: { data: { data: { payout: {...} } } }. Must be confirmed against a real Nuvion GET /payouts/:id response before being trusted in production.
       const payout = res?.data?.data?.payout || res?.data?.data || res?.data;
 
       const rawStatus = (payout?.status || 'processing').toLowerCase();

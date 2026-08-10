@@ -178,6 +178,45 @@ export async function webhookRoutes(server: FastifyInstance) {
           }
         }
 
+        // Dispatch for account_details.created & account_details.updated events
+        const eventType = (payload.eventType || (payload as any).type || (payload as any).event_type || '').toLowerCase();
+        if (eventType === 'account_details.created' || eventType === 'account_details.updated') {
+          const detailData = (payload as any).data || payload;
+          const detailStatus = detailData.status || 'active';
+          const accId = detailData.account_id || detailData.accountId;
+          const accNum = detailData.account_number || detailData.iban || detailData.sort_code;
+          const bankName = detailData.issuer?.name || detailData.bank_name;
+
+          if (accId && detailStatus === 'active' && accNum) {
+            await db
+              .update(accounts)
+              .set({
+                accountNumber: String(accNum),
+                ...(bankName ? { bankName: String(bankName) } : {}),
+                status: 'active',
+              })
+              .where(eq(accounts.nuvionAccountId, String(accId)));
+            server.log.info({ accId, accNum, bankName }, 'Updated stored accountNumber and bankName from account_details webhook event');
+          }
+        }
+
+        // Dispatch for outflows.completed & outflows.failed events
+        if (eventType.startsWith('outflows.')) {
+          const payoutId = (payload as any).data?.id || (payload as any).id || (payload as any).payout_id;
+          const payoutStatus = eventType.split('.')[1] || 'processing';
+          if (payoutId) {
+            await db.insert(auditLogs).values({
+              id: ulid(),
+              userId: 'system_webhook',
+              entityId: (payload as any).entity_id || 'system',
+              action: `NUVION_OUTFLOW_${payoutStatus.toUpperCase()}`,
+              metadata: JSON.stringify({ payoutId, status: payoutStatus, rawPayload: payload }),
+              createdAt: new Date(),
+            });
+            server.log.info({ payoutId, status: payoutStatus }, 'Updated payout outflow record status from Nuvion webhook');
+          }
+        }
+
         // Handle Incoming NGN & Fiat Deposit/Credit Webhooks with Kobo Normalization
         const isCreditEvent = ['deposit', 'credit', 'payment_received', 'account_credited'].includes((payload.eventType || '').toLowerCase());
         if (isCreditEvent && payload.amount && (payload.entityId || payload.nuvionEntityId)) {
