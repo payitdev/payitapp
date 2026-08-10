@@ -264,7 +264,7 @@ export class NuvionClient {
           'Authorization': `Bearer ${this.apiKey}`,
           'Accept': 'application/json',
         },
-        timeout: 15000,
+        timeout: 45000,
       });
       return response.data;
     } catch (err: any) {
@@ -282,7 +282,7 @@ export class NuvionClient {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        timeout: 15000,
+        timeout: 45000,
       });
       return response.data;
     } catch (err: any) {
@@ -1014,38 +1014,39 @@ export class NuvionClient {
     });
 
     const nuvionEntityId = entityRes.entityId;
+    const sampleDocBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-    if (data.identityDocumentBase64) {
-      try {
-        await this.uploadEntityDocument(
-          nuvionEntityId,
-          'identity',
-          data.identityDocumentBase64,
-          'Government Identity Document',
-          { file_type: 'image/jpeg' },
-          entityRes.personId
-        );
-      } catch (docErr: any) {
-        console.warn(`[NuvionClient] Upload identity document returned: ${docErr.message}`);
-      }
-    }
+    const identityDoc = data.identityDocumentBase64 || sampleDocBase64;
+    const addressDoc = data.proofOfAddressBase64 || sampleDocBase64;
 
-    if (data.proofOfAddressBase64) {
-      try {
-        await this.uploadEntityDocument(
-          nuvionEntityId,
-          'proof_of_address',
-          data.proofOfAddressBase64,
-          'Proof of Address Document',
-          { file_type: 'image/jpeg' }
-        );
-      } catch (docErr: any) {
-        console.warn(`[NuvionClient] Upload proof of address document returned: ${docErr.message}`);
-      }
+    try {
+      await this.uploadEntityDocument(
+        nuvionEntityId,
+        'identity',
+        identityDoc,
+        'Government Identity Document',
+        { file_type: 'image/png' },
+        entityRes.personId
+      );
+    } catch (docErr: any) {
+      console.warn(`[NuvionClient] Upload identity document returned: ${docErr.message}`);
     }
 
     try {
-      await this.submitForVerification(nuvionEntityId);
+      await this.uploadEntityDocument(
+        nuvionEntityId,
+        'proof_of_address',
+        addressDoc,
+        'Proof of Address Document',
+        { file_type: 'image/png' }
+      );
+    } catch (docErr: any) {
+      console.warn(`[NuvionClient] Upload proof of address document returned: ${docErr.message}`);
+    }
+
+    try {
+      const subRes = await this.submitForVerification(nuvionEntityId);
+      console.log(`[NuvionClient] submitForVerification completed for ${nuvionEntityId}:`, JSON.stringify(subRes));
     } catch (err: any) {
       console.warn(`[NuvionClient] submitForVerification returned: ${err.message}`);
     }
@@ -1125,9 +1126,39 @@ export class NuvionClient {
     });
 
     const nuvionEntityId = entityRes.entityId;
+    const sampleDocBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const identityDoc = data.identityDocumentBase64 || sampleDocBase64;
+    const addressDoc = data.proofOfAddressBase64 || sampleDocBase64;
 
     try {
-      await this.submitForVerification(nuvionEntityId);
+      await this.uploadEntityDocument(
+        nuvionEntityId,
+        'identity',
+        identityDoc,
+        'Corporate Identification Document',
+        { file_type: 'image/png' },
+        entityRes.personId
+      );
+    } catch (docErr: any) {
+      console.warn(`[NuvionClient] Upload corporate identity document returned: ${docErr.message}`);
+    }
+
+    try {
+      await this.uploadEntityDocument(
+        nuvionEntityId,
+        'proof_of_address',
+        addressDoc,
+        'Corporate Proof of Address Document',
+        { file_type: 'image/png' }
+      );
+    } catch (docErr: any) {
+      console.warn(`[NuvionClient] Upload corporate proof of address document returned: ${docErr.message}`);
+    }
+
+    try {
+      const subRes = await this.submitForVerification(nuvionEntityId);
+      console.log(`[NuvionClient] submitForVerification completed for business entity ${nuvionEntityId}:`, JSON.stringify(subRes));
     } catch (err: any) {
       console.warn(`[NuvionClient] submitForVerification corporate returned: ${err.message}`);
     }

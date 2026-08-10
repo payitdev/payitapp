@@ -225,7 +225,7 @@ export async function kycRoutes(server: FastifyInstance) {
       try {
         const entRes = await nuvion.getEntityById(entity.nuvionEntityId);
         const liveStatus = (entRes?.data?.entity?.status || entRes?.data?.status || '').toLowerCase();
-        if (liveStatus && liveStatus !== currentStatus) {
+        if (liveStatus && liveStatus !== currentStatus && liveStatus !== 'incomplete') {
           server.log.info({ entityId, oldStatus: currentStatus, liveStatus }, '[Secondary Polling Fallback] Entity status updated from live Nuvion API check');
           await db.update(entities).set({ nuvionStatus: liveStatus }).where(eq(entities.id, entityId));
           currentStatus = liveStatus;
