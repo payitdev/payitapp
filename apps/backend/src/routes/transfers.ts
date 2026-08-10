@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { validateEntityAccess } from '@payit/ledger';
 import { DeterministicRiskEngine } from '@payit/security';
 import { GroqIntentParser } from '@payit/ai';
-import { NuvionClient } from '@payit/integrations';
+import { NuvionClient, ParticleClient } from '@payit/integrations';
 import { createDbClient, eq, and } from '@payit/db';
 import { accounts, entities, auditLogs, riskEvents, ledgerEntries, ledgerAccounts } from '@payit/db/schema';
 import { ulid } from 'ulid';
@@ -15,9 +15,128 @@ import { getEntityBalance } from '../utils/balance.js';
 const riskEngine = new DeterministicRiskEngine();
 const groq = new GroqIntentParser();
 const nuvion = new NuvionClient();
+const particle = new ParticleClient();
 const db = createDbClient();
 
 export async function transferRoutes(server: FastifyInstance) {
+
+  /**
+   * PayIT Off-Ramp Withdrawal Request Endpoint.
+   * Step 1: Provisions Nuvion USC stablecoin account on Base if missing.
+   * Step 2: Executes gasless on-chain transfer from Particle UA to Nuvion provisioned wallet address on Base (chainId 8453).
+   * Step 3: Records withdrawal request in audit logs for automated off-ramp settlement upon webhook deposit confirmation.
+   */
+  server.post('/api/transfers/withdraw', async (request, reply) => {
+    const {
+      entityId,
+      amount,
+      targetCurrency = 'NGN',
+      ownerAddress,
+      signature,
+      offRampDestination,
+    } = request.body as {
+      entityId: string;
+      amount: number;
+      targetCurrency?: string;
+      ownerAddress: string;
+      signature: string;
+      offRampDestination: {
+        accountNumber: string;
+        bankCode?: string;
+        accountHolderName: string;
+        type?: 'bank-transfer' | 'momo-transfer';
+        routingNumber?: string;
+        sortCode?: string;
+        iban?: string;
+      };
+    };
+
+    if (!entityId || !amount || amount <= 0 || !ownerAddress || !signature || !offRampDestination?.accountNumber) {
+      return reply.status(400).send({
+        error: 'entityId, amount, ownerAddress, signature, and offRampDestination (with accountNumber) are required for withdrawal',
+      });
+    }
+
+    const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
+    if (entityRows.length === 0) {
+      return reply.status(404).send({ error: 'Entity not found' });
+    }
+    const userEntity = entityRows[0];
+
+    try {
+      // Step 1: Ensure user has a Nuvion USC account and Base wallet address provisioned
+      let uscAccountId = userEntity.nuvionUscAccountId;
+      let uscWalletAddress = userEntity.nuvionUscWalletAddress;
+
+      if (!uscAccountId || !uscWalletAddress) {
+        server.log.info({ entityId }, 'Provisioning Nuvion USC stablecoin account on Base mainnet...');
+        const stableAcc = await nuvion.createOrGetStablecoinAccount(
+          userEntity.nuvionEntityId || userEntity.id,
+          'USC',
+          'base'
+        );
+        uscAccountId = stableAcc.nuvionAccountId;
+        uscWalletAddress = stableAcc.walletAddress;
+
+        await db
+          .update(entities)
+          .set({
+            nuvionUscAccountId: uscAccountId,
+            nuvionUscWalletAddress: uscWalletAddress,
+          })
+          .where(eq(entities.id, entityId));
+        server.log.info({ uscAccountId, uscWalletAddress }, 'Provisioned Nuvion USC account on Base and saved to DB');
+      }
+
+      // Step 2: Trigger on-chain send from Particle Universal Account to Nuvion provisioned wallet address on Base (chainId 8453)
+      server.log.info({ recipientAddress: uscWalletAddress, amount }, 'Triggering on-chain gasless transfer to Nuvion USC wallet on Base...');
+      const sweepResult = await particle.executeGaslessTransfer({
+        senderEntityId: userEntity.id,
+        senderKind: userEntity.kind as 'PERSONAL' | 'BUSINESS',
+        recipientAddress: uscWalletAddress,
+        amount: String(amount),
+        asset: 'USDC',
+        chainId: 8453, // Base Mainnet
+        ownerAddress,
+        signature,
+      });
+
+      // Record withdrawal initiation in audit log
+      const withdrawalId = `wd_${ulid()}`;
+      await db.insert(auditLogs).values({
+        id: ulid(),
+        userId: userEntity.userId,
+        entityId: userEntity.id,
+        action: 'NUVION_WITHDRAWAL_INITIATED',
+        metadata: JSON.stringify({
+          withdrawalId,
+          txHash: sweepResult.transactionId,
+          nuvionUscAccountId: uscAccountId,
+          nuvionUscWalletAddress: uscWalletAddress,
+          amount,
+          targetCurrency,
+          offRampDestination,
+          status: 'ON_CHAIN_TRANSFER_SUBMITTED',
+          timestamp: new Date().toISOString(),
+        }),
+        createdAt: new Date(),
+      });
+
+      return reply.send({
+        success: true,
+        withdrawalId,
+        txHash: sweepResult.transactionId,
+        nuvionUscWalletAddress: uscWalletAddress,
+        status: 'pending_onchain_settlement',
+        message: 'Withdrawal submitted. Fiat payout will trigger automatically once on-chain deposit confirms.',
+      });
+    } catch (err: any) {
+      server.log.error({ err: err.message, entityId }, 'Withdrawal on-chain transfer failed. Aborting withdrawal.');
+      return reply.status(500).send({
+        error: `Withdrawal request failed: ${err.message || 'On-chain transaction error'}`,
+      });
+    }
+  });
 
   /**
    * Get dynamic balance for an entity based on ledger history.
@@ -492,10 +611,12 @@ export async function transferRoutes(server: FastifyInstance) {
       // Do not write ledger debit or audit log if payout fails on clearing rails.
       try {
         await nuvion.executePayout({
-          nuvionAccountId: account?.nuvionAccountId || `nacc_${entityId}`,
-          destinationAccount: accountNumber || resolvedRecipient,
+          accountId: account?.nuvionAccountId || `nacc_${entityId}`,
+          paymentDetailId: (request.body as any).paymentDetailId || `pd_${Date.now()}`,
           amount,
-          currency: resolvedCurrency,
+          narration: (request.body as any).narration || 'Outbound bank transfer',
+          uniqueReference: `ref_${Date.now()}_${ulid()}`,
+          paymentType: 'bank-transfer',
         });
       } catch (err: any) {
         server.log.error({ err: err.message }, 'Nuvion payout execution failed on clearing rails');

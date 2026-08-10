@@ -189,10 +189,12 @@ export async function payrollRoutes(server: FastifyInstance) {
 
       try {
         await nuvion.executePayout({
-          nuvionAccountId,
-          destinationAccount: item.recipientAccountOrTag,
+          accountId: nuvionAccountId,
+          paymentDetailId: (item as any).paymentDetailId || `pd_pay_${item.id}`,
           amount: item.amount,
-          currency: item.currency || 'NGN',
+          narration: `Payroll disbursement for ${item.recipientName || item.id}`,
+          uniqueReference: `pay_ref_${Date.now()}_${item.id}`,
+          paymentType: 'bank-transfer',
         });
 
         // 4. Record double-entry ledger entries upon successful payout (C11)

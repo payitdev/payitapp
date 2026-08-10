@@ -10,9 +10,13 @@ async function migrate() {
     await db.execute(sql`
       ALTER TABLE entities 
       ADD COLUMN IF NOT EXISTS account_backfilled INTEGER DEFAULT 0 NOT NULL,
-      ADD COLUMN IF NOT EXISTS account_backfilled_at TIMESTAMP;
+      ADD COLUMN IF NOT EXISTS account_backfilled_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS nuvion_self_counterparty_id TEXT,
+      ADD COLUMN IF NOT EXISTS nuvion_onramp_payment_detail_id TEXT,
+      ADD COLUMN IF NOT EXISTS nuvion_usc_account_id TEXT,
+      ADD COLUMN IF NOT EXISTS nuvion_usc_wallet_address TEXT;
     `);
-    console.log('✓ Added account_backfilled and account_backfilled_at columns to entities table');
+    console.log('✓ Added account_backfilled, self-counterparty, onramp payment-detail, and USC stablecoin columns to entities table');
   } catch (err: any) {
     console.error('Migration error on entities table:', err.message);
   }

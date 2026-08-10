@@ -108,24 +108,25 @@ export class ParticleClient {
 
   /**
    * Get or create a Universal Account for a given entity.
-   * In Smart Account mode, the UA address is deterministically derived from
-   * the owner EOA (which we derive from the entity's KMS seed).
    *
-   * For now, the backend derives a deterministic owner EOA from the entity ID
-   * and KMS secret. In production this would be the user's connected wallet address.
+   * ownerAddress comes from the user's existing Particle Auth embedded wallet (social login),
+   * not from an external wallet connection and not from a backend-derived key.
+   *
+   * @param entityId      PayIT entity ID
+   * @param kind          PERSONAL or BUSINESS
+   * @param ownerAddress  Client-side EOA address from user's Particle Auth embedded wallet
    */
   public async getOrCreateUniversalAccount(
     entityId: string,
-    kind: 'PERSONAL' | 'BUSINESS' = 'PERSONAL'
+    kind: 'PERSONAL' | 'BUSINESS' = 'PERSONAL',
+    ownerAddress?: string
   ): Promise<UniversalAccountInfo> {
     this.assertSDKLoaded();
 
-    // Derive a deterministic EOA from entity KMS seed
-    const owner = this.deriveOwnerWallet(entityId, kind);
+    const effectiveOwnerAddress = ownerAddress || this.deriveOwnerWallet(entityId, kind).address;
+    const ua = new UniversalAccount(this.buildUAConfig(effectiveOwnerAddress));
 
-    const ua = new UniversalAccount(this.buildUAConfig(owner.address));
-
-    let walletAddress = owner.address;
+    let walletAddress = effectiveOwnerAddress;
     let solanaAddress: string | undefined;
 
     try {
@@ -143,7 +144,7 @@ export class ParticleClient {
       }
 
       if (addresses) {
-        walletAddress = addresses.evmUniversalAccount || addresses.evm || addresses.smartAccountAddress || owner.address;
+        walletAddress = addresses.evmUniversalAccount || addresses.evm || addresses.smartAccountAddress || effectiveOwnerAddress;
         solanaAddress = addresses.solana || addresses.solanaAddress || undefined;
       }
     } catch (err: any) {
@@ -178,15 +179,17 @@ export class ParticleClient {
 
   /**
    * Execute a gasless cross-chain transfer via Universal Account.
-   * The transaction is constructed and signed server-side using the entity's
-   * deterministic signing wallet.
+   * ownerAddress and signature come from the user's existing Particle Auth embedded wallet (social login),
+   * not from an external wallet connection and not from a backend-derived key.
    *
-   * @param params.senderEntityId  PayIT entity ID (used to derive signing wallet)
-   * @param params.senderKind      PERSONAL or BUSINESS
+   * @param params.senderEntityId    PayIT entity ID
+   * @param params.senderKind        PERSONAL or BUSINESS
    * @param params.recipientAddress  Target EVM address
-   * @param params.amount          Amount as a human-readable string (e.g. "10.5")
-   * @param params.asset           Token type: 'USDC' | 'USDT' | 'ETH'
-   * @param params.chainId         Target chain ID (default: Polygon 137)
+   * @param params.amount            Amount as a human-readable string (e.g. "10.5")
+   * @param params.asset             Token type: 'USDC' | 'USDT' | 'ETH'
+   * @param params.chainId           Target chain ID (default: Polygon 137)
+   * @param params.ownerAddress      User's Particle Auth embedded wallet address
+   * @param params.signature         Client-side signed message signature from Particle Auth embedded wallet
    */
   public async executeGaslessTransfer(params: {
     senderEntityId: string;
@@ -195,13 +198,24 @@ export class ParticleClient {
     amount: string;
     asset?: 'USDC' | 'USDT' | 'ETH';
     chainId?: number;
+    ownerAddress?: string;
+    signature?: string;
   }): Promise<UATransferResult> {
     this.assertSDKLoaded();
 
-    const { senderEntityId, senderKind = 'PERSONAL', recipientAddress, amount, asset = 'USDC', chainId = 137 } = params;
+    const {
+      senderEntityId,
+      senderKind = 'PERSONAL',
+      recipientAddress,
+      amount,
+      asset = 'USDC',
+      chainId = 137,
+      ownerAddress,
+      signature: clientSignature,
+    } = params;
 
-    const owner = this.deriveOwnerWallet(senderEntityId, senderKind);
-    const ua = new UniversalAccount(this.buildUAConfig(owner.address));
+    const effectiveOwnerAddress = ownerAddress || this.deriveOwnerWallet(senderEntityId, senderKind).address;
+    const ua = new UniversalAccount(this.buildUAConfig(effectiveOwnerAddress));
 
     // Map chainId to CHAIN_ID enum
     const targetChainId = chainId === 1 ? CHAIN_ID.ETHEREUM_MAINNET
@@ -230,7 +244,9 @@ export class ParticleClient {
       receiver: recipientAddress,
     });
 
-    const signature = owner.signMessageSync(getBytes(transaction.rootHash));
+    // Transaction is signed client-side via Particle Auth embedded wallet (useEthereum().signMessage).
+    // Internal server-side signing is bypassed when clientSignature is provided.
+    const signature = clientSignature || this.deriveOwnerWallet(senderEntityId, senderKind).signMessageSync(getBytes(transaction.rootHash));
     const result = await ua.sendTransaction(transaction, signature);
 
     if (!result || !result.transactionId || result.status === 'FAILED') {
@@ -284,10 +300,8 @@ export class ParticleClient {
   }
 
   /**
-   * Derives a deterministic signing wallet from entity ID + KMS master secret.
-   * This is the same derivation pattern used in kmsService.ts.
-   * In production, this should be replaced by user-provided signatures from
-   * their browser-connected wallet (via Particle Connect frontend SDK).
+   * @deprecated - Deriving wallet server-side is deprecated.
+   * ownerAddress comes from the user's existing Particle Auth embedded wallet (social login).
    */
   private deriveOwnerWallet(entityId: string, kind: string): Wallet {
     const secret = process.env.KMS_MASTER_SECRET;

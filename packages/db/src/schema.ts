@@ -28,6 +28,10 @@ export const entities = pgTable('entities', {
   nuvionTier: integer('nuvion_tier').default(1).notNull(),
   nuvionStatus: text('nuvion_status', { enum: ['incomplete', 'pending', 'approved', 'rejected'] }).default('incomplete').notNull(),
   nuvionEntityId: text('nuvion_entity_id'),
+  nuvionSelfCounterpartyId: text('nuvion_self_counterparty_id'),
+  nuvionOnRampPaymentDetailId: text('nuvion_onramp_payment_detail_id'),
+  nuvionUscAccountId: text('nuvion_usc_account_id'),
+  nuvionUscWalletAddress: text('nuvion_usc_wallet_address'),
   xpub: text('xpub'), // HD Wallet Extended Public Key (KMS isolate)
   solanaAddress: text('solana_address'), // Solana Universal Account Address (Base58)
   accountBackfilled: integer('account_backfilled').default(0).notNull(),

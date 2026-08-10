@@ -32,7 +32,7 @@ import {
   UserPlus
 } from 'lucide-react';
 
-import { useConnect, useUserInfo } from '@particle-network/auth-core-modal';
+import { useConnect, useUserInfo, useEthereum, useSolana } from '@particle-network/auth-core-modal';
 import { formatParticleUserInfo } from './particleAuth';
 import { UsernameCustomizationModal } from './components/UsernameCustomizationModal';
 import { PaymentRequestHubModal } from './components/PaymentRequestHubModal';
@@ -133,12 +133,14 @@ export default function App() {
   const autoLoginAttemptedRef = useRef(false);
   const { connect: particleConnect, disconnect: particleDisconnect } = useConnect();
   const userInfo = useUserInfo();
+  const { address: evmAddress } = useEthereum();
+  const { address: solanaAddress } = useSolana();
 
   const loginWithParticleUserInfo = async (rawInfo: any, provider: string) => {
     if (!rawInfo) return;
     try {
       setIsLoggingIn(true);
-      const particleUser = formatParticleUserInfo(rawInfo, provider, userEmail);
+      const particleUser = formatParticleUserInfo(rawInfo, provider, evmAddress || '', solanaAddress || '', userEmail);
       console.log('[ParticleAuth] Authenticating session for:', particleUser.email);
 
       const res = await apiFetch(`${API_BASE_URL}/api/auth/particle-login`, {

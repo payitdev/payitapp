@@ -467,6 +467,34 @@ export class NuvionClient {
   }
 
   /**
+   * Creates an FX Quote for auto-converting fiat deposit into USC/UST stablecoins via POST /fx-quotes.
+   * NOTE: amountFrom expects smallest currency units (e.g. kobo for NGN, cents for USD) matching the Nuvion fiat inflow convention as confirmed against sandbox responses.
+   */
+  public async createDepositFxQuote(params: {
+    fromCurrency: string;
+    toCurrency: 'USC' | 'UST';
+    amountFrom: number;
+    accountId: string;
+    counterpartyId: string;
+    paymentDetailId: string;
+  }) {
+    const res = await this.nuvionPost('/fx-quotes', {
+      from_currency: params.fromCurrency,
+      to_currency: params.toCurrency,
+      amount_from: params.amountFrom,
+      account_id: params.accountId,
+      counterparty_id: params.counterpartyId,
+      payment_detail_id: params.paymentDetailId,
+    });
+    // Expects response envelope shape: { data: { fx_quote: {...} } } or { data: {...} } or direct object. Must be confirmed against a real Nuvion POST /fx-quotes response before being trusted in production.
+    const fxQuote = res?.data?.data?.fx_quote || res?.data?.fx_quote || res?.data?.data || res?.data;
+    if (!fxQuote?.id) {
+      throw new Error(`Nuvion createDepositFxQuote failed: ${res?.data?.message || 'Unknown error'}`);
+    }
+    return fxQuote;
+  }
+
+  /**
    * Fetches an authenticated FX quote with 30-second TTL from Nuvion platform.
    * 
    * AUTHORITATIVE RATE SOURCE RATIONALE:
@@ -746,11 +774,51 @@ export class NuvionClient {
 
     return {
       nuvionAccountId: String(accountId),
-      accountNumber: detailRes.accountNumber,
+      accountNumber: String(detailRes.accountNumber),
       bankName: detailRes.bankName,
       accountHolderName: account?.display_name || params.displayName || 'Account Holder',
       currency: params.currency,
       status: (account?.status || 'active') as string,
+    };
+  }
+
+  /**
+   * Provisions a Nuvion stablecoin account (USC) on Base mainnet via POST /accounts & POST /account-details.
+   * Required for receiving on-chain stablecoin deposits for off-ramp withdrawals.
+   */
+  public async createOrGetStablecoinAccount(entityId: string, currency: 'USC' | 'UST' = 'USC', chain: 'base' = 'base') {
+    if (!entityId) throw new Error('entityId is required to provision a stablecoin account');
+
+    // 1. POST /accounts with currency: 'USC'
+    const accRes = await this.nuvionPost('/accounts', {
+      entity_id: entityId,
+      currency,
+      type: 'checking',
+      display_name: `${currency} Stablecoin Account`,
+    });
+
+    const account = accRes?.data?.account || accRes?.data?.data || accRes?.data;
+    const accountId = account?.id || account?.nuvion_account_id;
+
+    if (!accountId) {
+      throw new Error(`Nuvion createOrGetStablecoinAccount failed: Could not obtain account ID for entity ${entityId}`);
+    }
+
+    // 2. POST /account-details with chain: 'base'
+    const detailRes = await this.nuvionPost('/account-details', {
+      account_id: accountId,
+      chain,
+    });
+
+    const details = detailRes?.data?.account_details || detailRes?.data?.data || detailRes?.data;
+    const walletAddress = details?.account_number || details?.wallet_address || details?.address || '';
+
+    return {
+      nuvionAccountId: String(accountId),
+      walletAddress: String(walletAddress),
+      currency,
+      chain,
+      status: details?.status || 'active',
     };
   }
 
@@ -1015,11 +1083,26 @@ export class NuvionClient {
 
   /**
    * Step 7: Fetches accounts strictly scoped to a real Nuvion entity ID using GET /accounts?entity_id=${nuvionEntityId}.
-   * Never calls GET /accounts unscoped.
+   * Enforces defensive security assertion: verifies every returned account's entity_id matches the requested nuvionEntityId.
    */
   public async getAccountsForEntity(nuvionEntityId: string) {
     if (!nuvionEntityId) throw new Error('nuvionEntityId query parameter is required to list accounts for entity');
-    return this.nuvionGet(`/accounts?entity_id=${encodeURIComponent(nuvionEntityId)}`);
+    const res = await this.nuvionGet(`/accounts?entity_id=${encodeURIComponent(nuvionEntityId)}`);
+    const accountsList: any[] = Array.isArray(res?.data?.accounts)
+      ? res.data.accounts
+      : Array.isArray(res?.data)
+      ? res.data
+      : Array.isArray(res)
+      ? res
+      : [];
+
+    for (const acc of accountsList) {
+      const accEntityId = acc.entity_id || acc.entityId;
+      if (accEntityId && accEntityId !== nuvionEntityId) {
+        throw new NuvionApiError(403, `SECURITY: account entity_id mismatch (${accEntityId} !== ${nuvionEntityId}), refusing to assign account to user`);
+      }
+    }
+    return res;
   }
 
   /**
@@ -1075,87 +1158,115 @@ export class NuvionClient {
     };
   }
 
-  public async executePayout(params: { nuvionAccountId: string; destinationAccount: string; amount: number; currency: string; entityId?: string; counterpartyId?: string }) {
-    // NOTE: The destination_account field and overall POST /payouts request body payload need manual verification against Nuvion payouts documentation once the /payouts API reference page is confirmed.
-    const payoutRes = await this.nuvionPost('/payouts', {
-      ...(params.entityId ? { entity_id: params.entityId } : {}),
-      source_account_id: params.nuvionAccountId,
-      destination_account: params.destinationAccount,
-      ...(params.counterpartyId ? { counterparty_id: params.counterpartyId } : {}),
-      amount: params.amount,
-      currency: params.currency,
+  /**
+   * Creates Payment Details for a Counterparty via POST /payment-details.
+   * Required prior to executing a transfer via POST /transfers (executePayout).
+   */
+  public async createPaymentDetail(
+    counterpartyId: string,
+    type: 'bank-transfer' | 'momo-transfer' | 'stablecoin-transfer',
+    detail: any
+  ) {
+    if (!counterpartyId) throw new Error('counterpartyId is required to create payment details');
+    const res = await this.nuvionPost('/payment-details', {
+      counterparty_id: counterpartyId,
+      type,
+      detail,
     });
-    // Expects response envelope shape: { data: { data: { payout: {...} } } }. Must be confirmed against a real Nuvion POST /payouts response before being trusted in production.
-    const payout = payoutRes?.data?.data?.payout || payoutRes?.data?.data;
-    if (!payout) {
-      throw new Error(`Nuvion payout failed: ${payoutRes?.data?.message || 'Unknown error'}`);
+    // Expects response envelope shape: { data: { payment_detail: {...} } } or direct object. Must be confirmed against a real Nuvion POST /payment-details response before being trusted in production.
+    const paymentDetail = res?.data?.data?.payment_detail || res?.data?.payment_detail || res?.data?.data || res?.data;
+    if (!paymentDetail?.id) {
+      throw new Error(`Nuvion createPaymentDetail failed: ${res?.data?.message || 'Unknown error'}`);
     }
+    return paymentDetail;
+  }
+
+  /**
+   * Executes a fiat/stablecoin payout transfer via POST /transfers.
+   * NOTE: Callers must first create a Counterparty (POST /counterparties) and Payment Details (POST /payment-details)
+   * to obtain a valid paymentDetailId before calling this method.
+   */
+  public async executePayout(params: {
+    accountId: string;
+    paymentDetailId: string;
+    amount: number;
+    narration: string;
+    uniqueReference: string;
+    paymentType: 'bank-transfer' | 'momo-transfer' | 'stablecoin-transfer' | 'book-transfer';
+    fxQuoteId?: string;
+  }) {
+    if (!params.accountId || !params.paymentDetailId) {
+      throw new Error('accountId and paymentDetailId are required to execute payout transfer');
+    }
+
+    const res = await this.nuvionPost('/transfers', {
+      account_id: params.accountId,
+      payment_detail_id: params.paymentDetailId,
+      amount: params.amount,
+      narration: params.narration,
+      unique_reference: params.uniqueReference,
+      payment_type: params.paymentType,
+      ...(params.fxQuoteId ? { fx_quote_id: params.fxQuoteId } : {}),
+    });
+
+    // Expects response envelope shape: { data: { transfer: {...} } } or { data: {...} } or direct Transfer object. Must be confirmed against a real Nuvion POST /transfers response before being trusted in production.
+    const transfer = res?.data?.data?.transfer || res?.data?.transfer || res?.data?.data || res?.data;
+    if (!transfer || (!transfer.id && !transfer.transfer_id)) {
+      throw new Error(`Nuvion payout transfer failed: ${res?.data?.message || 'Unknown error'}`);
+    }
+
+    const rawStatus = (transfer.status || 'pending').toLowerCase();
+    const validStatus = ['pending', 'processing', 'successful', 'failed', 'reversed'].includes(rawStatus)
+      ? rawStatus
+      : 'pending';
+
     return {
-      payoutId: payout.id || payout.payout_id,
-      status: payout.status,
-      amount: payout.amount ?? params.amount,
-      currency: payout.currency ?? params.currency,
-      timestamp: payout.created ? new Date(payout.created).toISOString() : new Date().toISOString(),
+      payoutId: String(transfer.id || transfer.transfer_id),
+      status: validStatus as 'pending' | 'processing' | 'successful' | 'failed' | 'reversed',
+      amount: transfer.amount ?? params.amount,
+      currency: transfer.currency || 'USD',
+      statusReason: transfer.status_reason || null,
+      uniqueReference: transfer.unique_reference || params.uniqueReference,
+      timestamp: transfer.created ? new Date(transfer.created).toISOString() : new Date().toISOString(),
     };
   }
 
   /**
-   * Fetches real-time cross-border payout tracking status from Nuvion.
-   * Returns UETR reference, clearing network, ETA, and step progress.
+   * Fetches real-time transfer status via GET /transfers/{transfer_id}.
+   * NOTE: Repeated calls to this method should be a fallback path only; listen to the transfers.updated webhook for primary status tracking.
    */
   public async getOutboundPayoutStatus(payoutId: string) {
-    try {
-      const res = await this.nuvionGet(`/payouts/${payoutId}`);
-      // Expects response envelope shape: { data: { data: { payout: {...} } } }. Must be confirmed against a real Nuvion GET /payouts/:id response before being trusted in production.
-      const payout = res?.data?.data?.payout || res?.data?.data || res?.data;
+    if (!payoutId) throw new Error('payoutId / transfer_id is required to fetch transfer status');
 
-      const rawStatus = (payout?.status || 'processing').toLowerCase();
-      const currency = payout?.currency || 'USD';
-      const uetr = payout?.uetr || payout?.clearing_reference || payout?.tracking_reference || `UETR-${payoutId.slice(-8).toUpperCase()}`;
+    const res = await this.nuvionGet(`/transfers/${encodeURIComponent(payoutId)}`);
+    // Expects response envelope shape: { data: { transfer: {...} } } or { data: {...} } or direct Transfer object. Must be confirmed against a real Nuvion GET /transfers/:id response before being trusted in production.
+    const transfer = res?.data?.data?.transfer || res?.data?.transfer || res?.data?.data || res?.data;
 
-      let stepIndex = 2; // Default to In Transit
-      if (rawStatus === 'submitted' || rawStatus === 'initiated') stepIndex = 1;
-      else if (rawStatus === 'processing' || rawStatus === 'in_transit') stepIndex = 2;
-      else if (rawStatus === 'clearing' || rawStatus === 'sent') stepIndex = 3;
-      else if (rawStatus === 'settled' || rawStatus === 'delivered' || rawStatus === 'completed') stepIndex = 4;
-      else if (rawStatus === 'returned' || rawStatus === 'failed' || rawStatus === 'bounced') stepIndex = 0; // Failed/Returned
-
-      let clearingNetwork = 'FEDWIRE / ACH';
-      if (currency === 'EUR') clearingNetwork = 'SEPA Instant / SEPA Standard';
-      else if (currency === 'GBP') clearingNetwork = 'FPS (Faster Payments Service)';
-      else if (currency === 'NGN') clearingNetwork = 'NIBSS Instant Payment (NIP)';
-      else if (currency === 'CAD') clearingNetwork = 'EFT / Interac Direct';
-      else if (['USD', 'EUR', 'GBP'].includes(currency)) clearingNetwork = 'SWIFT Network';
-
-      const eta = payout?.estimated_delivery || (stepIndex >= 4 ? 'Delivered' : 'Within 1-2 Business Days');
-
-      return {
-        payoutId,
-        status: rawStatus,
-        stepIndex,
-        currency,
-        amount: parseFloat(payout?.amount || '0'),
-        uetrReference: uetr,
-        clearingNetwork,
-        estimatedDelivery: eta,
-        beneficiaryBank: payout?.beneficiary_bank || 'Destination Bank',
-        updatedAt: new Date().toISOString(),
-      };
-    } catch {
-      // Fallback response for active transfers
-      return {
-        payoutId,
-        status: 'processing',
-        stepIndex: 2,
-        currency: 'USD',
-        amount: 0,
-        uetrReference: `UETR-${payoutId.slice(-8).toUpperCase()}`,
-        clearingNetwork: 'FEDWIRE / SWIFT',
-        estimatedDelivery: 'Within 1 Business Day',
-        beneficiaryBank: 'Destination Financial Institution',
-        updatedAt: new Date().toISOString(),
-      };
+    if (!transfer) {
+      throw new NuvionApiError(404, `Transfer record ${payoutId} not found on Nuvion`);
     }
+
+    const rawStatus = (transfer?.status || 'pending').toLowerCase();
+    const statusReason = transfer?.status_reason || null;
+    const currency = transfer?.currency || 'USD';
+
+    // Step index mapping based strictly on documented status values: pending, processing, successful, failed, reversed
+    let stepIndex = 1;
+    if (rawStatus === 'pending') stepIndex = 1;
+    else if (rawStatus === 'processing') stepIndex = 2;
+    else if (rawStatus === 'successful') stepIndex = 4;
+    else if (rawStatus === 'failed' || rawStatus === 'reversed') stepIndex = 0;
+
+    return {
+      payoutId,
+      status: rawStatus,
+      statusReason,
+      stepIndex,
+      currency,
+      amount: parseFloat(transfer?.amount || '0'),
+      uniqueReference: transfer?.unique_reference || payoutId,
+      updatedAt: transfer?.updated ? new Date(transfer.updated).toISOString() : new Date().toISOString(),
+    };
   }
 
   // Compatibility shim used by entities.ts
