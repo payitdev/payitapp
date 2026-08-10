@@ -1228,51 +1228,6 @@ export default function App() {
 
             {/* KYC / KYB STATUS BANNER ON HOME (NO MOCK DATA) */}
             {activeEntity?.nuvionStatus === 'pending' && (
-              <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 16, padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Clock size={22} color="#B45309" />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309' }}>Verification Pending (Nuvion Review)</div>
-                    <div style={{ fontSize: 11, color: '#D97706' }}>Nuvion is reviewing your details. Tap to update or re-submit.</div>
-                  </div>
-                </div>
-                <button onClick={() => setShowKycModal(true)} className="chip warn" style={{ cursor: 'pointer', background: '#F59E0B', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 10, fontWeight: 700 }}>
-                  Re-submit
-                </button>
-              </div>
-            )}
-
-            {activeEntity?.nuvionStatus === 'rejected' && (
-              <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 16, padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <AlertTriangle size={22} color="var(--danger)" />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)' }}>Verification Failed</div>
-                    <div style={{ fontSize: 11, color: '#B91C1C' }}>Nuvion compliance rejected submission. Tap to re-submit.</div>
-                  </div>
-                </div>
-                <button onClick={() => setShowKycModal(true)} className="chip" style={{ cursor: 'pointer', background: 'var(--danger)', color: '#fff' }}>
-                  Re-submit
-                </button>
-              </div>
-            )}
-
-            {(!activeEntity?.nuvionStatus || activeEntity.nuvionStatus === 'incomplete') && (
-              <div style={{ background: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 16, padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <ShieldCheck size={22} color="#9A3412" />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#9A3412' }}>Verify Identity ({accountType === 'PERSONAL' ? 'KYC Tier 1' : 'Corporate KYB'})</div>
-                    <div style={{ fontSize: 11, color: '#C2410C' }}>Unlock multi-currency virtual accounts &amp; transfers</div>
-                  </div>
-                </div>
-                <button onClick={() => setShowKycModal(true)} className="chip" style={{ cursor: 'pointer', background: '#EA580C', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 10, fontWeight: 700 }}>
-                  Verify
-                </button>
-              </div>
-            )}
-
-            {activeEntity?.nuvionStatus === 'pending' && (
               <div style={{ background: '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 16, padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Clock size={22} color="#1D4ED8" />
@@ -1281,9 +1236,9 @@ export default function App() {
                     <div style={{ fontSize: 11, color: '#1D4ED8' }}>Submitted to Nuvion compliance. Virtual bank accounts will activate upon approval.</div>
                   </div>
                 </div>
-                <span className="chip" style={{ background: '#2563EB', color: '#fff', fontWeight: 700, padding: '4px 10px', borderRadius: 8, fontSize: 11 }}>
-                  PENDING
-                </span>
+                <button onClick={() => setShowKycModal(true)} className="chip" style={{ cursor: 'pointer', background: '#2563EB', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 10, fontWeight: 700 }}>
+                  Re-submit
+                </button>
               </div>
             )}
 
