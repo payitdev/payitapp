@@ -1035,10 +1035,11 @@ export class NuvionClient {
     try {
       await this.uploadEntityDocument(
         nuvionEntityId,
-        'proof_of_address',
+        'address',
         addressDoc,
         'Proof of Address Document',
-        { file_type: 'image/png' }
+        { file_type: 'image/png' },
+        entityRes.personId
       );
     } catch (docErr: any) {
       console.warn(`[NuvionClient] Upload proof of address document returned: ${docErr.message}`);
@@ -1147,10 +1148,11 @@ export class NuvionClient {
     try {
       await this.uploadEntityDocument(
         nuvionEntityId,
-        'proof_of_address',
+        'address',
         addressDoc,
         'Corporate Proof of Address Document',
-        { file_type: 'image/png' }
+        { file_type: 'image/png' },
+        entityRes.personId
       );
     } catch (docErr: any) {
       console.warn(`[NuvionClient] Upload corporate proof of address document returned: ${docErr.message}`);
