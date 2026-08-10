@@ -349,6 +349,9 @@ export default function App() {
   const [kycBvn, setKycBvn] = useState('');
   const [kycDob, setKycDob] = useState('');
   const [kycAddress, setKycAddress] = useState('');
+  const [kycCity, setKycCity] = useState('');
+  const [kycState, setKycState] = useState('');
+  const [kycPostalCode, setKycPostalCode] = useState('');
   const [kycBusinessTag, setKycBusinessTag] = useState('');
   const [kycRcNumber, setKycRcNumber] = useState('');
   const [kycTin, setKycTin] = useState('');
@@ -712,8 +715,8 @@ export default function App() {
     }
 
     const payload = isPersonal
-      ? { userId, entityId: activeEntity.id, legalName: kycLegalName, phone: kycPhone, bvn: kycBvn, dob: kycDob, address: kycAddress, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile }
-      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile };
+      ? { userId, entityId: activeEntity.id, legalName: kycLegalName, phone: kycPhone, bvn: kycBvn, dob: kycDob, address: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile }
+      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile };
 
     try {
       const res = await apiFetch(endpoint, {
@@ -741,6 +744,10 @@ export default function App() {
       setKycLegalName('');
       setKycBvn('');
       setKycPhone('');
+      setKycAddress('');
+      setKycCity('');
+      setKycState('');
+      setKycPostalCode('');
       setKycIdentityFile('');
       setKycAddressFile('');
       if (activeAbortController.current) {
@@ -1909,7 +1916,12 @@ export default function App() {
                     <div className="field"><label>Mobile Phone Number</label><input type="tel" placeholder="+2348012345678" value={kycPhone} onChange={e => setKycPhone(e.target.value)} required /></div>
                     <div className="field"><label>Bank Verification Number (BVN) / NIN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
                     <div className="field"><label>Date of Birth</label><input type="date" value={kycDob} onChange={e => setKycDob(e.target.value)} required /></div>
-                    <div className="field"><label>Home Address</label><input placeholder="Lagos, Nigeria" value={kycAddress} onChange={e => setKycAddress(e.target.value)} required /></div>
+                    <div className="field"><label>Street Address</label><input placeholder="14 Navy Estate, Karshi" value={kycAddress} onChange={e => setKycAddress(e.target.value)} required /></div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div className="field" style={{ flex: 1 }}><label>City</label><input placeholder="Abuja" value={kycCity} onChange={e => setKycCity(e.target.value)} required /></div>
+                      <div className="field" style={{ flex: 1 }}><label>State</label><input placeholder="FCT" value={kycState} onChange={e => setKycState(e.target.value)} required /></div>
+                    </div>
+                    <div className="field"><label>Postal Code <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label><input placeholder="900001" value={kycPostalCode} onChange={e => setKycPostalCode(e.target.value)} /></div>
                   </>
                 ) : (
                   <>
@@ -1917,7 +1929,12 @@ export default function App() {
                     <div className="field"><label>Business Tag / Handle</label><input placeholder="ACME" value={kycBusinessTag} onChange={e => setKycBusinessTag(e.target.value)} required /></div>
                     <div className="field"><label>CAC Registration / RC Number</label><input placeholder="RC123456" value={kycRcNumber} onChange={e => setKycRcNumber(e.target.value)} required /></div>
                     <div className="field"><label>Tax Identification Number (TIN)</label><input placeholder="TIN987654" value={kycTin} onChange={e => setKycTin(e.target.value)} required /></div>
-                    <div className="field"><label>Business Address</label><input placeholder="Victoria Island, Lagos" value={kycAddress} onChange={e => setKycAddress(e.target.value)} required /></div>
+                    <div className="field"><label>Business Street Address</label><input placeholder="Victoria Island" value={kycAddress} onChange={e => setKycAddress(e.target.value)} required /></div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div className="field" style={{ flex: 1 }}><label>City</label><input placeholder="Lagos" value={kycCity} onChange={e => setKycCity(e.target.value)} required /></div>
+                      <div className="field" style={{ flex: 1 }}><label>State</label><input placeholder="Lagos" value={kycState} onChange={e => setKycState(e.target.value)} required /></div>
+                    </div>
+                    <div className="field"><label>Postal Code <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label><input placeholder="100001" value={kycPostalCode} onChange={e => setKycPostalCode(e.target.value)} /></div>
                     <div className="field"><label>Director Full Name (UBO)</label><input placeholder="Director Name" value={kycUboName} onChange={e => setKycUboName(e.target.value)} required /></div>
                     <div className="field"><label>Director BVN / NIN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
                   </>

@@ -100,6 +100,9 @@ export interface NuvionTier2Payload {
   rcNumber: string;
   tin: string;
   businessAddress: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   uboLegalName: string;
   uboBvn: string;
   identityDocumentBase64?: string;
@@ -912,6 +915,66 @@ export class NuvionClient {
     });
   }
 
+  public parseAddressLocation(fullAddress: string, providedCity?: string, providedState?: string, providedPostalCode?: string) {
+    let city = (providedCity || '').trim();
+    let state = (providedState || '').trim();
+    let postalCode = (providedPostalCode || '').trim();
+    let line1 = (fullAddress || '').trim();
+
+    const lower = line1.toLowerCase();
+
+    if (!city || !state) {
+      if (lower.includes('abuja') || lower.includes('fct') || lower.includes('karshi') || lower.includes('garki') || lower.includes('wuse') || lower.includes('maitama')) {
+        if (!city) city = 'Abuja';
+        if (!state) state = 'FCT';
+        if (!postalCode) postalCode = '900001';
+      } else if (lower.includes('port harcourt') || lower.includes('rivers')) {
+        if (!city) city = 'Port Harcourt';
+        if (!state) state = 'Rivers';
+        if (!postalCode) postalCode = '500001';
+      } else if (lower.includes('kano')) {
+        if (!city) city = 'Kano';
+        if (!state) state = 'Kano';
+        if (!postalCode) postalCode = '700001';
+      } else if (lower.includes('ibadan') || lower.includes('oyo')) {
+        if (!city) city = 'Ibadan';
+        if (!state) state = 'Oyo';
+        if (!postalCode) postalCode = '200001';
+      } else if (lower.includes('enugu')) {
+        if (!city) city = 'Enugu';
+        if (!state) state = 'Enugu';
+        if (!postalCode) postalCode = '400001';
+      } else if (lower.includes('kaduna')) {
+        if (!city) city = 'Kaduna';
+        if (!state) state = 'Kaduna';
+        if (!postalCode) postalCode = '800001';
+      } else if (lower.includes('benin') || lower.includes('edo')) {
+        if (!city) city = 'Benin City';
+        if (!state) state = 'Edo';
+        if (!postalCode) postalCode = '300001';
+      } else if (lower.includes('calabar') || lower.includes('cross river')) {
+        if (!city) city = 'Calabar';
+        if (!state) state = 'Cross River';
+        if (!postalCode) postalCode = '540001';
+      } else if (lower.includes('abeokuta') || lower.includes('ogun')) {
+        if (!city) city = 'Abeokuta';
+        if (!state) state = 'Ogun';
+        if (!postalCode) postalCode = '110001';
+      } else if (lower.includes('asaba') || lower.includes('delta')) {
+        if (!city) city = 'Asaba';
+        if (!state) state = 'Delta';
+        if (!postalCode) postalCode = '320001';
+      }
+    }
+
+    if (!city) city = 'Lagos';
+    if (!state) state = 'Lagos';
+    if (!postalCode) postalCode = '100001';
+    if (!line1) line1 = `${city}, Nigeria`;
+
+    return { line1, city, state, postalCode };
+  }
+
   /**
    * Step 9: Submits Tier 1 Personal KYC using real Nuvion individual entity onboarding.
    * Returns a pending status to caller without attempting synchronous account creation or substring matching.
@@ -924,6 +987,8 @@ export class NuvionClient {
     const nameParts = accountHolderName.split(' ');
     const firstName = nameParts[0] || 'User';
     const lastName = nameParts.slice(1).join(' ') || 'User';
+
+    const loc = this.parseAddressLocation(data.address, (data as any).city, (data as any).state, (data as any).postalCode);
 
     // Expects response shape from createIndividualEntity: { entityId, personId }. Must be confirmed against a real Nuvion POST /individual-entities response before being trusted in production.
     const entityRes = await this.createIndividualEntity({
@@ -940,10 +1005,10 @@ export class NuvionClient {
         nin: data.idNumber,
       },
       address: {
-        line_1: data.address || 'Lagos, Nigeria',
-        city: 'Lagos',
-        state: 'Lagos',
-        postal_code: '100001',
+        line_1: loc.line1,
+        city: loc.city,
+        state: loc.state,
+        postal_code: loc.postalCode,
         country_code: 'NG',
       },
     });
@@ -1013,6 +1078,8 @@ export class NuvionClient {
     const uboFirst = uboParts[0] || 'Officer';
     const uboLast = uboParts.slice(1).join(' ') || 'User';
 
+    const loc = this.parseAddressLocation(data.businessAddress, (data as any).city, (data as any).state, (data as any).postalCode);
+
     // Expects response shape from createBusinessEntity: { entityId, personId }. Must be confirmed against a real Nuvion POST /business-entities response before being trusted in production.
     const entityRes = await this.createBusinessEntity({
       name: accountHolderName,
@@ -1027,14 +1094,14 @@ export class NuvionClient {
           year: 2022,
           month: 1,
           country: 'NG',
-          state: 'Lagos',
+          state: loc.state,
         },
       },
       address: {
-        line_1: data.businessAddress || 'Lagos, Nigeria',
-        city: 'Lagos',
-        state: 'Lagos',
-        postal_code: '100001',
+        line_1: loc.line1,
+        city: loc.city,
+        state: loc.state,
+        postal_code: loc.postalCode,
         country_code: 'NG',
       },
       business_officers: [
