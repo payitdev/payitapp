@@ -655,8 +655,8 @@ export class NuvionClient {
   public async createIndividualEntity(payload: NuvionIndividualEntityPayload) {
     const res = await this.nuvionPost('/individual-entities', payload);
     const data = res?.data?.data || res?.data || res;
-    const entityId = data?.id || data?.entity_id;
-    const personId = data?.person_id || data?.person?.id;
+    const entityId = data?.entity?.id || data?.entity_id || data?.id;
+    const personId = data?.person?.id || data?.person_id;
 
     if (!entityId) {
       throw new NuvionApiError(500, `Nuvion API did not return an entity_id for individual entity creation. Response: ${JSON.stringify(res)}`, res);
@@ -665,7 +665,7 @@ export class NuvionClient {
     return {
       entityId: String(entityId),
       personId: personId ? String(personId) : undefined,
-      status: (data?.status || 'pending') as string,
+      status: (data?.entity?.status || data?.status || 'pending') as string,
       rawResponse: res,
     };
   }
@@ -677,8 +677,8 @@ export class NuvionClient {
   public async createBusinessEntity(payload: NuvionBusinessEntityPayload) {
     const res = await this.nuvionPost('/business-entities', payload);
     const data = res?.data?.data || res?.data || res;
-    const entityId = data?.id || data?.entity_id;
-    const personId = data?.person_id || data?.business_officers?.[0]?.person?.id;
+    const entityId = data?.entity?.id || data?.business?.id || data?.entity_id || data?.id;
+    const personId = data?.person?.id || data?.person_id || data?.business_officers?.[0]?.person?.id;
 
     if (!entityId) {
       throw new NuvionApiError(500, `Nuvion API did not return an entity_id for business entity creation. Response: ${JSON.stringify(res)}`, res);
@@ -687,7 +687,7 @@ export class NuvionClient {
     return {
       entityId: String(entityId),
       personId: personId ? String(personId) : undefined,
-      status: (data?.status || 'pending') as string,
+      status: (data?.entity?.status || data?.status || 'pending') as string,
       rawResponse: res,
     };
   }

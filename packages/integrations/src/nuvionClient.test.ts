@@ -63,4 +63,51 @@ describe('NuvionClient Security Assertions Unit Tests', () => {
     assert.ok(res.data.accounts.length === 1);
     assert.strictEqual(res.data.accounts[0].entity_id, 'user_entity_111');
   });
+
+  it('3. SHOULD correctly parse entity.id and person.id from real Nuvion API response envelope', async () => {
+    const client = new NuvionClient();
+
+    (client as any).nuvionPost = async (path: string, payload: any) => {
+      if (path === '/individual-entities') {
+        return {
+          status: 'success',
+          message: 'Individual entity created successfully',
+          data: {
+            entity: {
+              id: '01KZNJ2K91Y8KGWXPQBVWVBX9F',
+              type: 'individual',
+              status: 'incomplete',
+            },
+            person: {
+              id: '01KZNJ2K8YBZ48EAVFQWZ21D2J',
+            },
+          },
+        };
+      }
+      return {};
+    };
+
+    const res = await client.createIndividualEntity({
+      name: 'Iboh Igboze',
+      person: {
+        first_name: 'Iboh',
+        last_name: 'Igboze',
+        date_of_birth: '1995-05-19',
+        email: 'iboh@example.com',
+        nationality: 'NG',
+        gender: 'm',
+        phonenumber: '+2349121285147',
+      },
+      address: {
+        line_1: 'Lagos, Nigeria',
+        city: 'Lagos',
+        state: 'Lagos',
+        postal_code: '100001',
+        country_code: 'NG',
+      },
+    });
+
+    assert.strictEqual(res.entityId, '01KZNJ2K91Y8KGWXPQBVWVBX9F');
+    assert.strictEqual(res.personId, '01KZNJ2K8YBZ48EAVFQWZ21D2J');
+  });
 });
