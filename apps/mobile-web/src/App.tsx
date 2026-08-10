@@ -1233,10 +1233,12 @@ export default function App() {
                   <Clock size={22} color="#B45309" />
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309' }}>Verification Pending (Nuvion Review)</div>
-                    <div style={{ fontSize: 11, color: '#D97706' }}>Nuvion is reviewing your details. Accounts will unlock upon approval.</div>
+                    <div style={{ fontSize: 11, color: '#D97706' }}>Nuvion is reviewing your details. Tap to update or re-submit.</div>
                   </div>
                 </div>
-                <span className="chip warn" style={{ background: '#F59E0B', color: '#fff' }}>Pending</span>
+                <button onClick={() => setShowKycModal(true)} className="chip warn" style={{ cursor: 'pointer', background: '#F59E0B', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 10, fontWeight: 700 }}>
+                  Re-submit
+                </button>
               </div>
             )}
 
@@ -1638,7 +1640,7 @@ export default function App() {
                 {activeEntity?.nuvionStatus === 'approved' ? (
                   <span className="chip" style={{ background: 'var(--tint)', color: 'var(--green-dark)' }}>Verified</span>
                 ) : activeEntity?.nuvionStatus === 'pending' ? (
-                  <span className="chip warn" style={{ background: '#FEF3C7', color: '#B45309' }}>Pending Review</span>
+                  <button onClick={() => setShowKycModal(true)} className="chip warn" style={{ background: '#FEF3C7', color: '#B45309', cursor: 'pointer', border: '1px solid #FCD34D' }}>Re-submit Details</button>
                 ) : activeEntity?.nuvionStatus === 'rejected' ? (
                   <button onClick={() => setShowKycModal(true)} className="chip warn" style={{ background: '#FEF2F2', color: 'var(--danger)', cursor: 'pointer' }}>Re-submit Details</button>
                 ) : (
