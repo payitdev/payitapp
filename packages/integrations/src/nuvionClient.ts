@@ -1106,6 +1106,14 @@ export class NuvionClient {
   }
 
   /**
+   * Fetches an entity by its Nuvion entity ID via GET /entities/${nuvionEntityId}.
+   */
+  public async getEntityById(nuvionEntityId: string) {
+    if (!nuvionEntityId) throw new Error('nuvionEntityId is required to fetch entity');
+    return this.nuvionGet(`/entities/${encodeURIComponent(nuvionEntityId)}`);
+  }
+
+  /**
    * Fetches detailed account information by ID.
    */
   public async getAccountById(accountId: string) {

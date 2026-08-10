@@ -220,8 +220,21 @@ export async function kycRoutes(server: FastifyInstance) {
     let currentStatus = entity.nuvionStatus;
     let currentTier = entity.nuvionTier;
 
-    // SECONDARY POLLING FALLBACK: If primary webhook notification was delayed or missed,
-    // query accounts strictly scoped by the entity's real nuvionEntityId.
+    // SECONDARY POLLING FALLBACK: Query live Nuvion entity status & entity-scoped accounts
+    if (entity.nuvionEntityId && currentStatus !== 'approved') {
+      try {
+        const entRes = await nuvion.getEntityById(entity.nuvionEntityId);
+        const liveStatus = (entRes?.data?.entity?.status || entRes?.data?.status || '').toLowerCase();
+        if (liveStatus && liveStatus !== currentStatus) {
+          server.log.info({ entityId, oldStatus: currentStatus, liveStatus }, '[Secondary Polling Fallback] Entity status updated from live Nuvion API check');
+          await db.update(entities).set({ nuvionStatus: liveStatus }).where(eq(entities.id, entityId));
+          currentStatus = liveStatus;
+        }
+      } catch (entErr: any) {
+        server.log.warn({ entErr: entErr.message, nuvionEntityId: entity.nuvionEntityId }, 'Could not check live Nuvion entity status');
+      }
+    }
+
     if (entityAccounts.length === 0 && (entity.nuvionTier >= 1 || entity.nuvionStatus === 'pending') && entity.nuvionEntityId) {
       try {
         server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, '[Secondary Polling Fallback] Checking live entity-scoped Nuvion accounts');
