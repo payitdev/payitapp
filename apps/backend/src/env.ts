@@ -28,6 +28,11 @@ const EnvSchema = z.object({
   PAYIT_TREASURY_FEE_WALLET: z.string().min(10, 'PAYIT_TREASURY_FEE_WALLET is required for treasury fee sweeps'),
   PAYIT_FX_MARGIN_PERCENT: z.string().default('0.030'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
+  PODS_API_KEY: z.string().optional(), // Optional for gradual rollout
+  NEAR_RELAYER_ACCOUNT_ID: z.string().optional(), // Optional for gradual rollout
+  NEAR_RELAYER_PRIVATE_KEY: z.string().optional(), // Optional for gradual rollout
+  NEAR_NETWORK_ID: z.enum(['testnet', 'mainnet']).default('testnet'),
+  NEAR_CONTRACT_ID: z.string().optional(), // Auto-selected based on network in code
 });
 
 
@@ -38,6 +43,28 @@ export function validateEnv() {
     console.error('CRITICAL CONFIGURATION ERROR: Invalid startup environment variables!', err.errors || err.message);
     process.exit(1);
   }
+}
+
+export function validatePodsEnv() {
+  if (!process.env.PODS_API_KEY) {
+    console.warn('PODS_API_KEY not set - Pods savings features will be disabled');
+    return false;
+  }
+  if (!process.env.NEAR_RELAYER_ACCOUNT_ID || !process.env.NEAR_RELAYER_PRIVATE_KEY) {
+    console.warn('NEAR relayer credentials not set - Chain signatures will be disabled');
+    return false;
+  }
+  
+  const network = process.env.NEAR_NETWORK_ID || 'testnet';
+  console.log(`✅ Pods/Ondo integration enabled on NEAR ${network}`);
+  
+  if (network === 'testnet') {
+    console.log('⚠️  Currently using NEAR testnet - switch to mainnet by setting NEAR_NETWORK_ID=mainnet');
+  } else {
+    console.log('✅ Using NEAR mainnet for production transactions');
+  }
+  
+  return true;
 }
 
 export const env = validateEnv();

@@ -21,10 +21,12 @@ async function populateEntitiesWithAccounts(entityRows: any[]) {
     const accs = await db.select().from(accounts).where(eq(accounts.entityId, ent.id));
     const walletRows = await db.select().from(wallets).where(eq(wallets.entityId, ent.id)).limit(1);
     const particleNetworkAddress = walletRows[0]?.particleWalletAddress || null;
+    const solanaAddress = walletRows[0]?.solanaAddress || null;
 
     result.push({
       ...ent,
       particleNetworkAddress,
+      solanaAddress,
       nuvionStatus: ent.nuvionStatus,
       nuvionTier: ent.nuvionTier,
       fiatAccounts: accs.map(a => ({
@@ -90,10 +92,11 @@ export async function authRoutes(server: FastifyInstance) {
    * Particle Auth Social Login & Email Authentication Endpoint.
    */
   server.post('/api/auth/particle-login', async (request, reply) => {
-    const { token, email, particleWalletAddress, particleUserId, name } = request.body as {
+    const { token, email, particleWalletAddress, solanaAddress, particleUserId, name } = request.body as {
       token?: string;
       email?: string;
       particleWalletAddress?: string;
+      solanaAddress?: string;
       particleUserId?: string;
       name?: string;
     };
@@ -216,7 +219,181 @@ export async function authRoutes(server: FastifyInstance) {
             id: ulid(),
             entityId: primaryEntityId,
             particleWalletAddress,
+            solanaAddress: solanaAddress || null,
             chainId: 137,
+            createdAt: new Date(),
+          });
+        } catch (err: any) {
+          if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+        }
+      } else if (solanaAddress && !existingWallets[0].solanaAddress) {
+        try {
+          await db.update(wallets).set({ solanaAddress }).where(eq(wallets.id, existingWallets[0].id));
+        } catch (err: any) {
+          server.log.warn(`[Auth] Solana wallet address update note: ${err.message}`);
+        }
+      }
+    }
+
+    const populatedEntities = await populateEntitiesWithAccounts(userEntities);
+
+    const approvedEntity = populatedEntities.find(e => e.nuvionStatus === 'approved');
+    const activeEntityId = approvedEntity?.id || personalEntity?.id || populatedEntities[0]?.id || null;
+
+    const sessionToken = jwt.sign(
+      {
+        userId,
+        email: cleanEmail,
+        entityIds: populatedEntities.map(e => e.id),
+        activeEntityId,
+      },
+      env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    const deviceRows = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, userId)).limit(1);
+    const hasPasscode = deviceRows.length > 0;
+
+    return reply.send({
+      success: true,
+      token: sessionToken,
+      user: {
+        id: userId,
+        email: cleanEmail,
+        entities: populatedEntities,
+        activeEntityId: populatedEntities[0]?.id || null,
+        hasPasscode,
+      },
+    });
+  });
+
+  /**
+   * NEAR Auth Login Endpoint.
+   * Handles authentication via NEAR Auth (Fast Auth) with social login providers.
+   */
+  server.post('/api/auth/near-login', async (request, reply) => {
+    const { email, nearPublicKey, accountId, token, name } = request.body as {
+      email?: string;
+      nearPublicKey?: string;
+      accountId?: string;
+      token?: string;
+      name?: string;
+    };
+
+    // Derived email fallback if social login provider didn't return an email scope
+    let cleanEmail = (email && email.includes('@')) ? email.trim().toLowerCase() : '';
+    if (!cleanEmail) {
+      if (accountId) {
+        cleanEmail = `user_${accountId.slice(0, 8).toLowerCase()}@near-auth-user.com`;
+      } else {
+        return reply.status(400).send({ error: 'Valid email address or NEAR account identifier required' });
+      }
+    }
+
+    // Token validation: accept NEAR Auth JWTs and session tokens
+    if (!token || token.length < 8) {
+      return reply.status(401).send({ error: 'NEAR Auth authentication token is required' });
+    }
+
+    try {
+      if (token.includes('.') && token.split('.').length === 3) {
+        // JWT token — only validate expiry
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          return reply.status(401).send({ error: 'NEAR Auth session expired. Please sign in again.' });
+        }
+      }
+    } catch (err: any) {
+      server.log.warn(`[NEAR Auth] Token parse warning (non-blocking): ${err.message}`);
+    }
+
+    let userId: string;
+    const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+
+    if (existingUsers.length > 0) {
+      userId = existingUsers[0].id;
+    } else {
+      userId = ulid();
+      try {
+        await db.insert(users).values({
+          id: userId,
+          email: cleanEmail,
+          fullName: name || cleanEmail.split('@')[0],
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        if (err.code === '23505' || err.message?.includes('unique constraint')) {
+          const reSelected = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+          if (reSelected.length > 0) {
+            userId = reSelected[0].id;
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // Provision isolated Personal & Business entities if missing
+    let userEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
+    const hasPersonal = userEntities.some(e => e.kind === 'PERSONAL');
+    const hasBusiness = userEntities.some(e => e.kind === 'BUSINESS');
+
+    if (!hasPersonal) {
+      const personalId = ulid();
+      try {
+        await db.insert(entities).values({
+          id: personalId,
+          userId,
+          kind: 'PERSONAL',
+          legalName: name || cleanEmail.split('@')[0],
+          nuvionTier: 0,
+          nuvionStatus: 'incomplete',
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+      }
+    }
+
+    if (!hasBusiness) {
+      const businessId = ulid();
+      try {
+        await db.insert(entities).values({
+          id: businessId,
+          userId,
+          kind: 'BUSINESS',
+          legalName: '',
+          nuvionTier: 0,
+          nuvionStatus: 'incomplete',
+          createdAt: new Date(),
+        });
+      } catch (err: any) {
+        if (err.code !== '23505' && !err.message?.includes('unique constraint')) throw err;
+      }
+    }
+
+    userEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
+    const personalEntity = userEntities.find(e => e.kind === 'PERSONAL');
+
+    // Save NEAR public key to entity if provided
+    if (nearPublicKey && userEntities.length > 0) {
+      const primaryEntityId = personalEntity?.id || userEntities[0].id;
+      const existingWallets = await db
+        .select()
+        .from(wallets)
+        .where(and(eq(wallets.entityId, primaryEntityId), eq(wallets.particleWalletAddress, nearPublicKey)))
+        .limit(1);
+
+      if (existingWallets.length === 0) {
+        try {
+          await db.insert(wallets).values({
+            id: ulid(),
+            entityId: primaryEntityId,
+            particleWalletAddress: nearPublicKey, // Storing NEAR public key in this field for now
+            solanaAddress: null,
+            chainId: 0, // NEAR chain
             createdAt: new Date(),
           });
         } catch (err: any) {
@@ -257,7 +434,7 @@ export async function authRoutes(server: FastifyInstance) {
     });
   });
 
-  // End of Particle Auth Login Endpoint
+  // End of NEAR Auth Login Endpoint
 
   /**
    * Step 1: User enters email address.

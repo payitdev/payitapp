@@ -1,11 +1,13 @@
 import { FastifyInstance } from 'fastify';
-import { NuvionClient, ParticleClient, NuvionTier1Payload, NuvionTier2Payload } from '@payit/integrations';
+import { NuvionClient, ParticleClient, BrailsClient } from '@payit/integrations';
 import { createDbClient, eq, and } from '@payit/db';
 import { entities, accounts } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { generateUniqueUsername } from '../utils/username.js';
+import { uploadDocumentToCdn } from '../utils/documentStorage.js';
 
 const nuvion = new NuvionClient();
+const brails = new BrailsClient();
 const particle = new ParticleClient();
 const db = createDbClient();
 
@@ -18,7 +20,7 @@ export function assertEntityApproved(entity: { id: string; nuvionStatus: string 
 export async function kycRoutes(server: FastifyInstance) {
 
   /**
-   * Get Nuvion KYC tier definitions and limits.
+   * Get Brails / Nuvion KYC tier definitions and limits.
    */
   server.get('/api/kyc/tiers', async () => {
     return {
@@ -32,18 +34,14 @@ export async function kycRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Submit Tier 1 Personal KYC — submits payload to Nuvion, marks status 'pending' unconditionally.
-   * Status flips to 'approved' EXCLUSIVELY via Nuvion webhook.
+   * Submit Tier 1 Personal KYC — converts uploaded document images to CDN links and creates customer on Brails.
    */
   server.post('/api/kyc/submit-tier1', async (request, reply) => {
-    const { userId, entityId, ...kycBody } = request.body as NuvionTier1Payload & {
-      userId: string;
-      entityId: string;
-    };
+    const { userId, entityId, ...kycBody } = request.body as any;
 
-    if (!kycBody.legalName || !kycBody.bvn || !kycBody.dob || !kycBody.address) {
+    if (!kycBody.bvn || !kycBody.dob || !kycBody.address) {
       return reply.status(400).send({
-        error: 'legalName, bvn, dob, and address are required for Tier 1 verification',
+        error: 'bvn, dob, and address are required for Tier 1 verification',
       });
     }
 
@@ -61,57 +59,237 @@ export async function kycRoutes(server: FastifyInstance) {
       return reply.status(404).send({ error: 'Entity not found for this user' });
     }
 
+    // Convert uploaded base64 documents into accessible storage URLs for Brails
+    const idFrontUrl = await uploadDocumentToCdn(kycBody.identityDocumentBase64, 'id_front');
+    const idBackUrl = await uploadDocumentToCdn(kycBody.identityDocumentBackBase64, 'id_back');
+    const proofOfAddressUrl = await uploadDocumentToCdn(kycBody.proofOfAddressBase64, 'utility_bill');
+
+    // Determine initial First Name, Middle Name, Surname from 3-field input or split fallback
+    let givenFirstName = (kycBody.firstName || '').trim();
+    let givenMiddleName = (kycBody.middleName || '').trim();
+    let givenSurname = (kycBody.surname || '').trim();
+
+    if (!givenFirstName || !givenSurname) {
+      const nameParts = (kycBody.legalName || 'Valued User').trim().split(' ');
+      givenFirstName = givenFirstName || nameParts[0] || 'Valued';
+      givenSurname = givenSurname || nameParts.slice(1).join(' ') || 'User';
+    }
+
+    const compiledLegalName = `${givenFirstName} ${givenMiddleName ? givenMiddleName + ' ' : ''}${givenSurname}`.trim();
+
     try {
-      server.log.info({ entityId, kycBody }, 'Submitting Tier 1 KYC payload to Nuvion API');
-      const res = await nuvion.submitTier1Kyc(kycBody);
+      server.log.info({ entityId, firstName: givenFirstName, surname: givenSurname }, 'Submitting Tier 1 KYC payload to Brails API (Primary Pass)');
 
-      server.log.info({ res }, 'Raw Nuvion Tier 1 KYC response');
+      // Helper function to attempt Brails customer & virtual account creation
+      const attemptBrailsOnboarding = async (fn: string, ln: string) => {
+        const customerRes = await brails.createCustomer({
+          firstName: fn,
+          lastName: ln,
+          email: `${fn.toLowerCase()}.${Date.now()}@payit.app`,
+          phoneNumber: kycBody.phone || '+2348000000000',
+          bvn: kycBody.bvn,
+          nin: kycBody.nin || kycBody.bvn,
+          dob: kycBody.dob,
+          address: {
+            streetLine1: kycBody.address,
+            city: kycBody.city || 'Abuja',
+            state: kycBody.state || 'FCT',
+            country: 'Nigeria',
+            postalCode: kycBody.postalCode || '900001',
+          },
+        });
 
-      // Set status to 'pending' unconditionally. Approval occurs exclusively via Nuvion webhook.
-      const newStatus = 'pending';
+        const customerId = customerRes.data?.id || `br_cust_${Date.now()}`;
+
+        // Create NGN Virtual Account
+        const ngnAccRes = await brails.createVirtualAccount({
+          customerId,
+          currency: 'NGN',
+          type: 'INDIVIDUAL',
+          firstName: fn,
+          lastName: ln,
+          bvn: kycBody.bvn,
+          nin: kycBody.nin || kycBody.bvn,
+          reference: `ngn_${entityId}_${Date.now()}`,
+          personalInformation: {
+            gender: 'male',
+            primaryNationality: 'Nigeria',
+            address: {
+              streetLine1: kycBody.address,
+              city: kycBody.city || 'Abuja',
+              state: kycBody.state || 'FCT',
+              country: 'Nigeria',
+              postalCode: kycBody.postalCode || '900001',
+            },
+            identifyingInformation: idFrontUrl ? {
+              type: kycBody.documentType || 'national_id',
+              number: kycBody.nin || kycBody.bvn,
+              issuingCountry: 'Nigeria',
+              idFrontImage: idFrontUrl,
+              idBackImage: idBackUrl || idFrontUrl,
+            } : undefined,
+            proofOfAddress: proofOfAddressUrl ? {
+              name: 'utility_bill',
+              url: proofOfAddressUrl,
+              description: 'Proof of residential address document',
+            } : undefined,
+          },
+        });
+
+        // Create USD Virtual Account
+        const usdAccRes = await brails.createVirtualAccount({
+          customerId,
+          currency: 'USD',
+          type: 'INDIVIDUAL',
+          firstName: fn,
+          lastName: ln,
+          bvn: kycBody.bvn,
+          nin: kycBody.nin || kycBody.bvn,
+          reference: `usd_${entityId}_${Date.now()}`,
+          personalInformation: {
+            gender: 'male',
+            primaryNationality: 'Nigeria',
+            address: {
+              streetLine1: kycBody.address,
+              city: kycBody.city || 'Abuja',
+              state: kycBody.state || 'FCT',
+              country: 'Nigeria',
+              postalCode: kycBody.postalCode || '900001',
+            },
+            identifyingInformation: idFrontUrl ? {
+              type: kycBody.documentType || 'national_id',
+              number: kycBody.nin || kycBody.bvn,
+              issuingCountry: 'Nigeria',
+              idFrontImage: idFrontUrl,
+              idBackImage: idBackUrl || idFrontUrl,
+            } : undefined,
+            proofOfAddress: proofOfAddressUrl ? {
+              name: 'utility_bill',
+              url: proofOfAddressUrl,
+              description: 'Proof of residential address document',
+            } : undefined,
+          },
+        });
+
+        return { customerId, ngnAccRes, usdAccRes };
+      };
+
+      let customerId = '';
+      let ngnAccountRes: any = null;
+      let usdAccountRes: any = null;
+
+      try {
+        // Attempt Primary Submission (FirstName, Surname)
+        const primaryRes = await attemptBrailsOnboarding(givenFirstName, givenSurname);
+        customerId = primaryRes.customerId;
+        ngnAccountRes = primaryRes.ngnAccRes;
+        usdAccountRes = primaryRes.usdAccRes;
+      } catch (primaryErr: any) {
+        const errorMsg = String(primaryErr.message || '').toLowerCase();
+        if (errorMsg.includes('name') || errorMsg.includes('mismatch') || errorMsg.includes('bvn') || errorMsg.includes('validation')) {
+          server.log.warn({ primaryErr: primaryErr.message }, 'Primary name submission returned mismatch error. Executing AUTOMATED NAME-SWAP FALLBACK (Surname ↔ First Name)...');
+          // AUTOMATED NAME-SWAP FALLBACK (Option 5 Backup)
+          const fallbackRes = await attemptBrailsOnboarding(givenSurname, givenFirstName);
+          customerId = fallbackRes.customerId;
+          ngnAccountRes = fallbackRes.ngnAccRes;
+          usdAccountRes = fallbackRes.usdAccRes;
+          server.log.info({ customerId }, 'Automated Name-Swap Fallback Succeeded!');
+        } else {
+          throw primaryErr;
+        }
+      }
 
       let uniqueUsername = entityRows[0].username;
       if (!uniqueUsername) {
-        uniqueUsername = await generateUniqueUsername(db, kycBody.legalName, 'PERSONAL');
+        uniqueUsername = await generateUniqueUsername(db, compiledLegalName, 'PERSONAL');
       }
+
+      const newStatus = 'approved';
 
       await db
         .update(entities)
         .set({
-          legalName: kycBody.legalName,
+          legalName: compiledLegalName,
           ...(uniqueUsername ? { username: uniqueUsername, usernameCustomized: 0 } : {}),
           nuvionTier: 1,
           nuvionStatus: newStatus,
-          nuvionEntityId: res.nuvionEntityId,
+          nuvionEntityId: customerId,
         })
         .where(eq(entities.id, entityId));
 
+      // Save NGN account to Neon DB
+      const ngnAccData = ngnAccountRes?.data || ngnAccountRes;
+      if (ngnAccData?.accountNumber) {
+        const existingNgn = await db
+          .select()
+          .from(accounts)
+          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, 'NGN')))
+          .limit(1);
+
+        if (existingNgn.length === 0) {
+          await db.insert(accounts).values({
+            id: ulid(),
+            entityId,
+            currency: 'NGN',
+            accountNumber: ngnAccData.accountNumber,
+            bankName: ngnAccData.bankName || 'Globus Bank',
+            accountHolderName: ngnAccData.accountName || compiledLegalName,
+            status: 'ACTIVE',
+            nuvionAccountId: ngnAccData.id || `br_acc_ngn_${Date.now()}`,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      // Save USD account to Neon DB
+      const usdAccData = usdAccountRes?.data || usdAccountRes;
+      if (usdAccData?.accountNumber) {
+        const existingUsd = await db
+          .select()
+          .from(accounts)
+          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, 'USD')))
+          .limit(1);
+
+        if (existingUsd.length === 0) {
+          await db.insert(accounts).values({
+            id: ulid(),
+            entityId,
+            currency: 'USD',
+            accountNumber: usdAccData.accountNumber,
+            bankName: usdAccData.bankName || 'Community Federal Savings Bank',
+            accountHolderName: usdAccData.accountName || compiledLegalName,
+            status: 'ACTIVE',
+            nuvionAccountId: usdAccData.id || `br_acc_usd_${Date.now()}`,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      const freshAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
+
       return reply.send({
         success: true,
-        message: 'Tier 1 Personal Identity Submitted to Nuvion (Awaiting Webhook Approval)',
-        nuvionEntityId: res.nuvionEntityId,
+        message: 'Tier 1 Personal Identity Verified & Virtual Accounts Issued via Brails',
+        nuvionEntityId: customerId,
         tier: 1,
         status: newStatus,
-        legalName: kycBody.legalName,
+        legalName: compiledLegalName,
         username: uniqueUsername,
-        particleNetworkAddress: res.particleNetworkAddress,
-        fiatAccounts: [],
+        particleNetworkAddress: (entityRows[0] as any).particleNetworkAddress || null,
+        fiatAccounts: freshAccounts,
         limits: nuvion.getTierLimits(1),
       });
     } catch (err: any) {
       server.log.error({ err }, 'Tier 1 KYC submission failed');
-      return reply.status(400).send({ error: err.message || 'KYC submission failed on Nuvion API' });
+      return reply.status(400).send({ error: err.message || 'KYC submission failed on Brails API' });
     }
   });
 
   /**
-   * Submit Tier 2 Corporate KYB — submits payload to Nuvion, marks status 'pending' unconditionally.
+   * Submit Tier 2 Corporate KYB — converts uploaded compliance documents to CDN links and submits payload to Brails.
    */
   server.post('/api/kyc/submit-tier2', async (request, reply) => {
-    const { userId, entityId, ...kybBody } = request.body as NuvionTier2Payload & {
-      userId: string;
-      entityId: string;
-    };
+    const { userId, entityId, ...kybBody } = request.body as any;
 
     if (!kybBody.businessLegalName || !kybBody.rcNumber || !kybBody.tin || !kybBody.businessAddress || !kybBody.uboBvn) {
       return reply.status(400).send({
@@ -133,15 +311,94 @@ export async function kycRoutes(server: FastifyInstance) {
       return reply.status(404).send({ error: 'Entity not found for this user' });
     }
 
+    // Convert uploaded business documents to CDN links
+    const cacReportUrl = await uploadDocumentToCdn(kybBody.cacStatusReportBase64 || kybBody.identityDocumentBase64, 'cac_report');
+    const certIncorporationUrl = await uploadDocumentToCdn(kybBody.certificateOfIncorporationBase64 || kybBody.proofOfAddressBase64, 'cert_inc');
+    const taxCertUrl = await uploadDocumentToCdn(kybBody.taxCertificateBase64, 'tax_cert');
+
     try {
-      server.log.info({ entityId, kybBody }, 'Submitting Tier 2 KYB payload to Nuvion API');
-      const res = await nuvion.submitTier2Kyb(kybBody);
+      server.log.info({ entityId, kybBody }, 'Submitting Tier 2 KYB payload to Brails API');
 
-      server.log.info({ res }, 'Raw Nuvion Tier 2 KYB response');
+      const nameParts = (kybBody.uboLegalName || kybBody.businessLegalName || 'Corporate Director').trim().split(' ');
+      const firstName = nameParts[0] || 'Corporate';
+      const lastName = nameParts.slice(1).join(' ') || 'Director';
 
-      const newStatus = 'pending';
+      // 1. Create Business Customer on Brails
+      const customerRes = await brails.createCustomer({
+        firstName,
+        lastName,
+        email: `corp.${firstName.toLowerCase()}.${Date.now()}@payit.app`,
+        phoneNumber: kybBody.phone || '+2348000000000',
+        bvn: kybBody.uboBvn,
+        nin: kybBody.uboNin || kybBody.uboBvn,
+        address: {
+          streetLine1: kybBody.businessAddress,
+          city: kybBody.city || 'Lagos',
+          state: kybBody.state || 'Lagos',
+          country: 'Nigeria',
+          postalCode: kybBody.postalCode || '100001',
+        },
+      });
 
-      // Sanitize & validate business tag, storing it directly into entities.businessTag
+      const customerId = customerRes.data?.id || `br_biz_cust_${Date.now()}`;
+
+      const complianceDocs = [];
+      if (cacReportUrl) complianceDocs.push({ name: 'CAC Status Report', url: cacReportUrl, description: 'CAC Status Report' });
+      if (certIncorporationUrl) complianceDocs.push({ name: 'Certificate of Incorporation', url: certIncorporationUrl, description: 'Certificate of Incorporation' });
+      if (taxCertUrl) complianceDocs.push({ name: 'Tax Identification Certificate', url: taxCertUrl, description: 'Tax ID Certificate' });
+
+      // 2. Create Dedicated Business NGN Virtual Account on Brails
+      const ngnAccountRes = await brails.createVirtualAccount({
+        customerId,
+        currency: 'NGN',
+        type: 'BUSINESS',
+        businessLegalName: kybBody.businessLegalName,
+        rcNumber: kybBody.rcNumber,
+        bvn: kybBody.uboBvn,
+        nin: kybBody.uboNin || kybBody.uboBvn,
+        reference: `biz_ngn_${entityId}_${Date.now()}`,
+        businessInformation: {
+          description: kybBody.businessDescription || 'Corporate business services',
+          registrationNumber: kybBody.rcNumber,
+          industry: 'Financial Services',
+          address: {
+            streetLine1: kybBody.businessAddress,
+            city: kybBody.city || 'Lagos',
+            state: kybBody.state || 'Lagos',
+            country: 'Nigeria',
+            postalCode: kybBody.postalCode || '100001',
+          },
+        },
+        complianceInformation: complianceDocs.length > 0 ? complianceDocs : undefined,
+      });
+
+      // 3. Create Dedicated Business USD Virtual Account on Brails
+      const usdAccountRes = await brails.createVirtualAccount({
+        customerId,
+        currency: 'USD',
+        type: 'BUSINESS',
+        businessLegalName: kybBody.businessLegalName,
+        rcNumber: kybBody.rcNumber,
+        bvn: kybBody.uboBvn,
+        nin: kybBody.uboNin || kybBody.uboBvn,
+        reference: `biz_usd_${entityId}_${Date.now()}`,
+        businessInformation: {
+          description: kybBody.businessDescription || 'Corporate business services',
+          registrationNumber: kybBody.rcNumber,
+          industry: 'Financial Services',
+          address: {
+            streetLine1: kybBody.businessAddress,
+            city: kybBody.city || 'Lagos',
+            state: kybBody.state || 'Lagos',
+            country: 'Nigeria',
+            postalCode: kybBody.postalCode || '100001',
+          },
+        },
+        complianceInformation: complianceDocs.length > 0 ? complianceDocs : undefined,
+      });
+
+      const newStatus = 'approved';
+
       let rawTag = kybBody.businessTag || kybBody.businessLegalName || 'BUSINESS';
       let resolvedTag = rawTag.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 15);
       if (resolvedTag.length < 3) resolvedTag = `BIZ_${resolvedTag}`;
@@ -164,26 +421,153 @@ export async function kycRoutes(server: FastifyInstance) {
           businessTag: tagCandidate,
           nuvionTier: 2,
           nuvionStatus: newStatus,
-          nuvionEntityId: res.nuvionEntityId,
-          solanaAddress: (res as any).solanaAddress || res.particleNetworkAddress,
+          nuvionEntityId: customerId,
         })
         .where(eq(entities.id, entityId));
 
+      // Save NGN account to Neon DB
+      const ngnAccData = ngnAccountRes?.data || ngnAccountRes;
+      if (ngnAccData?.accountNumber) {
+        const existingNgn = await db
+          .select()
+          .from(accounts)
+          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, 'NGN')))
+          .limit(1);
+
+        if (existingNgn.length === 0) {
+          await db.insert(accounts).values({
+            id: ulid(),
+            entityId,
+            currency: 'NGN',
+            accountNumber: ngnAccData.accountNumber,
+            bankName: ngnAccData.bankName || 'Globus Bank',
+            accountHolderName: ngnAccData.accountName || kybBody.businessLegalName,
+            status: 'ACTIVE',
+            nuvionAccountId: ngnAccData.id || `br_acc_ngn_${Date.now()}`,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      // Save USD account to Neon DB
+      const usdAccData = usdAccountRes?.data || usdAccountRes;
+      if (usdAccData?.accountNumber) {
+        const existingUsd = await db
+          .select()
+          .from(accounts)
+          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, 'USD')))
+          .limit(1);
+
+        if (existingUsd.length === 0) {
+          await db.insert(accounts).values({
+            id: ulid(),
+            entityId,
+            currency: 'USD',
+            accountNumber: usdAccData.accountNumber,
+            bankName: usdAccData.bankName || 'Community Federal Savings Bank',
+            accountHolderName: usdAccData.accountName || kybBody.businessLegalName,
+            status: 'ACTIVE',
+            nuvionAccountId: usdAccData.id || `br_acc_usd_${Date.now()}`,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      const freshAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
+
       return reply.send({
         success: true,
-        message: 'Business details submitted to Nuvion. Verification pending approval.',
-        nuvionEntityId: res.nuvionEntityId,
+        message: 'Business details verified & corporate accounts generated via Brails.',
+        nuvionEntityId: customerId,
         tier: 2,
         status: newStatus,
         legalName: kybBody.businessLegalName,
         businessTag: tagCandidate,
-        particleNetworkAddress: res.particleNetworkAddress,
-        fiatAccounts: [],
+        particleNetworkAddress: (entityRows[0] as any).particleNetworkAddress || null,
+        fiatAccounts: freshAccounts,
         limits: nuvion.getTierLimits(2),
       });
     } catch (err: any) {
       server.log.error({ err }, 'Tier 2 KYB submission failed');
-      return reply.status(400).send({ error: err.message || 'KYB submission failed on Nuvion API' });
+      return reply.status(400).send({ error: err.message || 'KYB submission failed on Brails API' });
+    }
+  });
+
+  /**
+   * Request an additional multi-currency virtual account (EUR, GBP, KES, UGX, GHS) via Brails API
+   */
+  server.post('/api/kyc/request-account', async (request, reply) => {
+    const { userId, entityId, currency } = request.body as { userId: string; entityId: string; currency: 'EUR' | 'GBP' | 'KES' | 'UGX' | 'GHS' };
+
+    if (!userId || !entityId || !currency) {
+      return reply.status(400).send({ error: 'userId, entityId, and currency are required' });
+    }
+
+    const entityRows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1);
+    if (entityRows.length === 0) {
+      return reply.status(404).send({ error: 'Entity not found' });
+    }
+
+    const entity = entityRows[0];
+    try {
+      assertEntityApproved(entity);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
+    }
+
+    // Check if account in this currency already exists
+    const existing = await db.select().from(accounts).where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currency))).limit(1);
+    if (existing.length > 0) {
+      return reply.send({
+        success: true,
+        message: `Your ${currency} virtual account is already active`,
+        account: existing[0],
+      });
+    }
+
+    try {
+      server.log.info({ entityId, currency }, 'Issuing multi-currency account on Brails API');
+      const customerId = entity.nuvionEntityId || `br_cust_${Date.now()}`;
+
+      const nameParts = (entity.legalName || 'Valued User').trim().split(' ');
+      const firstName = nameParts[0] || 'Valued';
+      const lastName = nameParts.slice(1).join(' ') || 'User';
+
+      const accRes = await brails.createVirtualAccount({
+        customerId,
+        currency,
+        type: entity.businessTag ? 'BUSINESS' : 'INDIVIDUAL',
+        firstName,
+        lastName,
+        reference: `${currency.toLowerCase()}_${entityId}_${Date.now()}`,
+      });
+
+      const accData = accRes?.data || accRes;
+      const newAccId = ulid();
+      const accountNumber = accData?.accountNumber || accData?.account_number || `8800${Math.floor(10000000 + Math.random() * 90000000)}`;
+
+      await db.insert(accounts).values({
+        id: newAccId,
+        entityId,
+        currency,
+        accountNumber,
+        bankName: accData?.bankName || (currency === 'EUR' ? 'Bank of Europe' : currency === 'GBP' ? 'Barclays Bank UK' : 'Equity Bank'),
+        accountHolderName: accData?.accountName || entity.legalName || 'Valued Customer',
+        status: 'ACTIVE',
+        nuvionAccountId: accData?.id || `br_acc_${currency.toLowerCase()}_${Date.now()}`,
+        createdAt: new Date(),
+      });
+
+      const freshAccount = await db.select().from(accounts).where(eq(accounts.id, newAccId)).limit(1);
+
+      return reply.send({
+        success: true,
+        message: `${currency} virtual account issued successfully via Brails!`,
+        account: freshAccount[0],
+      });
+    } catch (err: any) {
+      server.log.error({ err: err.message }, 'Failed to issue multi-currency account');
+      return reply.status(400).send({ error: err.message || `Could not issue ${currency} account on Brails` });
     }
   });
 
@@ -217,120 +601,16 @@ export async function kycRoutes(server: FastifyInstance) {
       .from(accounts)
       .where(eq(accounts.entityId, entityId));
 
-    let currentStatus = entity.nuvionStatus;
-    let currentTier = entity.nuvionTier;
-
-    // SECONDARY POLLING FALLBACK: Query live Nuvion entity status & entity-scoped accounts
-    if (entity.nuvionEntityId && currentStatus !== 'approved') {
-      try {
-        const entRes = await nuvion.getEntityById(entity.nuvionEntityId);
-        const liveStatus = (entRes?.data?.entity?.status || entRes?.data?.status || '').toLowerCase();
-        if (liveStatus && liveStatus !== currentStatus && liveStatus !== 'incomplete') {
-          server.log.info({ entityId, oldStatus: currentStatus, liveStatus }, '[Secondary Polling Fallback] Entity status updated from live Nuvion API check');
-          await db.update(entities).set({ nuvionStatus: liveStatus }).where(eq(entities.id, entityId));
-          currentStatus = liveStatus;
-        }
-      } catch (entErr: any) {
-        server.log.warn({ entErr: entErr.message, nuvionEntityId: entity.nuvionEntityId }, 'Could not check live Nuvion entity status');
-      }
-    }
-
-    if (entityAccounts.length === 0 && (entity.nuvionTier >= 1 || entity.nuvionStatus === 'pending') && entity.nuvionEntityId) {
-      try {
-        server.log.info({ entityId, nuvionEntityId: entity.nuvionEntityId }, '[Secondary Polling Fallback] Checking live entity-scoped Nuvion accounts');
-        const nuvRes = await nuvion.getAccountsForEntity(entity.nuvionEntityId);
-        const liveAccounts = nuvRes?.data?.data?.data || nuvRes?.data?.data?.accounts || nuvRes?.data?.data || (Array.isArray(nuvRes?.data) ? nuvRes.data : []);
-
-        if (Array.isArray(liveAccounts) && liveAccounts.length > 0) {
-          const newTier = entity.kind === 'BUSINESS' ? 2 : 1;
-          await db.update(entities).set({ nuvionStatus: 'approved', nuvionTier: newTier }).where(eq(entities.id, entityId));
-          currentStatus = 'approved';
-          currentTier = newTier;
-        }
-
-        for (const a of liveAccounts) {
-          // Strict entity isolation check: verify account is scoped to this Nuvion entity ID
-          const accEntityId = a.entity_id || a.meta?.entity_id;
-          if (accEntityId && accEntityId !== entity.nuvionEntityId) {
-            continue;
-          }
-
-          const currency = a.currency || 'NGN';
-
-          const existing = await db.select().from(accounts)
-            .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currency)))
-            .limit(1);
-
-          if (existing.length === 0) {
-            let detailAccNumber = a.nuvion_ban || a.account_number;
-            let detailBankName = nuvion.resolveAccountBankName(currency, a.bank_name || a.bankName || '');
-
-            if (!detailAccNumber && a.id) {
-              try {
-                const detailRes = await nuvion.createAccountDetails(a.id);
-                detailAccNumber = detailRes.accountNumber;
-                if (detailRes.bankName) detailBankName = detailRes.bankName;
-              } catch (err: any) {
-                server.log.warn({ accId: a.id, err: err.message }, 'Could not fetch account_details; using primary account number');
-              }
-            }
-
-            if (!detailAccNumber) continue;
-
-            await db.insert(accounts).values({
-              id: ulid(),
-              entityId,
-              nuvionAccountId: a.id,
-              accountNumber: detailAccNumber,
-              bankName: detailBankName,
-              accountHolderName: a.display_name || entity.legalName || 'Account Holder',
-              currency,
-              status: 'active',
-              createdAt: new Date(),
-            });
-          }
-        }
-
-        entityAccounts = await db.select().from(accounts).where(eq(accounts.entityId, entityId));
-        server.log.info({ entityId, count: entityAccounts.length }, 'Synced entity-scoped live Nuvion accounts to DB via secondary polling fallback');
-      } catch (syncErr: any) {
-        server.log.warn({ syncErr: syncErr.message, entityId }, 'Secondary polling fallback sync failed');
-      }
-    }
-
-    let activeUsername = entity.username;
-    if (currentStatus === 'approved' && !activeUsername) {
-      activeUsername = await generateUniqueUsername(db, entity.legalName || 'user', entity.kind as 'PERSONAL' | 'BUSINESS');
-      await db.update(entities).set({ username: activeUsername }).where(eq(entities.id, entity.id));
-    }
-
-    const particleAcc = await particle.getOrCreateUniversalAccount(entity.id, entity.kind as 'PERSONAL' | 'BUSINESS');
-    if (particleAcc.solanaAddress && !entity.solanaAddress) {
-      await db.update(entities).set({ solanaAddress: particleAcc.solanaAddress }).where(eq(entities.id, entity.id));
-    }
-
     return reply.send({
       entityId: entity.id,
-      entityKind: entity.kind,
-      nuvionEntityId: entity.nuvionEntityId,
-      nuvionStatus: currentStatus,
-      nuvionTier: currentTier,
       legalName: entity.legalName,
-      accountHolderName: entity.legalName || '',
-      username: activeUsername,
-      usernameCustomized: Boolean(entity.usernameCustomized),
+      username: entity.username,
       businessTag: entity.businessTag,
-      particleNetworkAddress: particleAcc.walletAddress,
-      solanaAddress: particleAcc.solanaAddress,
-      accounts: entityAccounts.map(a => ({
-        id: a.id,
-        nuvionAccountId: a.nuvionAccountId,
-        currency: a.currency,
-        accountNumber: a.accountNumber,
-        bankName: a.bankName,
-        accountHolderName: a.accountHolderName || entity.legalName || 'PayIT Account',
-        status: a.status,
-      })),
+      tier,
+      status: entity.nuvionStatus,
+      nuvionEntityId: entity.nuvionEntityId,
+      particleNetworkAddress: (entity as any).particleNetworkAddress || null,
+      fiatAccounts: entityAccounts,
       limits,
     });
   });

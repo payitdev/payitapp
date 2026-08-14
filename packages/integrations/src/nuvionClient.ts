@@ -8,7 +8,11 @@ export interface NuvionTier1Payload {
   legalName: string;
   dob: string;
   address: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   bvn: string;
+  nin?: string;
   idNumber?: string;
   phone?: string;
   identityDocumentBase64?: string;
@@ -1002,7 +1006,7 @@ export class NuvionClient {
         gender: 'm',
         phonenumber: data.phone || '+2348000000000',
         bvn: data.bvn,
-        nin: data.idNumber,
+        nin: data.nin || data.idNumber || data.bvn,
       },
       address: {
         line_1: loc.line1,

@@ -29,7 +29,8 @@ import {
   Lock,
   Copy,
   ShieldCheck,
-  UserPlus
+  UserPlus,
+  LineChart
 } from 'lucide-react';
 
 import { useConnect, useUserInfo, useEthereum, useSolana } from '@particle-network/auth-core-modal';
@@ -63,6 +64,11 @@ interface UserEntity {
   bankName?: string;
   particleNetworkAddress?: string;
   fiatAccounts?: FiatAccount[];
+  // Chain Signatures addresses (derived via PayIT relayer)
+  nearRelayerPersonalPath?: string;
+  nearRelayerPersonalAddress?: string;
+  nearRelayerBusinessPath?: string;
+  nearRelayerBusinessAddress?: string;
 }
 
 interface Transaction {
@@ -150,6 +156,7 @@ export default function App() {
           email: particleUser.email,
           token: particleUser.token || 'particle_social_session',
           particleWalletAddress: particleUser.particleWalletAddress,
+          solanaAddress: particleUser.solanaAddress,
           name: particleUser.name,
         }),
       });
@@ -298,6 +305,7 @@ export default function App() {
     }
   };
 
+
   // Active Account / Entity State
   const [accountType, setAccountType] = useState<'PERSONAL' | 'BUSINESS'>('PERSONAL');
   const [entitiesMap, setEntitiesMap] = useState<Record<string, UserEntity>>({});
@@ -319,8 +327,176 @@ export default function App() {
   const [invoicesList, setInvoicesList] = useState<any[]>([]);
   const [payrollRunsList, setPayrollRunsList] = useState<any[]>([]);
 
+  // Stocks page state
+  const [stockList, setStockList] = useState<any[]>([]);
+  const [stockSearch, setStockSearch] = useState('');
+  const [selectedStock, setSelectedStock] = useState<any>(null);
+  const [showBuyModal, setShowBuyModal] = useState(false);
+  const [buyAmount, setBuyAmount] = useState('');
+  const [buyAccountContext, setBuyAccountContext] = useState('');
+  const [buyQuote, setBuyQuote] = useState<any>(null);
+  const [showSellModal, setShowSellModal] = useState(false);
+  const [selectedPosition, setSelectedPosition] = useState<any>(null);
+  const [sellAmount, setSellAmount] = useState('');
+  const [sellAccountContext, setSellAccountContext] = useState('');
+  const [sellQuote, setSellQuote] = useState<any>(null);
+  const [stockPositions, setStockPositions] = useState({ personal: { positions: [] }, business: { positions: [] } });
+  const [marketStatus, setMarketStatus] = useState<any>(null);
+  const [showOrderStatusModal, setShowOrderStatusModal] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<any>(null);
+
+  // Filter stocks based on search
+  const filteredStocks = stockList.filter(stock =>
+    stock.symbol.toLowerCase().includes(stockSearch.toLowerCase()) ||
+    stock.name.toLowerCase().includes(stockSearch.toLowerCase())
+  );
+
+  // Fetch stocks on stocks page load
+  useEffect(() => {
+    if (currentScreen === 'stocks' && activeEntity) {
+      fetchStocks();
+      fetchStockPositions();
+      fetchMarketStatus();
+    }
+  }, [currentScreen, activeEntity]);
+
+  const fetchStocks = async () => {
+    try {
+      const response = await apiFetch('/api/ondo/stocks');
+      if (response.success) {
+        setStockList(response.stocks);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch stocks:', error);
+    }
+  };
+
+  const fetchStockPositions = async () => {
+    try {
+      const response = await apiFetch(`/api/ondo/positions/${activeEntity.id}`);
+      if (response.success) {
+        setStockPositions(response);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch stock positions:', error);
+    }
+  };
+
+  const fetchMarketStatus = async () => {
+    try {
+      // Check market status for a sample stock (e.g., first available)
+      if (stockList.length > 0) {
+        const response = await apiFetch(`/api/ondo/market-status/${stockList[0].symbol}`);
+        setMarketStatus(response);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch market status:', error);
+    }
+  };
+
+  const handleBuySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStock || !activeEntity) return;
+
+    try {
+      const response = await apiFetch('/api/ondo/buy', {
+        method: 'POST',
+        body: JSON.stringify({
+          entityId: activeEntity.id,
+          strategyId: selectedStock.strategyId,
+          usdAmount: parseFloat(buyAmount),
+          accountContext: buyAccountContext,
+        }),
+      });
+
+      if (response.success) {
+        setBuyQuote(response.quote);
+        setPendingOrder({
+          type: 'buy',
+          symbol: selectedStock.symbol,
+          amount: buyAmount,
+          phase: 'awaiting_transfer',
+          stepIndex: 0,
+          actionId: response.actionId,
+        });
+        setShowBuyModal(false);
+        setShowOrderStatusModal(true);
+        
+        // Poll for order status
+        pollOrderStatus(response.actionId);
+      }
+    } catch (error: any) {
+      alert(error.message || 'Purchase failed');
+    }
+  };
+
+  const handleSellSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPosition || !activeEntity) return;
+
+    try {
+      const response = await apiFetch('/api/ondo/sell', {
+        method: 'POST',
+        body: JSON.stringify({
+          entityId: activeEntity.id,
+          strategyId: selectedPosition.strategy.id,
+          shareAmountWei: sellAmount,
+          accountContext: sellAccountContext,
+        }),
+      });
+
+      if (response.success) {
+        setSellQuote(response.quote);
+        setPendingOrder({
+          type: 'sell',
+          symbol: selectedPosition.strategy.assetName,
+          amount: sellAmount,
+          phase: 'awaiting_transfer',
+          stepIndex: 0,
+          actionId: response.actionId,
+        });
+        setShowSellModal(false);
+        setShowOrderStatusModal(true);
+        
+        // Poll for order status
+        pollOrderStatus(response.actionId);
+      }
+    } catch (error: any) {
+      alert(error.message || 'Sale failed');
+    }
+  };
+
+  const pollOrderStatus = async (actionId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await apiFetch(`/api/ondo/action/${actionId}`);
+        if (response.status) {
+          const phase = response.status.suw?.phase || 'processing';
+          setPendingOrder(prev => ({
+            ...prev,
+            phase,
+            stepIndex: getStepIndex(phase),
+          }));
+
+          // Stop polling if completed
+          if (['completed', 'refunded', 'expired', 'failed', 'cancelled'].includes(response.status.status)) {
+            clearInterval(pollInterval);
+            fetchStockPositions(); // Refresh positions
+          }
+        }
+      } catch (error) {
+        console.error('Failed to poll order status:', error);
+      }
+    }, 5000); // Poll every 5 seconds
+  };
+
+  const getStepIndex = (phase: string): number => {
+    const phases = ['awaiting_transfer', 'awaiting_presign', 'order_in_progress', 'awaiting_forward', 'completed'];
+    return phases.indexOf(phase);
+  };
+
   // Navigation Screen State
-  const [currentScreen, setCurrentScreen] = useState<'home' | 'activity' | 'requests' | 'cards' | 'profile' | 'invoices' | 'invoice-new' | 'payroll' | 'payroll-new'>('home');
+  const [currentScreen, setCurrentScreen] = useState<'home' | 'activity' | 'requests' | 'cards' | 'profile' | 'invoices' | 'invoice-new' | 'payroll' | 'payroll-new' | 'stocks'>('home');
 
   // Modals state
   const [showSendModal, setShowSendModal] = useState(false);
@@ -343,10 +519,14 @@ export default function App() {
   const [showNewGoalModal, setShowNewGoalModal] = useState(false);
   const [trackerData, setTrackerData] = useState<any | null>(null);
 
-  // KYC Form State
+  // KYC Form State (Explicit 3-field names)
+  const [kycFirstName, setKycFirstName] = useState('');
+  const [kycMiddleName, setKycMiddleName] = useState('');
+  const [kycSurname, setKycSurname] = useState('');
   const [kycLegalName, setKycLegalName] = useState('');
   const [kycPhone, setKycPhone] = useState('');
   const [kycBvn, setKycBvn] = useState('');
+  const [kycNin, setKycNin] = useState('');
   const [kycDob, setKycDob] = useState('');
   const [kycAddress, setKycAddress] = useState('');
   const [kycCity, setKycCity] = useState('');
@@ -373,6 +553,19 @@ export default function App() {
   const [isSubmittingSend, setIsSubmittingSend] = useState(false);
   const [sendStatusMsg, setSendStatusMsg] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
   const [requiresPinStepUp, setRequiresPinStepUp] = useState(false);
+  const [resolvedAccountName, setResolvedAccountName] = useState<string | null>(null);
+  const [isResolvingAccount, setIsResolvingAccount] = useState(false);
+
+  // Card Top-up / Withdrawal Modal State
+  const [showCardFundModal, setShowCardFundModal] = useState(false);
+  const [cardFundAction, setCardFundAction] = useState<'TOPUP' | 'WITHDRAW'>('TOPUP');
+  const [cardFundAmount, setCardFundAmount] = useState('');
+  const [targetCardId, setTargetCardId] = useState('');
+
+  // Add Multi-Currency Account Modal State
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
+  const [selectedNewCurrency, setSelectedNewCurrency] = useState<'EUR' | 'GBP' | 'KES' | 'UGX' | 'GHS'>('EUR');
+  const [isClaimingCurrency, setIsClaimingCurrency] = useState(false);
 
   // Request Payment Form State
   const [requestPayer, setRequestPayer] = useState('');
@@ -413,6 +606,33 @@ export default function App() {
   useEffect(() => {
     restoreSession();
   }, []);
+
+  // Debounced Recipient Bank Account Name Resolution
+  useEffect(() => {
+    if (sendModeTab === 'fiat' && sendAccountNumber && sendAccountNumber.length >= 10) {
+      const timer = setTimeout(async () => {
+        setIsResolvingAccount(true);
+        try {
+          const res = await apiFetch(`${API_BASE_URL}/api/transfers/resolve-account?accountNumber=${sendAccountNumber}&bankCode=058`);
+          const data = await res.json();
+          if (res.ok && data.accountName) {
+            setResolvedAccountName(data.accountName);
+            if (!sendRecipient) setSendRecipient(data.accountName);
+          } else {
+            setResolvedAccountName(null);
+          }
+        } catch {
+          setResolvedAccountName(null);
+        } finally {
+          setIsResolvingAccount(false);
+        }
+      }, 500);
+
+      return () => clearTimeout(timer);
+    } else {
+      setResolvedAccountName(null);
+    }
+  }, [sendAccountNumber, sendModeTab]);
 
   // Fetch Entity Details on Entity Switch & Auto-Poll if Pending
   useEffect(() => {
@@ -715,8 +935,8 @@ export default function App() {
     }
 
     const payload = isPersonal
-      ? { userId, entityId: activeEntity.id, legalName: kycLegalName, phone: kycPhone, bvn: kycBvn, dob: kycDob, address: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile }
-      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile };
+      ? { userId, entityId: activeEntity.id, firstName: kycFirstName, middleName: kycMiddleName, surname: kycSurname, legalName: `${kycFirstName} ${kycMiddleName ? kycMiddleName + ' ' : ''}${kycSurname}`.trim() || kycLegalName, phone: kycPhone, bvn: kycBvn, nin: kycNin || kycBvn, dob: kycDob, address: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile }
+      : { userId, entityId: activeEntity.id, businessLegalName: kycLegalName, businessTag: kycBusinessTag || kycLegalName.slice(0, 6).toUpperCase(), rcNumber: kycRcNumber, tin: kycTin, businessAddress: kycAddress, city: kycCity, state: kycState, postalCode: kycPostalCode, uboLegalName: kycUboName || kycLegalName, uboBvn: kycBvn, uboNin: kycNin || kycBvn, identityDocumentBase64: kycIdentityFile, proofOfAddressBase64: kycAddressFile };
 
     try {
       const res = await apiFetch(endpoint, {
@@ -1039,11 +1259,104 @@ export default function App() {
     }
   };
 
-  // Submit 1-Time Username Update
-  const handleUpdateUsername = async (e: React.FormEvent) => {
+  // Brails Card Top-up / Withdrawal Handler
+  const handleFundVirtualCard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeEntity?.id || !currentUser?.userId || !usernameAvailability?.available) return;
+    const userId = currentUser?.id || currentUser?.userId;
+    if (!activeEntity?.id || !userId || !targetCardId || !cardFundAmount) return;
 
+    try {
+      const endpoint = cardFundAction === 'TOPUP' ? `${API_BASE_URL}/api/cards/top-up` : `${API_BASE_URL}/api/cards/withdraw`;
+      const res = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entityId: activeEntity.id,
+          cardId: targetCardId,
+          amount: parseFloat(cardFundAmount),
+          currency: 'USD',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Card ${cardFundAction.toLowerCase()} failed`);
+
+      alert(data.message || `Card ${cardFundAction.toLowerCase()} successful!`);
+      setShowCardFundModal(false);
+      setCardFundAmount('');
+      if (activeAbortController.current) {
+        fetchCards(activeEntity.id, activeAbortController.current.signal);
+        fetchBalance(activeEntity.id, activeAbortController.current.signal);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Claim Multi-Currency Account Handler (EUR, GBP, KES, UGX, GHS)
+  const handleClaimNewCurrencyAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const userId = currentUser?.id || currentUser?.userId;
+    if (!activeEntity?.id || !userId) return;
+    setIsClaimingCurrency(true);
+
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/kyc/request-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          entityId: activeEntity.id,
+          currency: selectedNewCurrency,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to issue currency account');
+
+      alert(data.message || `${selectedNewCurrency} Virtual Account issued successfully!`);
+      setShowAddAccountModal(false);
+      if (activeAbortController.current) {
+        fetchEntityDetails(userId, activeEntity.id, activeAbortController.current.signal);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsClaimingCurrency(false);
+    }
+  };
+
+  // Generate Brails Mobile Money Collection Link for Invoice
+  const handleGenerateInvoiceMobileMoneyLink = async (invoiceId: string) => {
+    const userId = currentUser?.id || currentUser?.userId;
+    if (!activeEntity?.id || !userId) return;
+
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/invoices/generate-collection-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId,
+          entityId: activeEntity.id,
+          channel: 'mobile_money',
+          provider: 'mpesa',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate payment link');
+
+      if (data.checkoutUrl) {
+        navigator.clipboard.writeText(data.checkoutUrl);
+        setCopyNotification('Mobile Money (M-Pesa) checkout link copied to clipboard!');
+        setTimeout(() => setCopyNotification(null), 3000);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleSaveCustomUsername = async () => {
     try {
       const res = await apiFetch(`${API_BASE_URL}/api/users/update-username`, {
         method: 'POST',
@@ -1074,16 +1387,16 @@ export default function App() {
   // ─── Login Screen ────────────────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div style={{ background: '#0F172A', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div className="phone" style={{ height: 'auto', maxHeight: 'none', padding: 28, textAlign: 'center' }}>
+      <div style={{ background: '#080A18', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div className="phone" style={{ height: 'auto', maxHeight: 'none', padding: 28, textAlign: 'center', background: '#FFFFFF' }}>
 
           {/* Logo */}
-          <div className="logo" style={{ fontSize: 26, justifyContent: 'center', marginBottom: 6 }}>
-            Pay<span className="it">IT</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 4 }}>
+            <img src="/purlen-icon.png" alt="PURLEN" style={{ width: 44, height: 44, objectFit: 'contain' }} />
+            <span style={{ fontSize: 28, fontWeight: 800, fontFamily: 'Bricolage Grotesque', letterSpacing: -0.5, color: '#080A18' }}>PURLEN</span>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>
-            Multi-currency payments for personal &amp; business
+          <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, marginBottom: 24 }}>
+            Money without limits.
           </div>
 
           {/* Error banner */}
@@ -1198,7 +1511,13 @@ export default function App() {
 
         {/* ===== HOME SCREEN ===== */}
         <div className={`screen ${currentScreen === 'home' ? 'active' : ''}`} id="screen-home">
-          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="statusbar" style={{ padding: '14px 20px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <img src="/purlen-icon.png" alt="PURLEN" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+              <span style={{ fontSize: 15, fontWeight: 800, fontFamily: 'Bricolage Grotesque', letterSpacing: -0.3, color: 'var(--text)' }}>PURLEN</span>
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>9:41</span>
+          </div>
 
           <div className="topbar">
             <div className="greeting-block">
@@ -1292,6 +1611,9 @@ export default function App() {
                   <button className="quick-btn" onClick={() => setShowSaveModal(true)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3M12 18v3M5 12H3M21 12h-2M6.3 6.3L5 5M19 19l-1.3-1.3M6.3 17.7L5 19M19 5l-1.3 1.3"/><circle cx="12" cy="12" r="4.5"/></svg>Save
                   </button>
+                  <button className="quick-btn" onClick={() => setCurrentScreen('stocks')}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>Stocks
+                  </button>
                 </div>
               ) : (
                 <div className="quick-row">
@@ -1309,6 +1631,9 @@ export default function App() {
                   </button>
                   <button className="quick-btn" onClick={() => setCurrentScreen('cards')}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg>Cards
+                  </button>
+                  <button className="quick-btn" onClick={() => setCurrentScreen('stocks')}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>Stocks
                   </button>
                 </div>
               )}
@@ -1519,28 +1844,41 @@ export default function App() {
                       </div>
 
                       {/* Card Controls */}
-                      <div style={{ display: 'flex', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.1)', flexWrap: 'wrap' }}>
                         <button
-                          onClick={() => handleFreezeVirtualCard(card.id, card.status)}
+                          onClick={() => {
+                            setTargetCardId(card.id);
+                            setCardFundAction('TOPUP');
+                            setShowCardFundModal(true);
+                          }}
                           style={{
-                            flex: 1, padding: '8px 12px', borderRadius: 10, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                            background: isFrozen ? 'var(--green)' : '#EF4444', color: isFrozen ? '#0F172A' : '#fff',
+                            flex: 1, padding: '8px 10px', borderRadius: 10, border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            background: 'var(--green)', color: '#0F172A',
                           }}
                         >
-                          {isFrozen ? 'Unfreeze Card' : 'Freeze Card'}
+                          + Top Up
                         </button>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(`•••• •••• •••• ${card.last4}`);
-                            setCopyNotification('Card Details Copied!');
-                            setTimeout(() => setCopyNotification(null), 1800);
+                            setTargetCardId(card.id);
+                            setCardFundAction('WITHDRAW');
+                            setShowCardFundModal(true);
                           }}
                           style={{
-                            padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                            background: 'transparent', color: '#fff',
+                            flex: 1, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            background: 'rgba(255,255,255,0.1)', color: '#fff',
                           }}
                         >
-                          Copy
+                          Withdraw
+                        </button>
+                        <button
+                          onClick={() => handleFreezeVirtualCard(card.id, card.status)}
+                          style={{
+                            flex: 1, padding: '8px 10px', borderRadius: 10, border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            background: isFrozen ? 'var(--green)' : '#EF4444', color: isFrozen ? '#0F172A' : '#fff',
+                          }}
+                        >
+                          {isFrozen ? 'Unfreeze' : 'Freeze'}
                         </button>
                       </div>
                     </div>
@@ -1853,10 +2191,464 @@ export default function App() {
           </div>
         </div>
 
+        {/* ===== SCREEN: STOCKS ===== */}
+        <div className={`screen ${currentScreen === 'stocks' ? 'active' : ''}`}>
+          <div className="statusbar"><span>9:41</span><span>•••</span></div>
+          <div className="topbar">
+            <button className="chip" onClick={() => setCurrentScreen('home')} style={{ cursor: 'pointer' }}>← Back</button>
+            <div className="logo">Stocks</div>
+            <div></div>
+          </div>
+          <div className="scroll">
+            {/* COMPLIANCE REVIEW REQUIRED */}
+            <div style={{ 
+              background: '#FEF2F2', 
+              border: '2px solid #FECACA', 
+              borderRadius: 12, 
+              padding: 14, 
+              marginBottom: 20,
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#DC2626',
+              lineHeight: 1.5
+            }}>
+              ⚠️ COMPLIANCE REVIEW REQUIRED before production launch — confirm regulatory treatment of tokenized US equity access for Nigerian retail users with legal counsel before removing this notice.
+            </div>
+
+            {/* Provider Disclosure */}
+            <div style={{ 
+              background: 'var(--surface-alt)', 
+              borderRadius: 12, 
+              padding: 14, 
+              marginBottom: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--text)',
+              textAlign: 'center',
+              border: '1px solid var(--border)'
+            }}>
+              Powered by Pods, via Ondo Global Markets
+            </div>
+
+            {/* Market Status Banner */}
+            <div style={{ 
+              background: marketStatus?.isOpen ? 'var(--tint)' : '#FEF2F2', 
+              borderRadius: 12, 
+              padding: 14, 
+              marginBottom: 20,
+              border: marketStatus?.isOpen ? '1px solid var(--green)' : '2px solid #FECACA'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 10, 
+                fontSize: 13, 
+                fontWeight: 700,
+                color: marketStatus?.isOpen ? 'var(--green-dark)' : '#DC2626'
+              }}>
+                {marketStatus?.isOpen ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Market Open
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={18} />
+                    Market Closed
+                  </>
+                )}
+              </div>
+              {!marketStatus?.isOpen && marketStatus?.asset?.blockingReason && (
+                <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>
+                  {marketStatus.asset.blockingReason.message}
+                </div>
+              )}
+            </div>
+
+            {/* Risk Disclosure */}
+            <div style={{ 
+              background: '#FFFBEB', 
+              borderRadius: 12, 
+              padding: 14, 
+              marginBottom: 20,
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#B45309',
+              lineHeight: 1.6,
+              border: '1px solid #FCD34D'
+            }}>
+              ⚠️ This feature carries market risk and is not insured. Stock prices can fluctuate and you may lose money. This is real market exposure to US-listed stocks/ETFs.
+            </div>
+
+            {/* Stock Browser */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                Available Stocks & ETFs
+              </div>
+              
+              {/* Search/Filter */}
+              <input
+                type="text"
+                placeholder="Search by symbol or name..."
+                value={stockSearch}
+                onChange={(e) => setStockSearch(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 12,
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  background: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginBottom: 16
+                }}
+              />
+
+              {/* Stock List */}
+              <div className="row-card" style={{ padding: '2px 4px' }}>
+                {filteredStocks.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
+                    No stocks found matching your search
+                  </div>
+                ) : (
+                  filteredStocks.map((stock) => (
+                    <div 
+                      key={stock.id}
+                      className="row"
+                      onClick={() => setSelectedStock(stock)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="row-icon">
+                        <LineChart size={16} />
+                      </div>
+                      <div className="row-body">
+                        <div className="row-title">{stock.symbol}</div>
+                        <div className="row-sub">{stock.name}</div>
+                      </div>
+                      <div className="row-amount pos num">
+                        ${parseFloat(stock.priceInUSD).toFixed(2)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Portfolio View */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                Your Portfolio
+              </div>
+
+              {/* Personal Holdings */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--muted)' }}>
+                  Personal
+                </div>
+                {stockPositions.personal.positions.length === 0 ? (
+                  <div style={{ padding: 20, background: 'var(--surface-alt)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
+                    No personal stock holdings
+                  </div>
+                ) : (
+                  <div className="row-card" style={{ padding: '2px 4px' }}>
+                    {stockPositions.personal.positions.map((position) => (
+                      <div key={position.strategy.id} className="row">
+                        <div className="row-icon">
+                          <LineChart size={16} />
+                        </div>
+                        <div className="row-body">
+                          <div className="row-title">{position.strategy.assetName}</div>
+                          <div className="row-sub">
+                            {position.spotPosition.currentPositionInShares.humanized} shares
+                          </div>
+                        </div>
+                        <div className="row-amount pos num">
+                          ${position.spotPosition.underlyingBalanceUSD.toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Business Holdings */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--muted)' }}>
+                  Business
+                </div>
+                {stockPositions.business.positions.length === 0 ? (
+                  <div style={{ padding: 20, background: 'var(--surface-alt)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
+                    No business stock holdings
+                  </div>
+                ) : (
+                  <div className="row-card" style={{ padding: '2px 4px' }}>
+                    {stockPositions.business.positions.map((position) => (
+                      <div key={position.strategy.id} className="row">
+                        <div className="row-icon">
+                          <LineChart size={16} />
+                        </div>
+                        <div className="row-body">
+                          <div className="row-title">{position.strategy.assetName}</div>
+                          <div className="row-sub">
+                            {position.spotPosition.currentPositionInShares.humanized} shares
+                          </div>
+                        </div>
+                        <div className="row-amount pos num">
+                          ${position.spotPosition.underlyingBalanceUSD.toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Navigation */}
+          <div className="bottomnav">
+            <button className="navbtn" onClick={() => setCurrentScreen('home')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11l8-7 8 7M6 10v10h12V10"/></svg>Home
+            </button>
+            <button className="navbtn" onClick={() => setCurrentScreen('activity')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity
+            </button>
+            <button className="navbtn active" onClick={() => setCurrentScreen('stocks')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>Stocks
+            </button>
+            <button className="navbtn" onClick={() => setCurrentScreen('profile')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>Profile
+            </button>
+          </div>
+        </div>
+
+        {/* ===== MODAL: BUY STOCK ===== */}
+        {showBuyModal && selectedStock && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
+              <button onClick={() => { setShowBuyModal(false); setSelectedStock(null); setBuyAmount(''); setBuyAccountContext(''); }} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
+              
+              <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 6 }}>
+                Buy {selectedStock.symbol}
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                {selectedStock.name} — ${parseFloat(selectedStock.priceInUSD).toFixed(2)} per share
+              </div>
+
+              {(!marketStatus?.isOpen || !marketStatus?.asset?.tradable) && (
+                <div style={{ background: '#FEF2F2', border: '2px solid #FECACA', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12, color: '#DC2626', fontWeight: 700 }}>
+                  Market is closed — trading not available
+                </div>
+              )}
+
+              <form onSubmit={handleBuySubmit}>
+                <div className="field">
+                  <label>Investment Amount (USD)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    min="10"
+                    placeholder="100.00" 
+                    value={buyAmount}
+                    onChange={(e) => setBuyAmount(e.target.value)}
+                    disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable}
+                    required 
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    Minimum: $10.00
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Funding Account</label>
+                  <select 
+                    value={buyAccountContext}
+                    onChange={(e) => setBuyAccountContext(e.target.value)}
+                    disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable}
+                    required
+                    style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: '#fff', fontSize: 14, fontWeight: 600 }}
+                  >
+                    <option value="">Select account...</option>
+                    <option value="personal">Personal Wallet</option>
+                    <option value="business">Business Wallet</option>
+                  </select>
+                </div>
+
+                {buyQuote && (
+                  <div style={{ background: 'var(--surface-alt)', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Quote Preview</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span>Expected Shares:</span>
+                      <span style={{ fontWeight: 700 }}>{buyQuote.outputAmount.humanized}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span>Fees:</span>
+                      <span style={{ fontWeight: 700 }}>{buyQuote.inputAmount.humanized}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Funding Chain:</span>
+                      <span style={{ fontWeight: 700 }}>Base (USDC)</span>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="cta"
+                  disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable || !buyAccountContext || parseFloat(buyAmount) < 10}
+                  style={{ marginTop: 16, opacity: (!marketStatus?.isOpen || !marketStatus?.asset?.tradable || !buyAccountContext || parseFloat(buyAmount) < 10) ? 0.5 : 1 }}
+                >
+                  Confirm Purchase
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ===== MODAL: SELL STOCK ===== */}
+        {showSellModal && selectedPosition && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
+              <button onClick={() => { setShowSellModal(false); setSelectedPosition(null); setSellAmount(''); setSellAccountContext(''); }} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
+              
+              <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 6 }}>
+                Sell {selectedPosition.strategy.assetName}
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                Available: {selectedPosition.spotPosition.currentPositionInShares.humanized} shares
+              </div>
+
+              {(!marketStatus?.isOpen || !marketStatus?.asset?.tradable) && (
+                <div style={{ background: '#FEF2F2', border: '2px solid #FECACA', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12, color: '#DC2626', fontWeight: 700 }}>
+                  Market is closed — trading not available
+                </div>
+              )}
+
+              <form onSubmit={handleSellSubmit}>
+                <div className="field">
+                  <label>Shares to Sell</label>
+                  <input 
+                    type="number" 
+                    step="0.000001"
+                    placeholder="0.000000" 
+                    value={sellAmount}
+                    onChange={(e) => setSellAmount(e.target.value)}
+                    disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable}
+                    required 
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    Available: {selectedPosition.spotPosition.currentPositionInShares.humanized}
+                  </div>
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={() => setSellAmount(selectedPosition.spotPosition.currentPositionInShares.value)}
+                  className="cta ghost"
+                  style={{ marginBottom: 12, fontSize: 12, padding: 10 }}
+                  disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable}
+                >
+                  Sell All
+                </button>
+
+                <div className="field">
+                  <label>Payout Account</label>
+                  <select 
+                    value={sellAccountContext}
+                    onChange={(e) => setSellAccountContext(e.target.value)}
+                    disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable}
+                    required
+                    style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: '#fff', fontSize: 14, fontWeight: 600 }}
+                  >
+                    <option value="">Select account...</option>
+                    <option value="personal">Personal Wallet (Base USDC)</option>
+                    <option value="business">Business Wallet (Base USDC)</option>
+                  </select>
+                </div>
+
+                {sellQuote && (
+                  <div style={{ background: 'var(--surface-alt)', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Quote Preview</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span>Expected Payout:</span>
+                      <span style={{ fontWeight: 700 }}>{sellQuote.outputAmount.humanized}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Payout Destination:</span>
+                      <span style={{ fontWeight: 700 }}>Base USDC</span>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="cta"
+                  disabled={!marketStatus?.isOpen || !marketStatus?.asset?.tradable || !sellAccountContext}
+                  style={{ marginTop: 16, opacity: (!marketStatus?.isOpen || !marketStatus?.asset?.tradable || !sellAccountContext) ? 0.5 : 1 }}
+                >
+                  Confirm Sale
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ===== MODAL: ORDER STATUS ===== */}
+        {showOrderStatusModal && pendingOrder && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', borderRadius: 24 }}>
+              <button onClick={() => { setShowOrderStatusModal(false); setPendingOrder(null); }} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
+              
+              <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 6 }}>
+                {pendingOrder.type === 'buy' ? 'Purchase' : 'Sale'} in Progress
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+                {pendingOrder.symbol} — ${pendingOrder.amount}
+              </div>
+
+              {/* Phase Tracking */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                  Order Status
+                </div>
+                <div style={{ background: 'var(--surface-alt)', borderRadius: 10, padding: 14, fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                  {pendingOrder.phase || 'Processing...'}
+                </div>
+              </div>
+
+              {/* Lifecycle Steps */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                  Settlement Progress
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {['Awaiting transfer', 'Awaiting presign', 'Order in progress', 'Awaiting forward', 'Completed'].map((step, index) => (
+                    <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
+                      <div style={{ 
+                        width: 8, 
+                        height: 8, 
+                        borderRadius: '50%', 
+                        background: index <= (pendingOrder.stepIndex || 0) ? 'var(--green)' : 'var(--border)' 
+                      }} />
+                      {step}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button 
+                onClick={() => { setShowOrderStatusModal(false); setPendingOrder(null); }}
+                className="cta ghost"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ===== MODAL: KYC / KYB IDENTITY VERIFICATION ===== */}
         {showKycModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
               <button onClick={() => setShowKycModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
               
               <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 6 }}>
@@ -1869,9 +2661,16 @@ export default function App() {
               <form onSubmit={handleSubmitKyc}>
                 {accountType === 'PERSONAL' ? (
                   <>
-                    <div className="field"><label>Legal Full Name (First &amp; Last Name)</label><input placeholder="Tomiwa Ade" value={kycLegalName} onChange={e => setKycLegalName(e.target.value)} required /></div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div className="field" style={{ flex: 1 }}><label>First Name</label><input placeholder="Tomiwa" value={kycFirstName} onChange={e => setKycFirstName(e.target.value)} required /></div>
+                      <div className="field" style={{ flex: 1 }}><label>Middle Name <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(opt)</span></label><input placeholder="David" value={kycMiddleName} onChange={e => setKycMiddleName(e.target.value)} /></div>
+                    </div>
+                    <div className="field"><label>Surname / Last Name (Family Name)</label><input placeholder="Igboze" value={kycSurname} onChange={e => setKycSurname(e.target.value)} required /></div>
                     <div className="field"><label>Mobile Phone Number</label><input type="tel" placeholder="+2348012345678" value={kycPhone} onChange={e => setKycPhone(e.target.value)} required /></div>
-                    <div className="field"><label>Bank Verification Number (BVN) / NIN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div className="field" style={{ flex: 1 }}><label>BVN (11 digits)</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
+                      <div className="field" style={{ flex: 1 }}><label>NIN (11 digits)</label><input placeholder="11223344556" maxLength={11} value={kycNin} onChange={e => setKycNin(e.target.value)} required /></div>
+                    </div>
                     <div className="field"><label>Date of Birth</label><input type="date" value={kycDob} onChange={e => setKycDob(e.target.value)} required /></div>
                     <div className="field"><label>Street Address</label><input placeholder="14 Navy Estate, Karshi" value={kycAddress} onChange={e => setKycAddress(e.target.value)} required /></div>
                     <div style={{ display: 'flex', gap: 10 }}>
@@ -1893,7 +2692,10 @@ export default function App() {
                     </div>
                     <div className="field"><label>Postal Code <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label><input placeholder="100001" value={kycPostalCode} onChange={e => setKycPostalCode(e.target.value)} /></div>
                     <div className="field"><label>Director Full Name (UBO)</label><input placeholder="Director Name" value={kycUboName} onChange={e => setKycUboName(e.target.value)} required /></div>
-                    <div className="field"><label>Director BVN / NIN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div className="field" style={{ flex: 1 }}><label>Director BVN</label><input placeholder="22113344556" maxLength={11} value={kycBvn} onChange={e => setKycBvn(e.target.value)} required /></div>
+                      <div className="field" style={{ flex: 1 }}><label>Director NIN</label><input placeholder="11223344556" maxLength={11} value={kycNin} onChange={e => setKycNin(e.target.value)} required /></div>
+                    </div>
                   </>
                 )}
 
@@ -1950,8 +2752,8 @@ export default function App() {
 
         {/* ===== MODAL: RECEIVE ACCOUNTS (FIAT & CRYPTO) ===== */}
         {showReceiveModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 440, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 440, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24, display: 'flex', flexDirection: 'column' }}>
               <button onClick={() => setShowReceiveModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
               
               <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 4 }}>Receive Money</h3>
@@ -1988,35 +2790,47 @@ export default function App() {
               {receiveTab === 'fiat' ? (
                 <div style={{ overflowY: 'auto', paddingRight: 4 }}>
                   {activeEntity?.fiatAccounts && activeEntity.fiatAccounts.length > 0 ? (
-                    activeEntity.fiatAccounts.map((acc, idx) => (
-                      <div key={acc.id || acc.nuvionAccountId || idx} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span className="chip" style={{ background: 'var(--tint)', color: 'var(--green-dark)', fontWeight: 800 }}>
-                            {acc.currency} Virtual Bank Account
-                          </span>
-                          <strong style={{ fontSize: 12, color: 'var(--text)' }}>{acc.bankName}</strong>
-                        </div>
-                        <div style={{ fontSize: 20, fontWeight: 800, fontFamily: 'Bricolage Grotesque', letterSpacing: 0.5, margin: '6px 0', color: 'var(--text)' }}>
-                          {acc.accountNumber}
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                            Holder: <strong>{getLegalDisplayName(activeEntity, currentUser)}</strong>
+                    <>
+                      {activeEntity.fiatAccounts.map((acc, idx) => (
+                        <div key={acc.id || acc.nuvionAccountId || idx} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span className="chip" style={{ background: 'var(--tint)', color: 'var(--green-dark)', fontWeight: 800 }}>
+                              {acc.currency} Virtual Bank Account
+                            </span>
+                            <strong style={{ fontSize: 12, color: 'var(--text)' }}>{acc.bankName}</strong>
                           </div>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(acc.accountNumber);
-                              setCopyNotification(`Copied ${acc.currency} Account!`);
-                              setTimeout(() => setCopyNotification(null), 1800);
-                            }}
-                            className="chip"
-                            style={{ cursor: 'pointer', background: 'var(--green)', color: '#fff', border: 'none' }}
-                          >
-                            Copy Account
-                          </button>
+                          <div style={{ fontSize: 20, fontWeight: 800, fontFamily: 'Bricolage Grotesque', letterSpacing: 0.5, margin: '6px 0', color: 'var(--text)' }}>
+                            {acc.accountNumber}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                              Holder: <strong>{getLegalDisplayName(activeEntity, currentUser)}</strong>
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(acc.accountNumber);
+                                setCopyNotification(`Copied ${acc.currency} Account!`);
+                                setTimeout(() => setCopyNotification(null), 1800);
+                              }}
+                              className="chip"
+                              style={{ cursor: 'pointer', background: 'var(--green)', color: '#fff', border: 'none' }}
+                            >
+                              Copy Account
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                      <button
+                        onClick={() => {
+                          setShowReceiveModal(false);
+                          setShowAddAccountModal(true);
+                        }}
+                        className="cta ghost"
+                        style={{ marginTop: 10, padding: 10, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%' }}
+                      >
+                        <span>➕</span> Claim EUR, GBP, KES, or UGX Account
+                      </button>
+                    </>
                   ) : (
                     <div style={{ textAlign: 'center', padding: '24px 0' }}>
                       <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
@@ -2058,15 +2872,18 @@ export default function App() {
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>Base58 address for Solana multi-currency transfers.</div>
                     <div className="key-address" style={{ background: '#fff', padding: 10, borderRadius: 10, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <code style={{ fontSize: 11, fontWeight: 700, wordBreak: 'break-all', color: 'var(--text)' }}>
-                        {(activeEntity as any)?.solanaAddress || 'Solana address assigned upon Tier 1 verification'}
+                        {(activeEntity as any)?.solanaAddress || solanaAddress || 'Solana Mainnet Account Active'}
                       </code>
                       <button
                         className="copy-btn"
                         style={{ marginLeft: 8 }}
                         onClick={() => {
-                          navigator.clipboard.writeText((activeEntity as any)?.solanaAddress || activeEntity?.particleNetworkAddress || '');
-                          setCopyNotification('Copied Solana Address!');
-                          setTimeout(() => setCopyNotification(null), 1800);
+                          const targetSol = (activeEntity as any)?.solanaAddress || solanaAddress || '';
+                          if (targetSol) {
+                            navigator.clipboard.writeText(targetSol);
+                            setCopyNotification('Copied Solana Address!');
+                            setTimeout(() => setCopyNotification(null), 1800);
+                          }
                         }}
                       >
                         Copy
@@ -2087,8 +2904,8 @@ export default function App() {
 
         {/* ===== MODAL: SEND TRANSFER ===== */}
         {showSendModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 460, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '92vh', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 460, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
               <button onClick={() => setShowSendModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
 
               <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 4 }}>Send Money</h3>
@@ -2174,6 +2991,8 @@ export default function App() {
                         <div className="field">
                           <label>Account Number</label>
                           <input type="text" inputMode="numeric" pattern="[0-9]{10}" maxLength={10} placeholder="10-digit NUBAN" value={sendAccountNumber} onChange={e => setSendAccountNumber(e.target.value)} required />
+                          {isResolvingAccount && <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'block' }}>🔍 Resolving recipient account name...</span>}
+                          {resolvedAccountName && <span style={{ fontSize: 11, color: 'var(--green-dark)', fontWeight: 700, marginTop: 4, display: 'block' }}>✓ Verified: {resolvedAccountName}</span>}
                         </div>
                         <div className="field">
                           <label>Bank Name</label>
@@ -2308,8 +3127,8 @@ export default function App() {
 
         {/* ===== MODAL: REQUEST PAYMENT ===== */}
         {showRequestModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 420, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
               <button onClick={() => setShowRequestModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
               
               <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 6 }}>Request Payment</h3>
@@ -2360,7 +3179,7 @@ export default function App() {
                 You have 1 single opportunity to edit your handle. It must be unique.
               </div>
 
-              <form onSubmit={handleUpdateUsername}>
+              <form onSubmit={handleSaveCustomUsername}>
                 <div className="field">
                   <label>New Handle</label>
                   <input
@@ -2393,8 +3212,8 @@ export default function App() {
         {/* ===== MODAL: KMS KEY EXPORT REMOVED ===== */}
         {/* ===== MODAL: VIRTUAL CARD ISSUANCE ===== */}
         {showCardsModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 440, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 440, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
               <button onClick={() => setShowCardsModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
               
               <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 4 }}>
@@ -2655,6 +3474,64 @@ export default function App() {
             setShowSendModal(true);
           }}
         />
+
+        {/* ===== MODAL: CARD TOP-UP / WITHDRAWAL ===== */}
+        {showCardFundModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 400, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', borderRadius: 24, maxHeight: '90vh', overflowY: 'auto' }}>
+              <button onClick={() => setShowCardFundModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
+              
+              <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 4 }}>
+                {cardFundAction === 'TOPUP' ? 'Top-Up Virtual Card' : 'Withdraw from Virtual Card'}
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                {cardFundAction === 'TOPUP' ? 'Load funds from main USD wallet onto your virtual debit card.' : 'Return unspent USD funds from your card back to your main wallet.'}
+              </div>
+
+              <form onSubmit={handleFundVirtualCard}>
+                <div className="field">
+                  <label>Amount (USD)</label>
+                  <input type="number" min="1" step="0.01" placeholder="50.00" value={cardFundAmount} onChange={e => setCardFundAmount(e.target.value)} required />
+                </div>
+                <button type="submit" className="cta" style={{ marginTop: 14 }}>
+                  {cardFundAction === 'TOPUP' ? 'Confirm Top-Up' : 'Confirm Withdrawal'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ===== MODAL: CLAIM MULTI-CURRENCY ACCOUNT ===== */}
+        {showAddAccountModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div className="glass-card" style={{ width: '100%', maxWidth: 400, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', borderRadius: 24, maxHeight: '90vh', overflowY: 'auto' }}>
+              <button onClick={() => setShowAddAccountModal(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
+              
+              <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: 'Bricolage Grotesque', marginBottom: 4 }}>
+                Claim Multi-Currency Virtual Account
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                Issue dedicated virtual bank accounts to receive international funds via Brails.
+              </div>
+
+              <form onSubmit={handleClaimNewCurrencyAccount}>
+                <div className="field">
+                  <label>Select Currency</label>
+                  <select value={selectedNewCurrency} onChange={e => setSelectedNewCurrency(e.target.value as any)} style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: '#fff', fontSize: 14, fontWeight: 600 }}>
+                    <option value="EUR">🇪🇺 EUR — Euro (SEPA Network)</option>
+                    <option value="GBP">🇬🇧 GBP — British Pound (FPS Network)</option>
+                    <option value="KES">🇰🇪 KES — Kenyan Shilling (PesaLink / M-Pesa)</option>
+                    <option value="UGX">🇺🇬 UGX — Ugandan Shilling (MTN / Airtel)</option>
+                    <option value="GHS">🇬🇭 GHS — Ghanaian Cedi (GhIPSS)</option>
+                  </select>
+                </div>
+                <button type="submit" disabled={isClaimingCurrency} className="cta" style={{ marginTop: 14 }}>
+                  {isClaimingCurrency ? 'Issuing Account via Brails...' : `Issue ${selectedNewCurrency} Virtual Account`}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

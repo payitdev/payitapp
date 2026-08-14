@@ -2,4 +2,9 @@ export * from './nuvionClient.js';
 export * from './particleClient.js';
 export * from './magicClient.js';
 export * from './particleAuth.js';
-
+export * from './brailsClient.js';
+export * from './providerFactory.js';
+export * from './podsClient.js';
+export * from './chainSignaturesBackend.js';
+export * from './ondoClient.js';
+export * from './websocketService.js';

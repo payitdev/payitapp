@@ -11,11 +11,14 @@
   },
   "dependencies": {
     "@magic-sdk/admin": "^2.4.2",
+    "@near-js/crypto": "^2.5.1",
     "@particle-network/universal-account-sdk": "^1.0.0",
     "@payit/contracts": "workspace:*",
     "axios": "^1.7.9",
-    "ethers": "^6.10.0",
-    "jsonwebtoken": "^9.0.2"
+    "chainsig.js": "^1.1.16",
+    "ethers": "^6.17.0",
+    "jsonwebtoken": "^9.0.2",
+    "viem": "^2.55.13"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.6",

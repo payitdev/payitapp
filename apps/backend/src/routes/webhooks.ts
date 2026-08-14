@@ -1,13 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq, or, and } from '@payit/db';
 import { auditLogs, entities, accounts, invoices, rawWebhooks, ledgerAccounts, ledgerEntries, users } from '@payit/db/schema';
-import { normalizeNuvionNgnAmount, NuvionClient, ParticleClient } from '@payit/integrations';
+import { normalizeNuvionNgnAmount, NuvionClient, ParticleClient, BrailsClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 import crypto from 'crypto';
 import { env } from '../env.js';
 
 const db = createDbClient();
 const nuvion = new NuvionClient();
+const brails = new BrailsClient();
 const particle = new ParticleClient();
 
 function timingSafeCheck(receivedSignature?: string, expectedSignature?: string): boolean {
@@ -768,5 +769,64 @@ export async function webhookRoutes(server: FastifyInstance) {
         }
       });
     }
+  });
+
+  /**
+   * Brails Webhook Handler (Collections, Credit events, Transfers).
+   * Verifies HMAC SHA-256 signatures and reconciles mobile money collections, card updates, and virtual account deposits.
+   */
+  server.post('/webhooks/brails', async (request, reply) => {
+    const rawBody = (request as any).rawBody || JSON.stringify(request.body);
+    const eventId = (request.body as any)?.id || `brails_evt_${Date.now()}`;
+    const signature = request.headers['x-brails-signature'] as string || '';
+
+    if (process.env.BRAILS_WEBHOOK_SECRET && signature) {
+      const isValid = brails.verifyWebhookSignature(rawBody, signature);
+      if (!isValid) {
+        server.log.warn({ signature }, 'Brails webhook signature verification failed');
+        return reply.status(401).send({ error: 'Invalid HMAC signature' });
+      }
+    }
+
+    server.log.info({ eventId }, 'Received verified Brails webhook callback');
+    reply.status(200).send({ received: true, eventId, provider: 'BRAILS' });
+
+    setImmediate(async () => {
+      try {
+        const body = request.body as any;
+        const eventType = (body.event || body.type || body.eventType || '').toLowerCase();
+        const data = body.data || body;
+
+        await db.insert(auditLogs).values({
+          id: ulid(),
+          userId: 'system_brails_webhook',
+          entityId: data?.customerId || data?.entityId || 'brails_customer',
+          action: `WEBHOOK_BRAILS_${eventType.replace(/[^a-z0-9]/g, '_').toUpperCase()}`,
+          metadata: JSON.stringify(body),
+          createdAt: new Date(),
+        });
+
+        // 1. Reconcile Mobile Money Invoice Collections
+        if (eventType === 'collection.completed' || eventType === 'charge.completed') {
+          const ref = data.reference || data.paymentReference || '';
+          if (ref.startsWith('inv_')) {
+            const invoiceIdParts = ref.split('_');
+            const targetInvoiceId = invoiceIdParts[1];
+            if (targetInvoiceId) {
+              await db.update(invoices).set({ status: 'paid' }).where(eq(invoices.id, targetInvoiceId));
+              server.log.info({ targetInvoiceId, ref }, 'PayIT Invoice status updated to PAID via Brails collection webhook');
+            }
+          }
+        }
+
+        // 2. Reconcile Outbound Payouts
+        if (eventType === 'payout.successful' || eventType === 'payout.failed') {
+          const ref = data.reference || '';
+          server.log.info({ ref, eventType }, 'Outbound Brails payout transaction status updated');
+        }
+      } catch (err) {
+        server.log.error({ err }, 'Error processing Brails webhook async');
+      }
+    });
   });
 }

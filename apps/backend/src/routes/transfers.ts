@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { validateEntityAccess } from '@payit/ledger';
 import { DeterministicRiskEngine } from '@payit/security';
 import { GroqIntentParser } from '@payit/ai';
-import { NuvionClient, ParticleClient } from '@payit/integrations';
+import { NuvionClient, ParticleClient, BrailsClient } from '@payit/integrations';
 import { createDbClient, eq, and } from '@payit/db';
 import { accounts, entities, auditLogs, riskEvents, ledgerEntries, ledgerAccounts } from '@payit/db/schema';
 import { ulid } from 'ulid';
@@ -15,10 +15,38 @@ import { getEntityBalance } from '../utils/balance.js';
 const riskEngine = new DeterministicRiskEngine();
 const groq = new GroqIntentParser();
 const nuvion = new NuvionClient();
+const brails = new BrailsClient();
 const particle = new ParticleClient();
 const db = createDbClient();
 
 export async function transferRoutes(server: FastifyInstance) {
+
+  /**
+   * Live Beneficiary Bank Account Name Resolution via Brails API
+   */
+  server.get('/api/transfers/resolve-account', async (request, reply) => {
+    const { accountNumber, bankCode } = request.query as { accountNumber?: string; bankCode?: string };
+
+    if (!accountNumber || accountNumber.length < 10) {
+      return reply.status(400).send({ error: 'Valid 10-digit account number is required' });
+    }
+
+    try {
+      server.log.info({ accountNumber, bankCode }, 'Resolving recipient bank account name via Brails API');
+      const resolveRes = await brails.resolveBeneficiaryAccount(accountNumber, bankCode || '058');
+      const accountName = resolveRes.data?.accountName || resolveRes.accountName || resolveRes.data?.account_name;
+
+      return reply.send({
+        success: true,
+        accountNumber,
+        bankCode,
+        accountName: accountName || 'Verified Account Holder',
+      });
+    } catch (err: any) {
+      server.log.error({ err: err.message }, 'Failed to resolve recipient bank account name');
+      return reply.status(400).send({ error: err.message || 'Could not verify recipient bank account' });
+    }
+  });
 
   /**
    * PayIT Off-Ramp Withdrawal Request Endpoint.

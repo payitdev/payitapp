@@ -1,26 +1,39 @@
 @import url('https://api.fontshare.com/v2/css?f[]=bricolage-grotesque@500,600,700,800&f[]=general-sans@500,600,700&display=swap');
 
 :root{
-  --bg:#FFFFFF; --tint:#ECFDF5; --tint-biz:#F1F5F4;
-  --surface:#FFFFFF; --surface-alt:#F4F6F5;
-  --border:#E5E7EB;
-  --text:#0F172A; --muted:#64748B; --muted-2:#94A3B0;
-  --green:#10B981; --green-dark:#047857;
-  --danger:#DC2626;
-  --accent: var(--green); --accent-tint: var(--tint);
+  --bg:#FFFFFF; --tint:#F5F3FF; --tint-biz:#F3E8FF;
+  --surface:#FFFFFF; --surface-alt:#F8FAFC;
+  --border:#E2E8F0;
+  --text:#080A18; --muted:#64748B; --muted-2:#94A3B0;
+  --violet:#7C3AED; --magenta:#D946EF; --cyan:#38BDF8; --amber:#F59E0B; --coral:#FF6B4A;
+  --green:#7C3AED; --green-dark:#6D28D9;
+  --danger:#EF4444;
+  --accent: var(--violet); --accent-tint: var(--tint);
+
+  /* Purlen Signature Design Tokens */
+  --purlen-bg: #080A18;
+  --purlen-violet: #7C3AED;
+  --purlen-magenta: #D946EF;
+  --purlen-cyan: #38BDF8;
+  --purlen-amber: #F59E0B;
+  --purlen-coral: #FF6B4A;
+  --purlen-cream: #F4EDE3;
+  --purlen-gradient: linear-gradient(135deg, #7C3AED 0%, #D946EF 50%, #38BDF8 100%);
+  --purlen-accent-gradient: linear-gradient(135deg, #FF6B4A 0%, #D946EF 50%, #7C3AED 100%);
+  --purlen-hero-gradient: linear-gradient(135deg, #080A18 0%, #1E113A 50%, #2E104D 100%);
 
   /* Legacy aliases */
-  --bg-primary: #0F172A;
-  --text-primary: #0F172A;
-  --brand-green: #10B981;
-  --brand-dark-green: #047857;
-  --border-subtle: #E5E7EB;
-  --border-glow: rgba(16, 185, 129, 0.3);
+  --bg-primary: #080A18;
+  --text-primary: #080A18;
+  --brand-green: #7C3AED;
+  --brand-dark-green: #6D28D9;
+  --border-subtle: #E2E8F0;
+  --border-glow: rgba(217, 70, 239, 0.3);
 }
-[data-mode="business"]{ --accent: var(--green-dark); --accent-tint: var(--tint-biz); }
+[data-mode="business"]{ --accent: var(--magenta); --accent-tint: var(--tint-biz); }
 
 *{box-sizing:border-box; margin:0; padding:0;}
-body{ background:#0F172A; font-family:'General Sans', sans-serif; color:var(--text); display:flex; justify-content:center; align-items:center; min-height:100vh; -webkit-font-smoothing:antialiased; }
+body{ background:#080A18; font-family:'General Sans', sans-serif; color:var(--text); display:flex; justify-content:center; align-items:center; min-height:100vh; -webkit-font-smoothing:antialiased; }
 .display{ font-family:'Bricolage Grotesque', sans-serif; }
 .num{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; }
 

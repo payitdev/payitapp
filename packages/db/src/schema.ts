@@ -80,6 +80,7 @@ export const wallets = pgTable('wallets', {
   id: text('id').primaryKey(),
   entityId: text('entity_id').notNull().references(() => entities.id),
   particleWalletAddress: text('particle_wallet_address').notNull(),
+  solanaAddress: text('solana_address'),
   chainId: integer('chain_id').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => {

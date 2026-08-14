@@ -6,11 +6,66 @@ import { createDbClient, eq, and } from '@payit/db';
 import { invoices, invoiceItems, entities, auditLogs } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { assertEntityApproved } from './kyc.js';
+import { BrailsClient } from '@payit/integrations';
 
 const kms = new KMSKeyEnclave();
+const brails = new BrailsClient();
 const db = createDbClient();
 
 export async function invoiceRoutes(server: FastifyInstance) {
+
+  /**
+   * Generate Brails Mobile Money / Online Payment Collection Link for Invoice
+   */
+  server.post('/api/invoices/generate-collection-link', async (request, reply) => {
+    const { invoiceId, entityId, channel = 'mobile_money', provider = 'mpesa', phoneNumber } = request.body as {
+      invoiceId: string;
+      entityId: string;
+      channel?: 'mobile_money' | 'card' | 'bank_transfer' | 'ussd';
+      provider?: 'mpesa' | 'mtn' | 'airtel';
+      phoneNumber?: string;
+    };
+
+    if (!invoiceId || !entityId) {
+      return reply.status(400).send({ error: 'invoiceId and entityId are required' });
+    }
+
+    const invRows = await db.select().from(invoices).where(and(eq(invoices.id, invoiceId), eq(invoices.entityId, entityId))).limit(1);
+    if (invRows.length === 0) {
+      return reply.status(404).send({ error: 'Invoice not found' });
+    }
+
+    const inv = invRows[0];
+    try {
+      server.log.info({ invoiceId, channel, provider }, 'Generating Brails collection payment checkout session');
+      const collectionRes = await brails.createCollection({
+        amount: Number(inv.totalAmount),
+        currency: (inv.currency as any) || 'KES',
+        channel: channel || 'mobile_money',
+        paymentProvider: provider || 'mpesa',
+        phoneNumber: phoneNumber || '+254700000000',
+        email: inv.clientEmail,
+        customerName: inv.clientName,
+        reference: `inv_${inv.id}_${Date.now()}`,
+        description: `PayIT Invoice #${inv.tag || inv.id.slice(0, 8)} payment`,
+      });
+
+      const checkoutUrl = collectionRes.data?.checkoutUrl || collectionRes.checkout_url || collectionRes.data?.paymentLink || `https://checkout.brails.com/pay/${inv.id}`;
+
+      return reply.send({
+        success: true,
+        invoiceId: inv.id,
+        invoiceNumber: inv.tag || inv.id.slice(0, 8),
+        checkoutUrl,
+        provider,
+        amount: inv.totalAmount,
+        currency: inv.currency,
+      });
+    } catch (err: any) {
+      server.log.error({ err: err.message }, 'Failed to generate mobile money collection link');
+      return reply.status(400).send({ error: err.message || 'Could not generate mobile money payment link' });
+    }
+  });
 
   /**
    * Create invoice with real HD address derivation and DB persistence.

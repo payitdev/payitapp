@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fs from 'fs';
+import path from 'path';
 import { env } from './env.js';
 import { authRoutes } from './routes/auth.js';
 import { entityRoutes } from './routes/entities.js';
@@ -13,6 +15,8 @@ import { socialRoutes } from './routes/social.js';
 import { savingsRoutes } from './routes/savings.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { devSeedRoutes } from './routes/devSeed.js';
+import { podsRoutes } from './routes/pods.js';
+import { ondoRoutes } from './routes/ondo.js';
 
 import { requireAuthHook } from './middleware/requireAuth.js';
 import { ReconcilerEngine } from './services/reconcilerEngine.js';
@@ -34,6 +38,18 @@ export function buildServer() {
     return { status: 'healthy', app: 'PayIT Backend API', timestamp: new Date().toISOString() };
   });
 
+  // Serve static document uploads for Brails CDN document verification
+  server.get('/uploads/:filename', async (request, reply) => {
+    const { filename } = request.params as { filename: string };
+    const safeName = path.basename(filename);
+    const filePath = path.join(process.cwd(), 'public', 'uploads', safeName);
+    if (fs.existsSync(filePath)) {
+      const stream = fs.createReadStream(filePath);
+      return reply.type('application/octet-stream').send(stream);
+    }
+    return reply.status(404).send({ error: 'Document not found' });
+  });
+
   // Register single-source routes
   server.register(authRoutes);
   server.register(entityRoutes);
@@ -42,6 +58,8 @@ export function buildServer() {
   server.register(savingsRoutes);
   server.register(waitlistRoutes);
   server.register(transferRoutes);
+  server.register(podsRoutes);
+  server.register(ondoRoutes);
 
   server.register(cardRoutes);
   server.register(invoiceRoutes);
