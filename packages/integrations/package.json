@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "node --test dist/*.test.js",
+    "test": "pnpm -w -r build && node --test dist/*.test.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,10 +14,15 @@
     "@near-js/crypto": "^2.5.1",
     "@particle-network/universal-account-sdk": "^1.0.0",
     "@payit/contracts": "workspace:*",
+    "@solana/web3.js": "^1.98.4",
+    "@turnkey/api-key-stamper": "^0.6.11",
+    "@turnkey/http": "^6.2.0",
+    "@turnkey/sdk-server": "^8.2.0",
     "axios": "^1.7.9",
     "chainsig.js": "^1.1.16",
     "ethers": "^6.17.0",
     "jsonwebtoken": "^9.0.2",
+    "near-api-js": "^7.3.0",
     "viem": "^2.55.13"
   },
   "devDependencies": {
