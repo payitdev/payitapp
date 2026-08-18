@@ -1,248 +1,175 @@
 @import "tailwindcss";
 
 /* ══════════════════════════════════════════════════════
-   PURLEN — REAL SOUTHERN LIGHTS (AURORA AUSTRALIS)
-   Visual Identity System
-
-   Modeled directly on actual photographs of Aurora Australis
-   visible from Southern Africa:
-   Vivid Crimson Red, Deep Ruby Rose, Coral Pink Sky Glow,
-   Vertical Pillars of Red Light, and Warm Amber Reflections.
+   EXACT PROXIM BRAND GUIDE HERO SPECIFICATION
+   Starry Night Sky (#060B14) + Aurora Australis Curtain
+   Colors:
+     - Aurora Cyan:    #35D9D0
+     - Aurora Teal:    #16C7B7
+     - Aurora Blue:    #4A8CFF
+     - Aurora Violet:  #7567F8
+     - Aurora Magenta: #FF5DA8
    ══════════════════════════════════════════════════════ */
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
   html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
   body {
-    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Satoshi', 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: #04050E;
-    color: #080B18;
+    background-color: #060B14;
+    color: #F7F8F4;
     overflow-x: hidden;
   }
-  ::selection { background: #DC2626; color: #fff; }
+  ::selection { background: #35D9D0; color: #060B14; }
 }
 
-/* ══════════════════════════════════════════════════════
-   AUTHENTIC CRIMSON SOUTHERN LIGHTS TOKENS
-   ══════════════════════════════════════════════════════ */
 :root {
-  /* Dark space bases */
-  --p-midnight:        #04050E;
-  --p-night:           #08091A;
-  --p-deep:            #10122E;
+  /* Official Neutrals */
+  --p-night-void:      #060B14;
+  --p-charcoal:        #0F1414;
+  --p-soft-ivory:      #F7F8F4;
+  --p-light-gray:      #E6EBEC;
 
-  /* Surfaces */
-  --p-bg:              #F7F8FC;
-  --p-bg-alt:          #EEF0FA;
-  --p-surface:         #FFFFFF;
+  /* Official Aurora Palette */
+  --p-aurora-cyan:     #35D9D0;
+  --p-aurora-teal:     #16C7B7;
+  --p-aurora-blue:     #4A8CFF;
+  --p-aurora-violet:   #7567F8;
+  --p-aurora-magenta:  #FF5DA8;
 
-  /* Real Southern Lights Crimson Palette */
-  --p-aurora-crimson:  #DC2626;   /* Deep Crimson Red (photographic match) */
-  --p-aurora-ruby:     #E11D48;   /* Ruby Red Glow */
-  --p-aurora-rose:     #F43F5E;   /* Vivid Coral Rose */
-  --p-aurora-coral:    #FB7185;   /* Light Coral Light Rays */
-  --p-aurora-amber:    #F59E0B;   /* Warm Horizon Reflection */
-
-  /* Typography */
-  --p-text:            #080B18;
-  --p-muted:           #4E5275;
-  --p-faint:           #8A8FAD;
-  --p-border:          #DDE2F0;
-  --p-border-m:        #B8C0E0;
-
-  /* Gradients */
-  --g-aurora:          linear-gradient(135deg, #DC2626 0%, #E11D48 45%, #F59E0B 100%);
-  --g-crimson-sky:     linear-gradient(180deg, rgba(220,38,38,0.45) 0%, rgba(225,29,72,0.30) 40%, rgba(245,158,11,0.18) 85%, transparent 100%);
-
-  /* Shadows */
-  --s-card:   0 2px 20px rgba(8,11,24,0.07), 0 1px 4px rgba(8,11,24,0.04);
-  --s-float:  0 8px 40px rgba(8,11,24,0.12), 0 2px 8px rgba(8,11,24,0.05);
-  --s-crimson: 0 12px 48px rgba(220,38,38,0.35), 0 0 80px rgba(244,63,94,0.20);
+  /* Shadows & Depth */
+  --s-depth:           0 24px 70px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --s-glow-aurora:     0 0 60px rgba(53, 217, 208, 0.35);
 
   /* Radii */
-  --r-sm:   10px;
-  --r-md:   18px;
-  --r-lg:   24px;
-  --r-xl:   32px;
-  --r-pill: 9999px;
+  --r-card:            28px;
+  --r-pill:            9999px;
 }
 
 /* ══════════════════════════════════════════════════════
-   VERTICAL PILLARS OF LIGHT ANIMATION (Photographic feature)
+   EXACT AURORA CURTAIN ANIMATION (Sweeping Up Right)
    ══════════════════════════════════════════════════════ */
-@keyframes vertical-pillar-shimmer {
-  0%, 100% { opacity: 0.70; transform: translateY(0) scaleX(1); }
-  50%       { opacity: 0.95; transform: translateY(-8px) scaleX(1.05); }
+@keyframes aurora-wave-flow {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); opacity: 0.85; }
+  50%       { transform: translateY(-25px) rotate(2deg) scale(1.08); opacity: 1; }
 }
 
-@keyframes float-a {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50%       { transform: translateY(-10px) rotate(0.5deg); }
-}
-@keyframes float-b {
-  0%, 100% { transform: translateY(0px); }
-  50%       { transform: translateY(-7px); }
+@keyframes aurora-magenta-shimmer {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.75; }
+  50%       { transform: translateY(20px) scale(1.10); opacity: 0.95; }
 }
 
-.pillar-anim { animation: vertical-pillar-shimmer 10s ease-in-out infinite; }
-.float-a { animation: float-a 6.5s ease-in-out infinite; }
-.float-b { animation: float-b 8s ease-in-out infinite 1.2s; }
+.aurora-curtain-anim { animation: aurora-wave-flow 12s ease-in-out infinite; }
+.aurora-magenta-anim { animation: aurora-magenta-shimmer 15s ease-in-out infinite; }
 
-/* ══════════════════════════════════════════════════════
-   SURFACE COMPONENTS
-   ══════════════════════════════════════════════════════ */
-
-.card {
-  background: #fff;
-  border: 1px solid var(--p-border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--s-card);
-  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
-}
-.card:hover {
-  box-shadow: var(--s-float);
-  border-color: var(--p-border-m);
-  transform: translateY(-2px);
+/* Headline Gradient Text: without limits. */
+.text-gradient-without-limits {
+  background: linear-gradient(90deg, #35D9D0 0%, #4A8CFF 35%, #7567F8 70%, #FF5DA8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-/* ══════════════════════════════════════════════════════
-   BUTTONS
-   ══════════════════════════════════════════════════════ */
+/* 3D Tilted Smartphone Perspective */
+.phone-3d-wrapper { perspective: 1200px; }
+.phone-3d-frame {
+  transform: rotateY(-14deg) rotateX(7deg) rotateZ(-1deg);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.phone-3d-wrapper:hover .phone-3d-frame {
+  transform: rotateY(-4deg) rotateX(2deg) rotateZ(0deg) scale(1.02);
+}
 
+/* Buttons */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   padding: 14px 30px;
   border-radius: var(--r-pill);
-  background: var(--g-aurora);
-  color: #fff;
+  background: linear-gradient(135deg, #16C7B7 0%, #35D9D0 100%);
+  color: #060B14;
   font-weight: 700;
   font-size: 0.9375rem;
   letter-spacing: -0.01em;
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(220,38,38,0.36);
-  transition: all 0.22s ease;
-}
-.btn-primary::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.16) 0%, transparent 60%);
-  pointer-events: none;
+  box-shadow: 0 6px 28px rgba(22, 199, 183, 0.35);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--s-crimson);
-  filter: brightness(1.08);
+  background: linear-gradient(135deg, #35D9D0 0%, #4A8CFF 100%);
+  color: #FFFFFF;
+  box-shadow: 0 10px 36px rgba(53, 217, 208, 0.50);
+  transform: translateY(-1.5px);
 }
 .btn-primary:active { transform: scale(0.98); }
 
-.btn-ghost {
+.btn-secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 13px 26px;
+  gap: 10px;
+  padding: 14px 28px;
   border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--p-text);
+  background: rgba(255, 255, 255, 0.08);
+  color: #F7F8F4;
   font-weight: 600;
   font-size: 0.9375rem;
-  border: 1.5px solid var(--p-border-m);
+  border: 1px solid rgba(255, 255, 255, 0.20);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.22s ease;
+  backdrop-filter: blur(16px);
+  transition: all 0.25s ease;
 }
-.btn-ghost:hover {
-  background: var(--p-bg-alt);
-  border-color: var(--p-aurora-crimson);
-  color: var(--p-aurora-crimson);
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #FFFFFF;
 }
 
-.btn-ghost-dark {
+/* Glass Card */
+.card-glass {
+  background: rgba(15, 20, 32, 0.70);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-card);
+  box-shadow: var(--s-depth);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-glass:hover {
+  border-color: rgba(53, 217, 208, 0.40);
+  box-shadow: var(--s-depth), 0 0 45px rgba(117, 103, 248, 0.25);
+  transform: translateY(-2px);
+}
+
+.badge-aurora {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 13px 26px;
+  padding: 6px 16px;
   border-radius: var(--r-pill);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.88);
+  font-size: 0.78rem;
   font-weight: 600;
-  font-size: 0.9375rem;
-  border: 1.5px solid rgba(255,255,255,0.14);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.22s ease;
-}
-.btn-ghost-dark:hover {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(220,38,38,0.55);
-}
-
-/* ══════════════════════════════════════════════════════
-   TAGS
-   ══════════════════════════════════════════════════════ */
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 13px;
-  border-radius: var(--r-pill);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-.tag-light {
-  background: rgba(220,38,38,0.08);
-  color: var(--p-aurora-crimson);
-  border: 1px solid rgba(220,38,38,0.22);
-}
-.tag-dark {
-  background: rgba(220,38,38,0.15);
-  color: #F43F5E;
-  border: 1px solid rgba(244,63,94,0.32);
-}
-
-/* ══════════════════════════════════════════════════════
-   ARTIFACTS
-   ══════════════════════════════════════════════════════ */
-.artifact-card {
-  border-radius: 20px;
-  box-shadow:
-    0 1px 2px rgba(0,0,0,0.10),
-    0 4px 16px rgba(0,0,0,0.14),
-    0 20px 48px rgba(0,0,0,0.18),
-    inset 0 1px 0 rgba(255,255,255,0.10);
-  transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.35s ease;
-}
-.artifact-card:hover {
-  transform: translateY(-6px) rotateX(2deg);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.10), 0 10px 28px rgba(0,0,0,0.16), 0 32px 72px rgba(0,0,0,0.22);
-}
-
-.receipt {
-  background: #fff;
-  border: 1px solid var(--p-border);
-  border-radius: var(--r-md);
-  box-shadow: var(--s-card);
+  background: rgba(53, 217, 208, 0.12);
+  color: #35D9D0;
+  border: 1px solid rgba(53, 217, 208, 0.30);
 }
 
 :focus-visible {
-  outline: 2px solid var(--p-aurora-crimson);
+  outline: 2px solid #35D9D0;
   outline-offset: 3px;
   border-radius: 4px;
 }
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--p-border-m); border-radius: 3px; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #060B14; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.20); border-radius: 3px; }

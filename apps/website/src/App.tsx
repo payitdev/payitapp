@@ -8,13 +8,13 @@ import {
   TrendingUp, Globe, Smartphone, X, Sparkles, Zap,
   Menu, HelpCircle, Briefcase, Rocket, Store,
   UserCheck, Loader2, Mail, ArrowUpRight, Lock,
+  Wallet, Layers, DollarSign, CheckCircle2, ArrowRight,
+  Shield, Repeat, Activity, Server, Cpu, Copy, ExternalLink,
+  Users, PiggyBank, LineChart, Award, CheckCircle, Clock
 } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const APP_URL = 'https://app.proximfi.xyz/';
 
-/* ══════════════════════════════════════════════════════
-   SVG ICONS
-   ══════════════════════════════════════════════════════ */
 const XIcon = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -22,297 +22,234 @@ const XIcon = ({ className = 'w-4 h-4' }: { className?: string }) => (
 );
 
 /* ══════════════════════════════════════════════════════
-   PHOTOGRAPHIC SOUTHERN LIGHTS (AURORA AUSTRALIS) OVERLAY
-   Matches the user's uploaded reference photos from Southern Africa:
-   - Deep Crimson Red / Ruby-Rose Sky Glow
-   - Vertical Pillars of Crimson Light rising from the horizon
-   - Warm Amber & Coral reflections
-   - Starry Night & Milky Way Sky
+   EXACT PROXIM BRAND GUIDE AURORA AUSTRALIS SKY
+   Vertical ribbon rays (Cyan -> Blue -> Violet -> Magenta) + Mountain silhouettes
    ══════════════════════════════════════════════════════ */
-interface SouthernLightsPillarsProps {
-  intensity?: number;
-}
-const SouthernLightsPillars = ({ intensity = 0.55 }: SouthernLightsPillarsProps) => (
-  <div className="absolute inset-0 pointer-events-none overflow-hidden z-0" style={{ opacity: intensity }}>
-    {/* Deep Crimson & Ruby Sky Glow */}
+const ProximBrandGuideSky = () => (
+  <div className="absolute inset-0 pointer-events-none overflow-hidden z-0 bg-[#060B14]">
+    
+    {/* Subtle Starry Night Particle Vignette */}
+    <div className="absolute inset-0 opacity-40 bg-[radial-gradient(#FFFFFF_1px,transparent_1px)] [background-size:24px_24px]" />
+
+    {/* Dynamic Vertical Aurora Ribbon Wave 1 (Cyan & Teal) */}
     <div
-      className="absolute inset-0"
+      className="aurora-curtain-anim absolute top-0 right-1/4 w-[280px] sm:w-[420px] h-[900px] blur-[70px] opacity-85"
       style={{
-        background: `
-          radial-gradient(ellipse 130% 80% at 50% -10%, rgba(220, 38, 38, 0.48) 0%, rgba(225, 29, 72, 0.35) 45%, rgba(244, 63, 94, 0.20) 70%, transparent 95%),
-          radial-gradient(ellipse 100% 50% at 50% 90%, rgba(245, 158, 11, 0.22) 0%, rgba(220, 38, 38, 0.15) 50%, transparent 80%)
-        `,
+        background: 'linear-gradient(175deg, rgba(53, 217, 208, 0.75) 0%, rgba(22, 199, 183, 0.60) 40%, rgba(74, 140, 255, 0.35) 75%, transparent 100%)',
+        transform: 'rotate(-24deg) translateY(-80px)',
       }}
     />
 
-    {/* Vertical Light Pillars (Photographic Match) */}
-    <div className="pillar-anim absolute inset-0 flex justify-around opacity-75">
-      <div className="w-16 sm:w-24 h-full" style={{ background: 'linear-gradient(to top, transparent 20%, rgba(220, 38, 38, 0.35) 60%, rgba(244, 63, 94, 0.15) 90%)', filter: 'blur(16px)' }} />
-      <div className="w-24 sm:w-36 h-full" style={{ background: 'linear-gradient(to top, transparent 15%, rgba(225, 29, 72, 0.40) 65%, rgba(251, 113, 133, 0.20) 95%)', filter: 'blur(20px)' }} />
-      <div className="w-20 sm:w-28 h-full" style={{ background: 'linear-gradient(to top, transparent 25%, rgba(220, 38, 38, 0.38) 70%, transparent 98%)', filter: 'blur(14px)' }} />
-      <div className="w-28 sm:w-40 h-full" style={{ background: 'linear-gradient(to top, transparent 10%, rgba(244, 63, 94, 0.32) 55%, rgba(245, 158, 11, 0.15) 85%)', filter: 'blur(22px)' }} />
-      <div className="w-16 sm:w-24 h-full" style={{ background: 'linear-gradient(to top, transparent 20%, rgba(220, 38, 38, 0.30) 60%, transparent 90%)', filter: 'blur(16px)' }} />
+    {/* Dynamic Vertical Aurora Ribbon Wave 2 (Electric Blue & Violet) */}
+    <div
+      className="aurora-curtain-anim absolute -top-12 right-1/6 w-[260px] sm:w-[380px] h-[950px] blur-[80px] opacity-90"
+      style={{
+        background: 'linear-gradient(175deg, rgba(74, 140, 255, 0.80) 0%, rgba(117, 103, 248, 0.65) 45%, rgba(255, 93, 168, 0.30) 80%, transparent 100%)',
+        transform: 'rotate(-22deg) translateY(-60px)',
+      }}
+    />
+
+    {/* Dynamic Vertical Aurora Ribbon Wave 3 (Vivid Magenta Sky Ribbon) */}
+    <div
+      className="aurora-magenta-anim absolute top-4 right-0 w-[240px] sm:w-[350px] h-[900px] blur-[75px] opacity-95"
+      style={{
+        background: 'linear-gradient(170deg, rgba(255, 93, 168, 0.90) 0%, rgba(117, 103, 248, 0.70) 50%, rgba(53, 217, 208, 0.25) 85%, transparent 100%)',
+        transform: 'rotate(-20deg)',
+      }}
+    />
+
+    {/* Mountain Ridge Silhouette Along Horizon */}
+    <div className="absolute bottom-0 inset-x-0 h-32 sm:h-44 z-10 pointer-events-none opacity-90">
+      <svg className="w-full h-full fill-[#060B14] preserve-3d" viewBox="0 0 1440 240" preserveAspectRatio="none">
+        <path d="M0,240 L0,160 L120,130 L260,175 L420,110 L580,165 L760,90 L920,150 L1100,105 L1280,160 L1440,120 L1440,240 Z" />
+      </svg>
     </div>
 
-    {/* Starry Night Sky Texture */}
+    {/* Deep Sky Darkness Base Overlay */}
     <div
       className="absolute inset-0"
       style={{
-        backgroundImage: `radial-gradient(circle at 50% 25%, rgba(255, 255, 255, 0.40) 1px, transparent 1px), radial-gradient(circle at 15% 35%, rgba(255, 255, 255, 0.30) 1px, transparent 1px), radial-gradient(circle at 85% 20%, rgba(255, 255, 255, 0.35) 1px, transparent 1px), radial-gradient(circle at 70% 55%, rgba(255, 255, 255, 0.25) 1px, transparent 1px)`,
-        backgroundSize: '200px 200px',
-        opacity: 0.65,
+        background: 'radial-gradient(ellipse at 30% 30%, transparent 20%, rgba(6, 11, 20, 0.70) 80%, #060B14 100%)',
       }}
     />
   </div>
 );
 
-/* ══════════════════════════════════════════════════════
-   SEAMLESS AFRICAN LANDSCAPE ENVIRONMENT WRAPPER
-   Feathers top & bottom edges so backgrounds seamlessly dissolve
-   into one another without any hard boundary or line cut.
-   ══════════════════════════════════════════════════════ */
-interface RealEnvSectionProps {
-  id?: string;
-  className?: string;
-  children: React.ReactNode;
-  bgImage: string;
-  bgOpacity?: number;
-  auroraIntensity?: number;
-  fadeInTop?: boolean;
-  fadeInBottom?: boolean;
-}
-const RealEnvSection = ({
-  id,
-  className = '',
-  children,
-  bgImage,
-  bgOpacity = 0.20,
-  auroraIntensity = 0.45,
-  fadeInTop = true,
-  fadeInBottom = true,
-}: RealEnvSectionProps) => (
-  <section id={id} className={`relative overflow-hidden bg-[#04050E] ${className}`}>
-
-    {/* REAL Photographic Background Image with Top & Bottom Fade Masks */}
-    <div
-      className="absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-700"
-      style={{
-        backgroundImage: `url(${bgImage})`,
-        opacity: bgOpacity,
-        filter: 'contrast(1.15) saturate(1.1)',
-        WebkitMaskImage: `linear-gradient(to bottom, ${fadeInTop ? 'transparent 0%, black 20%' : 'black 0%'}, ${fadeInBottom ? 'black 80%, transparent 100%' : 'black 100%'})`,
-        maskImage: `linear-gradient(to bottom, ${fadeInTop ? 'transparent 0%, black 20%' : 'black 0%'}, ${fadeInBottom ? 'black 80%, transparent 100%' : 'black 100%'})`,
-      }}
-    />
-
-    {/* Photographic Crimson Southern Lights Overlay */}
-    <SouthernLightsPillars intensity={auroraIntensity} />
-
-    {/* Top & Bottom Seamless Feather Overlays */}
-    {fadeInTop && (
-      <div className="absolute top-0 left-0 right-0 h-36 pointer-events-none z-1"
-        style={{ background: 'linear-gradient(to bottom, #04050E 0%, transparent 100%)' }} />
-    )}
-    {fadeInBottom && (
-      <div className="absolute bottom-0 left-0 right-0 h-36 pointer-events-none z-1"
-        style={{ background: 'linear-gradient(to top, #04050E 0%, transparent 100%)' }} />
-    )}
-
-    {/* Radial Ambient Center Highlight */}
-    <div className="absolute inset-0 pointer-events-none"
-      style={{ background: 'radial-gradient(ellipse at center, transparent 40%, rgba(4,5,14,0.35) 100%)' }} />
-
-    {/* Section Content */}
-    <div className="relative z-10">{children}</div>
-  </section>
-);
-
-/* ══════════════════════════════════════════════════════
-   MOTION VARIANTS
-   ══════════════════════════════════════════════════════ */
+/* Motion Variants */
 const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 32 },
+  hidden: { opacity: 0, y: 28 },
   visible: (i = 0) => ({
     opacity: 1, y: 0,
-    transition: { duration: 0.58, ease: 'easeOut' as const, delay: (i as number) * 0.09 },
+    transition: { duration: 0.65, ease: [0.16, 1, 0.3, 1], delay: (i as number) * 0.08 },
   }),
 };
-const stagger = { visible: { transition: { staggerChildren: 0.09 } } };
+const stagger = { visible: { transition: { staggerChildren: 0.08 } } };
 
 /* ══════════════════════════════════════════════════════
-   MAIN APP COMPONENT
+   MAIN APPLICATION
    ══════════════════════════════════════════════════════ */
 export default function App() {
-  const [isModalOpen, setIsModalOpen]   = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeCurrencyCat, setActiveCurrencyCat] = useState<'fiats' | 'crypto' | 'stablecoins'>('fiats');
-  const [activeFaq, setActiveFaq]       = useState<number | null>(0);
-  const [scrolled, setScrolled]         = useState(false);
+  const [activeFaq, setActiveFaq] = useState<number | null>(0);
+  const [activeEntityTab, setActiveEntityTab] = useState<'PERSONAL' | 'BUSINESS'>('PERSONAL');
+  const [phoneArtifactTab, setPhoneArtifactTab] = useState<'VAULTS' | 'SEND' | 'YIELD'>('VAULTS');
 
-  // Waitlist form
-  const [modalTitle, setModalTitle]     = useState('Join PURLEN Early Access');
-  const [modalSub, setModalSub]         = useState('Money without limits. Be among the first to experience seamless multi-currency payments.');
-  const [email, setEmail]               = useState('');
-  const [persona, setPersona]           = useState<'freelancer'|'founder'|'sme'|'interested'>('freelancer');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted]   = useState(false);
-  const [submitError, setSubmitError]   = useState('');
+  // FX Demo Transfer State
+  const [sendAmount, setSendAmount] = useState('1000');
+  const [sourceCurrency, setSourceCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
+  const [targetCurrency, setTargetCurrency] = useState<'NGN' | 'KES' | 'GHS'>('NGN');
+
+  const rates: Record<string, number> = {
+    'USD-NGN': 1550,
+    'USD-KES': 129,
+    'USD-GHS': 15.5,
+    'EUR-NGN': 1680,
+    'EUR-KES': 140,
+    'EUR-GHS': 16.8,
+    'GBP-NGN': 1980,
+    'GBP-KES': 165,
+    'GBP-GHS': 19.8,
+  };
+
+  const calculatedOutput = (parseFloat(sendAmount || '0') * (rates[`${sourceCurrency}-${targetCurrency}`] || 1550)).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 24);
+    const fn = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  const openModal = (title = 'Join PURLEN Early Access', sub = 'Money without limits. Be among the first.') => {
-    setModalTitle(title); setModalSub(sub);
-    setIsSubmitted(false); setSubmitError(''); setEmail('');
-    setIsModalOpen(true); setMobileMenuOpen(false);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setIsSubmitting(true); setSubmitError('');
-    try {
-      const r = await fetch(`${API_BASE_URL}/api/waitlist`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), persona, source: 'website_modal' }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Failed to submit. Please try again.');
-      setIsSubmitted(true);
-    } catch (err: any) {
-      setSubmitError(err.message === 'Failed to fetch'
-        ? "We couldn't reach our servers. Please check your connection."
-        : err.message || 'Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  /* ── DATA ── */
-  const innerOrbit = [
-    { name: 'USDC', label: 'USD Coin',  flag: '/flags/usdc.png', angle: 0   },
-    { name: 'USDT', label: 'Tether USD', flag: '/flags/usdt.png', angle: 180 },
-  ];
-  const middleOrbit = [
-    { name: 'BTC', label: 'Bitcoin',   flag: '/flags/btc.png', angle: 0   },
-    { name: 'ETH', label: 'Ethereum',  flag: '/flags/eth.png', angle: 72  },
-    { name: 'SOL', label: 'Solana',    flag: '/flags/sol.png', angle: 144 },
-    { name: 'ARB', label: 'Arbitrum',  flag: '/flags/arb.png', angle: 216 },
-    { name: 'Particle', label: 'Particle', flag: '/partner-particle-clean.png', angle: 288 },
-  ];
-  const outerOrbit = [
-    { name: 'NGN', label: 'Naira',       flag: '/flags/ng.png', angle: 0   },
-    { name: 'USD', label: 'US Dollar',   flag: '/flags/us.png', angle: 20  },
-    { name: 'EUR', label: 'Euro',        flag: '/flags/eu.png', angle: 40  },
-    { name: 'GBP', label: 'Pound',       flag: '/flags/gb.png', angle: 60  },
-    { name: 'KES', label: 'Shilling',    flag: '/flags/ke.png', angle: 80  },
-    { name: 'GHS', label: 'Cedi',        flag: '/flags/gh.png', angle: 100 },
-    { name: 'ZAR', label: 'Rand',        flag: '/flags/za.png', angle: 120 },
-    { name: 'XOF', label: 'CFA Franc',   flag: '/flags/ci.png', angle: 140 },
-    { name: 'EGP', label: 'Pound',       flag: '/flags/eg.png', angle: 160 },
-    { name: 'RWF', label: 'Franc',       flag: '/flags/rw.png', angle: 180 },
-    { name: 'UGX', label: 'Shilling',    flag: '/flags/ug.png', angle: 200 },
-    { name: 'TZS', label: 'Shilling',    flag: '/flags/tz.png', angle: 220 },
-    { name: 'ZMW', label: 'Kwacha',      flag: '/flags/zm.png', angle: 240 },
-    { name: 'MAD', label: 'Dirham',      flag: '/flags/ma.png', angle: 260 },
-    { name: 'BWP', label: 'Pula',        flag: '/flags/bw.png', angle: 280 },
-    { name: 'CAD', label: 'Dollar',      flag: '/flags/ca.png', angle: 300 },
-    { name: 'AUD', label: 'Dollar',      flag: '/flags/au.png', angle: 320 },
-    { name: 'AED', label: 'Dirham',      flag: '/flags/ae.png', angle: 340 },
+  const currenciesList = [
+    { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '/flags/ng.png', route: 'Instant Direct Bank Payout' },
+    { code: 'USD', name: 'US Dollar', symbol: '$', flag: '/flags/us.png', route: 'ACH & FedWire Rails' },
+    { code: 'EUR', name: 'Euro', symbol: '€', flag: '/flags/eu.png', route: 'SEPA Instant Transfer' },
+    { code: 'GBP', name: 'British Pound', symbol: '£', flag: '/flags/gb.png', route: 'Faster Payments Network' },
+    { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', flag: '/flags/ke.png', route: 'M-Pesa & Bank Deposit' },
+    { code: 'GHS', name: 'Ghanaian Cedi', symbol: 'GH₵', flag: '/flags/gh.png', route: 'Mobile Money & GCB Bank' },
+    { code: 'ZAR', name: 'South African Rand', symbol: 'R', flag: '/flags/za.png', route: 'EFT Instant Settlement' },
+    { code: 'USDC', name: 'USD Coin', symbol: '$', flag: '/flags/usdc.png', route: 'Digital Dollar Reserve' },
+    { code: 'USDT', name: 'Tether USD', symbol: '$', flag: '/flags/usdt.png', route: 'Global Liquidity Rail' },
+    { code: 'BTC', name: 'Bitcoin', symbol: '₿', flag: '/flags/btc.png', route: 'Digital Asset Settlement' },
+    { code: 'ETH', name: 'Ethereum', symbol: 'Ξ', flag: '/flags/eth.png', route: 'Smart Contract Rail' },
+    { code: 'SOL', name: 'Solana', symbol: 'SOL', flag: '/flags/sol.png', route: 'High-Speed Settlement' },
   ];
 
   const faqs = [
     {
-      q: 'How does PURLEN handle payments across different currencies?',
-      a: 'PURLEN gives you dedicated multi-currency balances. Hold, send, receive, and swap across 18+ local fiat currencies and digital dollars seamlessly, with automatic FX conversion at competitive market rates.',
+      q: 'What is Proxim?',
+      a: 'Proxim is a modern borderless financial platform that enables individuals and businesses to send, receive, hold, convert, and manage money across 18+ currencies with instant bank settlement.',
     },
     {
-      q: 'How fast are local bank withdrawals?',
-      a: 'Withdrawals to local bank accounts — such as GTBank, Kuda, Zenith, or local mobile money — are processed instantly via automated settlement rails, arriving in your bank account in 30 seconds or less.',
+      q: 'How fast do international transfers settle?',
+      a: 'Outbound payments to local bank accounts (e.g. GTBank, Access, Kuda, M-Pesa, SEPA) settle in under 30 seconds with real-time tracking.',
     },
     {
-      q: 'Are there any hidden fees or technical setup required?',
-      a: 'No. PURLEN abstracts all underlying infrastructure. You will never encounter hidden network fees or complicated technical setup — the app feels and operates just like a modern digital bank.',
+      q: 'Are there hidden FX conversion markups?',
+      a: 'No. Proxim provides institutional real-time exchange rates with zero hidden markups or surprise fees.',
     },
     {
-      q: 'How do PURLEN Virtual Visa cards work?',
-      a: 'Generate virtual Visa debit cards directly inside the PURLEN app. Cards draw from your multi-currency balances and auto-convert at point-of-sale for international online shopping, subscriptions, and travel.',
+      q: 'Can I hold both Fiat and Digital Dollars (USDC)?',
+      a: 'Yes. You can hold NGN, USD, EUR, GBP, USDC, and USDT in unified multi-currency vaults inside one account.',
     },
     {
-      q: 'How does PURLEN keep my money safe?',
-      a: 'PURLEN uses bank-grade encryption, hardware security modules, and multi-layer authentication. Your account is protected by institutional-grade infrastructure with real-time fraud monitoring.',
+      q: 'How does the Auto-Yield Engine work?',
+      a: 'Idle cash balances automatically earn between 4.0% and 8.5% Net APY through automated sweep vaults without locking your money.',
+    },
+    {
+      q: 'How does Proxim protect my funds and security?',
+      a: 'Proxim uses biometric Passkeys (FaceID/TouchID), multi-party key infrastructure (HSMs), and bank-grade encryption to guarantee enterprise security.',
     },
   ];
 
-  /* ══════════════════════════════════════════════════════
-     RENDER
-     ══════════════════════════════════════════════════════ */
   return (
-    <div className="min-h-screen bg-[#04050E] text-[#080B18] font-sans antialiased overflow-x-hidden">
+    <div className="min-h-screen bg-[#060B14] text-[#F7F8F4] font-sans antialiased overflow-x-hidden">
 
       {/* ──────────────────────────────────────────
-          NAVIGATION
+          NAVIGATION BAR
           ────────────────────────────────────────── */}
-      <header className={`sticky top-0 z-40 transition-all duration-300 ${
+      <header className={`sticky top-0 z-50 transition-all duration-300 ${
         scrolled
-          ? 'bg-[#04050E]/94 backdrop-blur-2xl border-b border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.45)]'
-          : 'bg-[#04050E]/75 backdrop-blur-md'
+          ? 'bg-[#060B14]/92 backdrop-blur-2xl border-b border-white/10 shadow-2xl'
+          : 'bg-[#060B14]/50 backdrop-blur-md'
       }`}>
-        <nav className="max-w-6xl mx-auto px-5 sm:px-8 h-12 sm:h-16 flex items-center justify-between">
+        <nav className="max-w-6xl mx-auto px-6 sm:px-8 h-16 sm:h-20 flex items-center justify-between">
 
           {/* Logo */}
-          <a href="#" className="flex items-center gap-2.5 group shrink-0" aria-label="PURLEN">
-            <img src="/purlen-icon.png" alt="PURLEN"
-              className="w-8 h-8 object-contain transition-transform duration-200 group-hover:scale-[1.06]" />
-            <span className="text-xl font-extrabold text-white tracking-[-0.035em]">PURLEN</span>
+          <a href="#" className="flex items-center gap-3 group shrink-0" aria-label="Proxim">
+            <img
+              src="/proxim-icon.png"
+              alt="Proxim Icon"
+              className="w-8 h-8 rounded-xl object-cover transition-transform duration-200 group-hover:scale-105"
+            />
+            <span className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+              Proxim
+            </span>
           </a>
 
-          {/* Desktop links */}
-          <div className="hidden md:flex items-center gap-7">
-            {[['#experience','Features'],['#currencies','Currencies'],['#business','Business'],['#faq','FAQ']].map(([h,l]) => (
-              <a key={h} href={h} className="text-[0.875rem] font-500 text-white/70 hover:text-white transition-colors duration-150">{l}</a>
+          {/* Nav Links */}
+          <div className="hidden md:flex items-center gap-9 text-sm font-500 text-[#F7F8F4]/80">
+            {[['#features', 'Features'], ['#currencies', 'Currencies'], ['#how-it-works', 'How it works'], ['#business', 'Business'], ['#security', 'Security'], ['#faq', 'FAQ']].map(([h, l]) => (
+              <a key={h} href={h} className="hover:text-white transition-colors duration-150">{l}</a>
             ))}
           </div>
 
-          {/* Desktop actions */}
-          <div className="hidden md:flex items-center gap-3">
-            <a href="https://x.com/purlen" target="_blank" rel="noopener noreferrer"
-              className="w-8 h-8 rounded-full bg-white/10 text-white/70 hover:bg-white hover:text-[#04050E] flex items-center justify-center transition-all border border-white/15"
-              title="@purlen on X"><XIcon className="w-3.5 h-3.5" /></a>
-            <button onClick={() => openModal('Sign In to PURLEN', 'Sign in for existing early access users.')}
-              className="text-[0.875rem] font-600 text-white/80 hover:text-white transition-colors px-3 py-2">
+          {/* Action CTAs */}
+          <div className="hidden md:flex items-center gap-4">
+            <a
+              href={APP_URL} target="_blank" rel="noopener noreferrer"
+              className="text-sm font-600 text-[#F7F8F4]/85 hover:text-white transition-colors px-3 py-2"
+            >
               Sign in
-            </button>
-            <button onClick={() => openModal()} className="btn-primary !py-2.5 !px-5 !text-sm">
-              Get started
-            </button>
+            </a>
+            <a
+              href={APP_URL} target="_blank" rel="noopener noreferrer"
+              className="btn-primary !text-sm !py-2.5 !px-5"
+            >
+              Get started <ArrowRight className="w-4 h-4" />
+            </a>
           </div>
 
-          {/* Mobile menu button */}
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Menu"
-            className="md:hidden p-2 rounded-xl bg-white/10 border border-white/15 text-white">
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+            className="md:hidden p-2.5 rounded-xl bg-white/10 border border-white/15 text-white"
+          >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </nav>
 
-        {/* Mobile drawer */}
+        {/* Mobile Drawer */}
         <AnimatePresence>
           {mobileMenuOpen && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden bg-[#08091A] border-b border-white/10 px-5 py-5 space-y-1">
-              {[['#experience','Features'],['#currencies','Currencies'],['#business','Business'],['#faq','FAQ']].map(([h,l]) => (
-                <a key={h} href={h} onClick={() => setMobileMenuOpen(false)}
-                  className="block py-3 font-600 text-[0.9375rem] text-white border-b border-white/10 last:border-0">{l}</a>
+              className="md:hidden bg-[#060B14] border-b border-white/10 px-6 py-6 space-y-4 shadow-2xl"
+            >
+              {[['#features', 'Features'], ['#currencies', 'Currencies'], ['#how-it-works', 'How it works'], ['#business', 'Business'], ['#security', 'Security'], ['#faq', 'FAQ']].map(([h, l]) => (
+                <a
+                  key={h} href={h} onClick={() => setMobileMenuOpen(false)}
+                  className="block py-2.5 text-base font-600 text-[#F7F8F4] border-b border-white/10 last:border-0"
+                >
+                  {l}
+                </a>
               ))}
-              <div className="pt-4 space-y-2.5">
-                <button onClick={() => openModal('Sign In','Sign in for existing early access users.')}
-                  className="w-full py-3 rounded-2xl font-700 text-sm bg-white/10 border border-white/15 text-white">Sign in</button>
-                <button onClick={() => openModal()} className="btn-primary w-full !text-sm !py-3">Get started</button>
+              <div className="pt-2 space-y-3">
+                <a
+                  href={APP_URL} target="_blank" rel="noopener noreferrer"
+                  className="w-full text-center block py-3 rounded-2xl font-700 text-sm bg-white/10 border border-white/15 text-white"
+                >
+                  Sign in
+                </a>
+                <a
+                  href={APP_URL} target="_blank" rel="noopener noreferrer"
+                  className="btn-primary w-full text-center block !text-sm !py-3"
+                >
+                  Get started <ArrowRight className="w-4 h-4" />
+                </a>
               </div>
             </motion.div>
           )}
@@ -320,915 +257,792 @@ export default function App() {
       </header>
 
       {/* ──────────────────────────────────────────
-          1. HERO — Vast African Mountain Landscape & Celestial Crimson Southern Lights Arc
-          PICTORIAL LANGUAGE: Limitless horizon, money without limits.
+          01 — HERO SECTION (3-SECOND RULE REWRITE & TRUST STRIP)
           ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="hero"
-        className="min-h-[50vh] sm:min-h-[96vh] flex items-center pt-8 pb-20 sm:pt-10 sm:pb-28"
-        bgImage="/bg/hero_mountain.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.65}
-        fadeInTop={false}
-        fadeInBottom={true}
-      >
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 relative z-10 w-full">
-          <div className="grid lg:grid-cols-12 gap-12 lg:gap-20 items-center">
+      <section id="hero" className="relative overflow-hidden pt-12 pb-24 sm:pt-20 sm:pb-36 bg-[#060B14]">
+        <ProximBrandGuideSky />
 
-            {/* Left Column */}
-            <motion.div className="lg:col-span-6 space-y-8 text-center lg:text-left"
-              initial="hidden" animate="visible" variants={{ ...stagger }}>
+        <div className="relative z-20 max-w-6xl mx-auto px-6 sm:px-8">
+          <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-center">
 
+            {/* Left Column Copy (High Conversion Clarity) */}
+            <motion.div className="lg:col-span-6 space-y-8 text-center lg:text-left" initial="hidden" animate="visible" variants={stagger}>
+              
               <motion.div variants={fadeUp} custom={0}>
-                <span className="tag tag-dark"><ShieldCheck className="w-3.5 h-3.5" />Multi-Currency Accounts</span>
+                <span className="badge-aurora">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#35D9D0]" /> Borderless Multi-Currency Account
+                </span>
               </motion.div>
 
-              <motion.h1 variants={fadeUp} custom={1}
-                className="text-[2.8rem] sm:text-[4.2rem] lg:text-[4.8rem] font-extrabold text-white leading-[1.04] tracking-[-0.035em]">
-                Money without{' '}
+              {/* H1 Headline */}
+              <motion.h1
+                variants={fadeUp} custom={1}
+                className="text-3xl sm:text-4xl lg:text-[3.25rem] font-bold text-white leading-[1.14] tracking-[-0.02em]"
+              >
+                Send, hold and spend{' '}
                 <span className="relative inline-block">
-                  <span style={{
-                    background: 'linear-gradient(135deg, #F43F5E 0%, #DC2626 50%, #F59E0B 100%)',
-                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                  }}>limits.</span>
-                </span>
+                  global money
+                  <span className="absolute -bottom-1.5 left-0 w-20 sm:w-28 h-1 rounded-full bg-[#35D9D0]" />
+                </span>{' '}
+                <span className="text-gradient-without-limits">without limits.</span>
               </motion.h1>
 
-              <motion.p variants={fadeUp} custom={2}
-                className="text-base sm:text-lg leading-relaxed max-w-md mx-auto lg:mx-0 text-white/70">
-                Move, hold, spend, and receive money across currencies from one simple account.
+              {/* Sub-headline */}
+              <motion.p
+                variants={fadeUp} custom={2}
+                className="text-base sm:text-lg text-[#F7F8F4]/85 leading-relaxed max-w-md mx-auto lg:mx-0 font-normal"
+              >
+                Proxim gives individuals and businesses local multi-currency accounts in NGN, USD, EUR &amp; Digital Dollars with instant bank payouts settling in under 30 seconds.
               </motion.p>
 
-              <motion.div variants={fadeUp} custom={3}
-                className="flex flex-col sm:flex-row gap-3 max-w-sm mx-auto lg:mx-0">
-                <button onClick={() => openModal('Get Started with PURLEN', 'Create your free PURLEN account during our upcoming rollout.')}
-                  className="btn-primary">
-                  Get started <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
-                </button>
-                <button onClick={() => openModal('Learn More', 'Explore everything PURLEN can do for you.')}
-                  className="btn-ghost-dark">
-                  How it works
-                </button>
+              {/* Action Buttons */}
+              <motion.div
+                variants={fadeUp} custom={3}
+                className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start max-w-sm mx-auto lg:mx-0 pt-2"
+              >
+                <a href={APP_URL} target="_blank" rel="noopener noreferrer" className="btn-primary">
+                  Open Account Free <ArrowRight className="w-4 h-4" />
+                </a>
+                <a href="#how-it-works" className="btn-secondary">
+                  See live demo
+                </a>
               </motion.div>
 
-              <motion.div variants={fadeUp} custom={4}
-                className="flex flex-wrap justify-center lg:justify-start gap-5 text-xs font-500 pt-6 border-t border-white/10 text-white/50">
-                {[
-                  [ShieldCheck, 'Bank-grade security'],
-                  [Globe, '18+ currencies'],
-                  [Lock, 'Regulated & compliant'],
-                ].map(([Icon, label], i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    {/* @ts-ignore */}
-                    <Icon className="w-3.5 h-3.5 text-[#DC2626]" />
-                    <span>{label as string}</span>
-                  </div>
-                ))}
+              {/* Immediate Trust & Security Strip */}
+              <motion.div
+                variants={fadeUp} custom={4}
+                className="pt-4 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3 text-left max-w-lg mx-auto lg:mx-0"
+              >
+                <div className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-[#16C7B7] shrink-0" />
+                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">Passkey Biometric Security</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-[#35D9D0] shrink-0" />
+                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">Instant &lt; 30s Bank Payouts</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-[#7567F8] shrink-0" />
+                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">18+ Global Currencies</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-[#FF5DA8] shrink-0" />
+                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">8.5% APY Auto-Yield Engine</span>
+                </div>
               </motion.div>
+
             </motion.div>
 
-            {/* Right Column — Floating PURLEN Ecosystem over Landscape */}
-            <motion.div className="lg:col-span-6 relative flex justify-center items-end min-h-[440px] sm:min-h-[540px]"
-              initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.9, ease: 'easeOut', delay: 0.15 }}>
+            {/* Right Column: INTERACTIVE 3-TAB SMARTPHONE MOCKUP */}
+            <motion.div
+              className="lg:col-span-6 relative flex flex-col justify-center items-center phone-3d-wrapper space-y-4"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+            >
 
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full pointer-events-none"
-                style={{ background: 'radial-gradient(ellipse, rgba(220,38,38,0.32) 0%, transparent 70%)' }} />
+              {/* Phone Interactive Feature Selector Tabs */}
+              <div className="z-30 flex bg-[#0A0E17]/90 p-1.5 rounded-2xl border border-white/15 shadow-xl gap-1">
+                {[
+                  { id: 'VAULTS', label: '1. Vaults', icon: Wallet },
+                  { id: 'SEND', label: '2. Instant Send', icon: Send },
+                  { id: 'YIELD', label: '3. Auto-Yield', icon: PiggyBank },
+                ].map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setPhoneArtifactTab(id as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-700 flex items-center gap-1.5 transition-all ${
+                      phoneArtifactTab === id
+                        ? 'bg-[#16C7B7] text-[#060B14] shadow-md'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
 
-              {/* Phone App Interface Artifact */}
-              <div className="float-a relative z-20 bottom-4 sm:bottom-8 left-2 sm:left-14"
-                style={{ filter: 'drop-shadow(0 40px 60px rgba(220,38,38,0.38)) drop-shadow(0 0 40px rgba(245,158,11,0.20))' }}>
-                <div className="w-[256px] sm:w-[284px] h-[516px] sm:h-[568px] rounded-[44px] p-[7px]"
-                  style={{
-                    background: 'linear-gradient(160deg, #2D0B12 0%, #08091A 55%, #04050E 100%)',
-                    boxShadow: '0 32px 80px rgba(4,5,14,0.85), 0 0 0 1px rgba(255,255,255,0.14)',
-                  }}>
-                  <div className="w-full h-full rounded-[38px] flex flex-col overflow-hidden bg-[#08091A] border border-white/10">
-                    {/* Notch */}
-                    <div className="w-24 h-[22px] bg-[#04050E] rounded-b-2xl mx-auto flex items-center justify-center">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#08091A] border border-white/10" />
+              {/* Smartphone Frame */}
+              <div
+                className="phone-3d-frame relative z-20 w-[310px] sm:w-[340px] h-[630px] sm:h-[675px] rounded-[48px] p-3.5 shadow-2xl"
+                style={{
+                  background: 'linear-gradient(145deg, #2A364F 0%, #151D2A 50%, #0A0E17 100%)',
+                  boxShadow: '0 30px 90px rgba(0, 0, 0, 0.90), inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 0 50px rgba(53, 217, 208, 0.30)',
+                }}
+              >
+                <div className="absolute -left-1.5 top-28 w-1 h-10 rounded-l-md bg-white/20" />
+                <div className="absolute -left-1.5 top-42 w-1 h-10 rounded-l-md bg-white/20" />
+                <div className="absolute -right-1.5 top-36 w-1 h-14 rounded-r-md bg-white/20" />
+
+                {/* Dynamic Screen Content Based on Active Tab */}
+                <div className="w-full h-full rounded-[40px] bg-[#0A0E17] border border-white/15 overflow-hidden flex flex-col justify-between p-3.5 relative">
+                  
+                  {/* Top Bar */}
+                  <div className="space-y-2 shrink-0">
+                    <div className="flex items-center justify-between text-[0.6rem] font-bold text-white/70 px-2">
+                      <span className="font-mono text-white">Proxim</span>
+                      <div className="w-20 h-4 bg-[#060B14] rounded-full mx-auto flex items-center justify-center gap-1.5 border border-white/10">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#35D9D0]" />
+                        <div className="w-1 h-1 rounded-full bg-white/30" />
+                      </div>
+                      <span className="font-mono">9:41</span>
                     </div>
 
-                    <div className="flex-1 flex flex-col px-4 pb-4 pt-1 gap-3">
-                      {/* Header */}
-                      <div className="flex items-center justify-between py-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <img src="/purlen-icon.png" alt="PURLEN" className="w-5 h-5 object-contain" />
-                          <span className="text-[0.7rem] font-extrabold text-white tracking-tight">PURLEN</span>
+                    <div className="flex items-center justify-between bg-white/5 p-2 rounded-2xl border border-white/10">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center text-xs font-bold text-[#35D9D0]">
+                          I
                         </div>
-                        <div className="flex gap-1.5">
-                          {[Search, Bell].map((Icon, i) => (
-                            <div key={i} className="w-6 h-6 rounded-full flex items-center justify-center bg-white/5 border border-white/10">
-                              <Icon className="w-2.5 h-2.5 text-white/40" />
+                        <div>
+                          <p className="text-[0.55rem] text-white/50 leading-tight">Good evening</p>
+                          <p className="text-xs font-extrabold text-white leading-tight">igbozeigboze</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setActiveEntityTab(activeEntityTab === 'PERSONAL' ? 'BUSINESS' : 'PERSONAL')}
+                        className="px-2.5 py-1 rounded-xl text-[0.6rem] font-700 bg-[#16C7B7]/20 text-[#35D9D0] border border-[#16C7B7]/40 flex items-center gap-1"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#35D9D0] animate-pulse" />
+                        {activeEntityTab === 'PERSONAL' ? 'Personal' : 'Business'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* TAB 1: MULTI-CURRENCY VAULTS */}
+                  {phoneArtifactTab === 'VAULTS' && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5 my-auto">
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#151D2A] to-[#0A0E17] border border-[#16C7B7]/35 space-y-2 shadow-lg">
+                        <div className="flex justify-between items-center text-[0.6rem]">
+                          <span className="text-white/60 font-600 uppercase tracking-wider">Available</span>
+                          <span className="px-2 py-0.5 rounded-lg bg-white/10 text-white font-bold text-[0.62rem] border border-white/10">
+                            NGN ⌄
+                          </span>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <p className="text-2xl font-extrabold text-white tracking-tight">
+                            {activeEntityTab === 'PERSONAL' ? '₦4,250,220.00' : '₦14,850,000.00'}
+                          </p>
+                          <div className="flex items-center justify-between text-[0.62rem]">
+                            <span className="text-white/70 font-500">Held as $2,742.00 USDC</span>
+                            <span className="text-[#35D9D0] font-700">+$1,250.00 today</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-6 gap-1 pt-1 text-center">
+                          {[
+                            { label: 'Send', icon: Send, bg: 'bg-[#16C7B7] text-[#060B14]' },
+                            { label: 'Receive', icon: ArrowDownLeft, bg: 'bg-white/10 text-white' },
+                            { label: 'Request', icon: Bell, bg: 'bg-white/10 text-white' },
+                            { label: 'Contacts', icon: Users, bg: 'bg-white/10 text-white' },
+                            { label: 'Save', icon: PiggyBank, bg: 'bg-white/10 text-white' },
+                            { label: 'Stocks', icon: LineChart, bg: 'bg-white/10 text-white' },
+                          ].map(({ label, icon: Icon, bg }) => (
+                            <div key={label} className="flex flex-col items-center gap-1">
+                              <div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center shadow-md`}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-[0.55rem] font-600 text-white/90 truncate">{label}</span>
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      {/* Balance Artifact */}
-                      <div className="rounded-[18px] p-4 relative overflow-hidden"
-                        style={{ background: 'linear-gradient(135deg, rgba(220,38,38,0.35) 0%, rgba(16,18,46,0.88) 100%)', border: '1px solid rgba(220,38,38,0.40)' }}>
-                        <p className="text-[0.58rem] font-600 uppercase tracking-widest mb-1 text-[#F43F5E]">Available Balance</p>
-                        <p className="text-[1.45rem] font-extrabold text-white tracking-tight leading-none">₦4,250,220</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowUpRight className="w-3 h-3 text-[#F59E0B]" />
-                          <span className="text-[0.58rem] font-600 text-[#F59E0B]">+12.5% this month</span>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { icon: Send, label: 'Send', color: '#DC2626', bg: 'rgba(220,38,38,0.22)', border: 'rgba(220,38,38,0.40)' },
-                          { icon: ArrowDownLeft, label: 'Receive', color: '#F59E0B', bg: 'rgba(245,158,11,0.18)', border: 'rgba(245,158,11,0.35)' },
-                          { icon: RefreshCw, label: 'Swap', color: '#F43F5E', bg: 'rgba(244,63,94,0.18)', border: 'rgba(244,63,94,0.35)' },
-                        ].map(({ icon: Icon, label, color, bg, border }) => (
-                          <button key={label} onClick={() => openModal(`${label} Money`, `${label} feature coming in early access.`)}
-                            className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-[14px] active:scale-95 transition-transform"
-                            style={{ background: bg, border: `1px solid ${border}` }}>
-                            <Icon className="w-3.5 h-3.5" style={{ color }} />
-                            <span className="text-[0.52rem] font-700 text-white">{label}</span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Recent Activity */}
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-[0.52rem] font-700 text-white/30">
-                          <span>Recent activity</span>
-                          <span className="text-[#DC2626] cursor-pointer">See all</span>
-                        </div>
-                        {[
-                          { init: 'CO', name: 'Chinedu O.', sub: 'Payment received', amt: '+₦50,000', c: '#DC2626', ac: '#F59E0B' },
-                          { init: 'IN', name: 'Freelance Invoice', sub: 'USD payment received', amt: '+$500', c: '#F43F5E', ac: '#DC2626' },
-                        ].map((tx, i) => (
-                          <div key={i} className="flex items-center justify-between p-2 rounded-[12px] bg-white/5 border border-white/5">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-[10px] flex items-center justify-center text-[0.58rem] font-bold text-white"
-                                style={{ background: `${tx.c}20`, border: `1px solid ${tx.c}30` }}>{tx.init}</div>
-                              <div>
-                                <p className="text-[0.6rem] font-700 text-white">{tx.name}</p>
-                                <p className="text-[0.52rem] text-white/40">{tx.sub}</p>
-                              </div>
+                      <div className="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1 text-[0.65rem]">
+                        <p className="text-white/60 font-600">Active Multi-Currency Accounts:</p>
+                        <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                          <div className="p-1.5 rounded-xl bg-white/5 flex items-center justify-between">
+                            <div className="flex items-center gap-1">
+                              <img src="/flags/ng.png" alt="NGN" className="w-3.5 h-3.5 rounded-full" />
+                              <span className="font-700 text-white">₦4,250,220</span>
                             </div>
-                            <span className="text-[0.6rem] font-extrabold" style={{ color: tx.ac }}>{tx.amt}</span>
+                            <span className="text-[0.55rem] text-white/50">NGN</span>
                           </div>
-                        ))}
-                      </div>
-
-                      {/* Bottom Nav */}
-                      <div className="flex items-center justify-between px-2 pt-2 mt-auto border-t border-white/10">
-                        {[{I: Home, l: 'Home', a: true},{I: CreditCard, l: 'Cards', a: false},{I: PieChart, l: 'Save', a: false},{I: Grid, l: 'More', a: false}].map(({I, l, a}) => (
-                          <div key={l} className="flex flex-col items-center gap-0.5 cursor-pointer"
-                            onClick={() => !a && openModal(`PURLEN ${l}`, `${l} coming in early access.`)}>
-                            <I className="w-3.5 h-3.5" style={{ color: a ? '#DC2626' : 'rgba(255,255,255,0.3)' }} />
-                            <span className="text-[0.48rem] font-600" style={{ color: a ? '#DC2626' : 'rgba(255,255,255,0.3)' }}>{l}</span>
+                          <div className="p-1.5 rounded-xl bg-[#16C7B7]/10 border border-[#16C7B7]/30 flex items-center justify-between">
+                            <div className="flex items-center gap-1">
+                              <img src="/flags/usdc.png" alt="USDC" className="w-3.5 h-3.5 rounded-full" />
+                              <span className="font-700 text-[#35D9D0]">$5,000.00</span>
+                            </div>
+                            <span className="text-[0.55rem] text-[#16C7B7] font-700">USDC</span>
                           </div>
-                        ))}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                    </motion.div>
+                  )}
 
-              {/* Floating Virtual Card Artifact — Metallic Dark Obsidian & Crimson Gradient */}
-              <motion.div className="float-b absolute bottom-4 sm:bottom-8 left-2 sm:left-14 z-30 cursor-pointer"
-                onClick={() => openModal('PURLEN Virtual Card', 'Multi-currency virtual Visa cards — coming soon.')}
-                whileHover={{ y: -6, scale: 1.02, transition: { duration: 0.2 } }}>
-                <div className="artifact-card w-[180px] sm:w-44 h-28 sm:h-32 rounded-[18px] p-4 flex flex-col justify-between overflow-hidden relative"
-                  style={{
-                    background: 'linear-gradient(135deg, #1A0408 0%, #2D0B12 45%, #DC2626 90%, #F59E0B 100%)',
-                    border: '1px solid rgba(255,255,255,0.22)',
-                    boxShadow: '0 24px 60px rgba(0,0,0,0.65), 0 0 35px rgba(220,38,38,0.30), inset 0 1px 0 rgba(255,255,255,0.25)',
-                  }}>
-                  <div className="flex items-center justify-between relative z-10">
-                    <div className="flex items-center gap-1.5">
-                      <img src="/purlen-icon.png" alt="PURLEN" className="w-4 h-4 object-contain" />
-                      <span className="text-[0.6rem] font-extrabold text-white tracking-[0.14em]">PURLEN</span>
-                    </div>
-                    <Wifi className="w-3 h-3 text-white/80 rotate-90" />
-                  </div>
-                  <div className="w-8 h-5 rounded relative bg-white/20 border border-white/20 shadow-inner z-10" />
-                  <div className="relative z-10">
-                    <p className="text-[0.56rem] font-mono tracking-[0.12em] text-white/90">•••• •••• •••• 1121</p>
-                    <div className="flex justify-between items-center mt-0.5">
-                      <span className="text-[0.52rem] text-white/70 font-500">ADEBAYO O.</span>
-                      <span className="text-[0.58rem] font-extrabold text-white">VISA</span>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
+                  {/* TAB 2: INSTANT GLOBAL SEND FLOW */}
+                  {phoneArtifactTab === 'SEND' && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5 my-auto">
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="flex justify-between items-center text-[0.6rem]">
+                          <span className="text-white/60 font-600 uppercase">Transfer to Local Bank</span>
+                          <span className="text-[#16C7B7] font-700">&lt; 30s Guaranteed</span>
+                        </div>
 
-              {/* Floating Balance Chip Artifact — Dark Glassmorphism */}
-              <motion.div className="float-c absolute top-8 right-2 sm:right-10 z-30"
-                whileHover={{ scale: 1.05, transition: { duration: 0.15 } }}>
-                <div className="w-[200px] sm:w-38 rounded-[18px] px-3.5 py-3 bg-[#08091A]/85 backdrop-blur-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
-                  <p className="text-[0.56rem] font-600 uppercase tracking-widest text-[#F43F5E]">USD Balance</p>
-                  <p className="text-[1.1rem] font-extrabold text-white mt-0.5">$5,200.00</p>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
-                    <p className="text-[0.52rem] text-white/60">Auto FX active</p>
-                  </div>
-                </div>
-              </motion.div>
+                        <div className="p-2 rounded-xl bg-white/5 border border-white/10 flex justify-between items-center text-xs">
+                          <div>
+                            <p className="text-[0.58rem] text-white/50">You Send</p>
+                            <p className="font-extrabold text-white">$500.00 USD</p>
+                          </div>
+                          <span className="text-[#35D9D0] font-mono text-[0.65rem]">Rate: 1550</span>
+                        </div>
 
-            </motion.div>
-          </div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          2. SPEED & INSTANT OFF-RAMP HIGHLIGHT — Running Cheetah under Crimson Southern Lights
-          PICTORIAL LANGUAGE: Speed, instant 30-sec settlement.
-          Seamlessly blended top & bottom into adjacent sections!
-          ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="speed"
-        className="py-20 sm:py-28"
-        bgImage="/bg/cheetah_speed.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.68}
-        fadeInTop={true}
-        fadeInBottom={true}
-      >
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 relative z-10">
-          <div className="grid md:grid-cols-12 gap-8 items-center">
-            <div className="md:col-span-7 space-y-4">
-              <span className="tag tag-dark"><Zap className="w-3.5 h-3.5 text-[#F59E0B]" />Instant Settlement</span>
-              <h2 className="text-[2rem] sm:text-[3rem] font-extrabold text-white leading-tight tracking-tight">
-                Built for speed.<br />
-                <span className="text-[#F43F5E]">30-second bank payouts.</span>
-              </h2>
-              <p className="text-base text-white/70 leading-relaxed max-w-lg">
-                Like a cheetah in full stride, PURLEN settles your local bank withdrawals instantly. Receive international transfers and move funds into your GTBank, Zenith, or Kuda account in under 30 seconds.
-              </p>
-            </div>
-            <div className="md:col-span-5 flex justify-center">
-              {/* Receipt Artifact — Glassmorphic Dark Container matching Background */}
-              <div className="receipt p-5 space-y-3.5 w-full max-w-xs bg-[#08091A]/90 backdrop-blur-2xl border border-[#DC2626]/40 shadow-[0_24px_60px_rgba(0,0,0,0.7)] text-white">
-                <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: 'linear-gradient(135deg, #DC2626, #F59E0B)' }}>
-                    <Check className="w-5 h-5 text-white" strokeWidth={3} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-700 text-white">Bank Off-Ramp Complete</p>
-                    <p className="text-[0.62rem] text-white/50">Settled in 24 seconds</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-white/60">GTBank · 0123 ****89</span>
-                  <span className="text-lg font-extrabold text-white">₦250,000</span>
-                </div>
-                <div className="flex items-center gap-1.5 pt-1">
-                  <Zap className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-                  <span className="text-xs font-700 text-[#F43F5E]">Instant Automated Settlement</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          3. FEATURES — African Rainforest & Canopy under Crimson Southern Lights
-          PICTORIAL LANGUAGE: Rich ecosystem, multi-currency features & automated FX.
-          Seamlessly blended top & bottom!
-          ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="experience"
-        className="py-20 sm:py-28"
-        bgImage="/bg/rainforest_canopy.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.58}
-        fadeInTop={true}
-        fadeInBottom={true}
-      >
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 relative z-10">
-
-          <motion.div className="text-center max-w-2xl mx-auto space-y-4 mb-16 sm:mb-20"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}
-            variants={{ ...stagger }}>
-            <motion.div variants={fadeUp}><span className="tag tag-dark"><Sparkles className="w-3.5 h-3.5 text-[#DC2626]" />Ecosystem</span></motion.div>
-            <motion.h2 variants={fadeUp}
-              className="text-[1.9rem] sm:text-[3rem] font-extrabold text-white tracking-tight leading-tight">
-              Everything your money needs,<br className="hidden sm:block" /> in one account.
-            </motion.h2>
-            <motion.p variants={fadeUp} className="text-white/70 text-base sm:text-lg leading-relaxed">
-              Hold, send, receive, and spend across currencies. PURLEN handles the complexity so you don't have to.
-            </motion.p>
-          </motion.div>
-
-          {/* Bento Grid — Dark Glass Containers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
-
-            {/* Multi-Currency Virtual Cards */}
-            <motion.div className="p-6 sm:p-8 rounded-[28px] lg:col-span-2 flex flex-col justify-between space-y-6 bg-[#08091A]/85 backdrop-blur-xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-              initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={fadeUp}>
-              <div className="space-y-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#DC2626]/15 border border-[#DC2626]/30">
-                  <CreditCard className="w-5 h-5 text-[#F43F5E]" strokeWidth={2} />
-                </div>
-                <h3 className="text-[1.05rem] font-bold text-white">Multi-Currency Virtual Cards</h3>
-                <p className="text-sm text-white/70 leading-relaxed max-w-sm">
-                  Spend in any currency worldwide. Your virtual Visa auto-converts at point of sale — no manual exchanges, no hidden charges.
-                </p>
-              </div>
-
-              {/* Card visual artifact */}
-              <div className="relative h-40 sm:h-48 rounded-2xl overflow-hidden"
-                style={{ background: 'linear-gradient(135deg, #2D0B12 0%, #08091A 65%, #04050E 100%)' }}>
-                <div className="absolute inset-0"
-                  style={{ background: 'radial-gradient(ellipse at 25% 40%, rgba(220,38,38,0.30) 0%, transparent 60%)' }} />
-
-                <div className="absolute bottom-0 right-0 w-72 h-44 transform translate-x-6 translate-y-3">
-                  <div className="absolute right-0 bottom-0 rounded-[18px] p-3.5 flex flex-col justify-between"
-                    style={{ background: 'linear-gradient(135deg, #DC2626 0%, #E11D48 52%, #F59E0B 100%)', width: 224, height: 130,
-                    boxShadow: '0 16px 40px rgba(220,38,38,0.45)' }}>
-                    <div className="relative flex justify-between items-center">
-                      <div className="flex items-center gap-1.5">
-                        <img src="/purlen-icon.png" alt="PURLEN" className="w-3.5 h-3.5 object-contain" />
-                        <span className="text-[0.58rem] font-extrabold text-white tracking-[0.14em]">PURLEN</span>
+                        <div className="p-2 rounded-xl bg-[#16C7B7]/15 border border-[#16C7B7]/40 flex justify-between items-center text-xs">
+                          <div>
+                            <p className="text-[0.58rem] text-[#35D9D0] font-600">Recipient Receives (GTBank)</p>
+                            <p className="font-extrabold text-[#35D9D0]">₦775,000.00 NGN</p>
+                          </div>
+                          <CheckCircle className="w-4 h-4 text-[#16C7B7]" />
+                        </div>
                       </div>
-                      <Wifi className="w-3 h-3 text-white/70 rotate-90" />
-                    </div>
-                    <div className="relative">
-                      <p className="text-[0.55rem] font-mono tracking-[0.10em] text-white/80">•••• •••• •••• 1121</p>
-                      <div className="flex justify-between mt-0.5">
-                        <span className="text-[0.50rem] text-white/60">ADEBAYO O.</span>
-                        <span className="text-[0.55rem] font-extrabold text-white">VISA</span>
+
+                      <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-center space-y-1">
+                        <p className="text-[0.6rem] text-white/60">Payout Delivery Counter</p>
+                        <p className="text-lg font-extrabold text-[#16C7B7] font-mono">00:14.2s — SETTLED</p>
                       </div>
+                    </motion.div>
+                  )}
+
+                  {/* TAB 3: AUTO-YIELD ENGINE */}
+                  {phoneArtifactTab === 'YIELD' && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5 my-auto">
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#16C7B7]/20 to-[#7567F8]/20 border border-[#16C7B7]/40 space-y-2">
+                        <div className="flex items-center justify-between text-[0.6rem]">
+                          <span className="font-extrabold text-white uppercase">Automated Idle Cash Sweep</span>
+                          <span className="px-2 py-0.5 rounded-full text-[0.58rem] font-800 bg-[#16C7B7]/30 text-[#35D9D0]">
+                            8.5% APY
+                          </span>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <p className="text-2xl font-extrabold text-white">$2,450.00</p>
+                          <p className="text-[0.62rem] text-[#35D9D0]">+$14.20 interest earned this month</p>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-white/10 flex justify-between items-center text-[0.6rem]">
+                          <span className="text-white/80">Sweep Threshold</span>
+                          <span className="font-bold text-white">Above $500</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Bottom Navigation */}
+                  <div className="grid grid-cols-4 gap-1 p-2 rounded-2xl bg-white/5 border border-white/10 text-center shrink-0">
+                    <div className="flex flex-col items-center gap-0.5 text-[#35D9D0]">
+                      <Home className="w-3.5 h-3.5" />
+                      <span className="text-[0.55rem] font-700">Home</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5 text-white/60">
+                      <Activity className="w-3.5 h-3.5" />
+                      <span className="text-[0.55rem] font-600">Activity</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5 text-white/60">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span className="text-[0.55rem] font-600">Cards</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5 text-white/60">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span className="text-[0.55rem] font-600">Profile</span>
                     </div>
                   </div>
-                </div>
 
-                <div className="absolute left-5 top-5">
-                  <p className="text-[0.58rem] font-700 uppercase tracking-widest text-[#F43F5E]">Subscription charge</p>
-                  <p className="text-[1.4rem] font-extrabold text-white mt-0.5">-$14.99</p>
-                  <p className="text-[0.55rem] mt-0.5 text-white/50">1 USD = ₦1,520 · No fee</p>
                 </div>
               </div>
-            </motion.div>
 
-            {/* Save & Earn */}
-            <motion.div className="p-6 sm:p-7 rounded-[28px] flex flex-col justify-between space-y-5 bg-[#08091A]/85 backdrop-blur-xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-              initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={fadeUp} custom={1}>
-              <div className="space-y-2.5">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#F59E0B]/15 border border-[#F59E0B]/30">
-                  <TrendingUp className="w-5 h-5 text-[#F59E0B]" strokeWidth={2} />
-                </div>
-                <h3 className="text-[1.05rem] font-bold text-white">Save &amp; Earn Yield</h3>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  Earn competitive daily yield on your balances. No lock-up periods. Withdraw any time.
-                </p>
-              </div>
-              <div className="rounded-2xl p-4 space-y-3 bg-white/5 border border-[#F59E0B]/30">
-                <div className="flex justify-between items-center">
-                  <span className="text-[0.68rem] font-700 text-[#F59E0B]">Daily Yield Payout</span>
-                  <span className="text-[0.68rem] font-extrabold px-2.5 py-1 rounded-full text-white"
-                    style={{ background: 'linear-gradient(135deg, #F59E0B, #DC2626)' }}>8.5% APY</span>
+              {/* Floating Settlement Pill */}
+              <div className="absolute -bottom-6 -right-2 sm:-right-6 z-30 card-glass p-4 rounded-2xl border-[#35D9D0]/40 shadow-2xl flex items-center gap-3 bg-[#0A0E17]/95">
+                <div className="w-9 h-9 rounded-full bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center">
+                  <CheckCircle2 className="w-5 h-5 text-[#16C7B7]" />
                 </div>
                 <div>
-                  <p className="text-[0.6rem] text-white/40">Today's earnings</p>
-                  <p className="text-[1.2rem] font-extrabold text-white">+$1.16 <span className="text-sm font-500 text-white/50">/ day</span></p>
-                </div>
-                <div className="h-1 rounded-full overflow-hidden bg-white/10">
-                  <div className="h-full rounded-full w-3/4" style={{ background: 'linear-gradient(to right, #F59E0B, #DC2626)' }} />
+                  <p className="text-xs font-700 text-white">Payment Settled</p>
+                  <p className="text-[0.7rem] text-[#35D9D0]">Instant &lt; 30s bank payout</p>
                 </div>
               </div>
-            </motion.div>
 
-            {/* Instant Bank Off-Ramp */}
-            <motion.div className="p-6 sm:p-7 rounded-[28px] flex flex-col justify-between space-y-5 bg-[#08091A]/85 backdrop-blur-xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-              initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={fadeUp} custom={2}>
-              <div className="space-y-2.5">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#DC2626]/15 border border-[#DC2626]/30">
-                  <ArrowDownLeft className="w-5 h-5 text-[#F43F5E]" strokeWidth={2} />
-                </div>
-                <h3 className="text-[1.05rem] font-bold text-white">Instant Bank Off-Ramp</h3>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  Receive international payments and withdraw to any local bank account in 30 seconds.
-                </p>
-              </div>
-              <div className="receipt p-4 space-y-2.5 bg-white/5 border border-white/10 rounded-2xl text-white">
-                <div className="flex items-center gap-2.5 pb-3 border-b border-white/10">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: 'linear-gradient(135deg, rgba(220,38,38,0.25), rgba(245,158,11,0.25))' }}>
-                    <Check className="w-4 h-4 text-[#F43F5E]" strokeWidth={3} />
-                  </div>
-                  <div>
-                    <p className="text-[0.72rem] font-700 text-white">Bank Transfer Complete</p>
-                    <p className="text-[0.58rem] text-white/40">Settled in 27 seconds</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[0.62rem] text-white/60">GTBank · 0123 ****89</span>
-                  <span className="text-[1rem] font-extrabold text-white">₦250,000</span>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* Business & Payroll */}
-            <motion.div className="p-6 sm:p-8 rounded-[28px] lg:col-span-2 flex flex-col justify-between space-y-5 bg-[#08091A]/85 backdrop-blur-xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-              initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={fadeUp} custom={3}>
-              <div className="flex flex-col sm:flex-row gap-4 sm:items-start sm:justify-between">
-                <div className="space-y-2.5">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#DC2626]/15 border border-[#DC2626]/30">
-                    <Building2 className="w-5 h-5 text-[#F43F5E]" strokeWidth={2} />
-                  </div>
-                  <h3 className="text-[1.05rem] font-bold text-white">Business &amp; Payroll</h3>
-                  <p className="text-sm text-white/70 leading-relaxed max-w-sm">
-                    Automate cross-border payroll, manage invoices, and operate a global corporate treasury — all from one account.
-                  </p>
-                </div>
-                <span className="shrink-0 self-start text-[0.65rem] font-700 px-3 py-1.5 rounded-full bg-[#DC2626]/15 text-[#F43F5E] border border-[#DC2626]/30">
-                  Batch complete
-                </span>
-              </div>
-              <div className="space-y-2">
-                {[
-                  { name: 'Engineering Team Payroll', sub: 'USD — batch disbursement', amt: '$14,500.00', c: '#F43F5E' },
-                  { name: 'Contractor Invoice #INV-2026', sub: 'NGN — direct bank payout', amt: '₦2,800,000.00', c: '#F59E0B' },
-                  { name: 'Design Team · 4 members', sub: 'GBP — cross-border payroll', amt: '£6,200.00', c: '#E11D48' },
-                ].map((row, i) => (
-                  <div key={i} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/5 border border-white/10">
-                    <div>
-                      <p className="text-[0.8rem] font-700 text-white">{row.name}</p>
-                      <p className="text-[0.62rem] text-white/40">{row.sub}</p>
-                    </div>
-                    <span className="text-[0.84rem] font-extrabold" style={{ color: row.c }}>{row.amt}</span>
-                  </div>
-                ))}
-              </div>
             </motion.div>
 
           </div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          4. CURRENCIES — African Ocean Horizon under Photographic Crimson Southern Lights
-          PICTORIAL LANGUAGE: Cross-border flow & global trade routes.
-          Seamlessly blended top & bottom!
-          ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="currencies"
-        className="py-20 sm:py-28"
-        bgImage="/bg/hero_mountain.png"
-        bgOpacity={0.15}
-        auroraIntensity={0.62}
-        fadeInTop={true}
-        fadeInBottom={true}
-      >
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 space-y-14 sm:space-y-20 pb-10">
-
-          <motion.div className="text-center max-w-xl mx-auto space-y-4"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}
-            variants={{ ...stagger }}>
-            <motion.div variants={fadeUp}><span className="tag tag-dark"><Globe className="w-3.5 h-3.5 text-[#DC2626]" />Global reach</span></motion.div>
-            <motion.h2 variants={fadeUp}
-              className="text-[1.9rem] sm:text-[2.9rem] font-extrabold text-white tracking-tight leading-tight">
-              Money that moves with you.
-            </motion.h2>
-            <motion.p variants={fadeUp} className="text-base leading-relaxed text-white/60">
-              Hold, send and receive across 18+ currencies without juggling separate accounts.
-            </motion.p>
-          </motion.div>
-
-          {/* Desktop Orbit */}
-          <div className="hidden sm:flex relative w-full max-w-[300px] sm:max-w-[420px] md:max-w-[560px] h-auto sm:h-[420px] md:h-[560px] mx-auto items-center justify-center scale-75 sm:scale-100">
-
-            <div className="absolute w-[240px] h-[240px] rounded-full border border-[#DC2626]/35 shadow-[0_0_32px_rgba(220,38,38,0.15)_inset]" />
-            <div className="absolute w-[420px] h-[420px] rounded-full border border-[#F59E0B]/25 shadow-[0_0_40px_rgba(245,158,11,0.10)_inset]" />
-            <div className="absolute w-[640px] h-[640px] rounded-full border border-dashed border-white/15" />
-
-            <div className="absolute w-[200px] h-[200px] rounded-full"
-              style={{ background: 'radial-gradient(ellipse, rgba(220,38,38,0.38) 0%, transparent 70%)' }} />
-
-            <motion.div initial={{ scale: 0.82, opacity: 0 }} whileInView={{ scale: 1, opacity: 1 }}
-              viewport={{ once: true }} transition={{ duration: 0.5 }}
-              className="relative z-20 w-20 h-20 rounded-[20px] flex items-center justify-center cursor-pointer hover:scale-105 transition-transform bg-gradient-to-br from-[#2D0B12] to-[#08091A] border border-[#DC2626]/45 shadow-[0_0_48px_rgba(220,38,38,0.40)]"
-              onClick={() => openModal('PURLEN Currency Engine', 'Multi-currency settlement engine.')}>
-              <img src="/purlen-icon.png" alt="PURLEN" className="w-12 h-12 object-contain" />
-            </motion.div>
-
-            {/* Inner */}
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
-              className="absolute w-[240px] h-[240px] rounded-full pointer-events-none z-10">
-              {innerOrbit.map((a, i) => {
-                const r = 120, rad = (a.angle * Math.PI) / 180;
-                return (
-                  <div key={i} style={{ position: 'absolute', left: `calc(50% + ${r * Math.cos(rad)}px - 22px)`, top: `calc(50% + ${r * Math.sin(rad)}px - 22px)` }} className="pointer-events-auto">
-                    <motion.div animate={{ rotate: -360 }} transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
-                      className="w-11 h-11 rounded-[12px] flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:scale-110 transition-all group bg-[#08091A]/90 border border-[#DC2626]/40 backdrop-blur-md"
-                      onClick={() => openModal(`${a.name} Support`, `${a.name} digital dollars supported on PURLEN.`)}>
-                      <img src={a.flag} alt={a.name} className="w-5 h-5 rounded-full object-cover" />
-                      <span className="text-[0.48rem] font-extrabold group-hover:text-white text-[#F43F5E]">{a.name}</span>
-                    </motion.div>
-                  </div>
-                );
-              })}
-            </motion.div>
-
-            {/* Middle */}
-            <motion.div animate={{ rotate: -360 }} transition={{ duration: 38, repeat: Infinity, ease: 'linear' }}
-              className="absolute w-[420px] h-[420px] rounded-full pointer-events-none z-10">
-              {middleOrbit.map((a, i) => {
-                const r = 210, rad = (a.angle * Math.PI) / 180;
-                return (
-                  <div key={i} style={{ position: 'absolute', left: `calc(50% + ${r * Math.cos(rad)}px - 22px)`, top: `calc(50% + ${r * Math.sin(rad)}px - 22px)` }} className="pointer-events-auto">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 38, repeat: Infinity, ease: 'linear' }}
-                      className="w-11 h-11 rounded-[12px] flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:scale-110 transition-all group bg-[#04050E]/90 border border-[#F59E0B]/30 backdrop-blur-md"
-                      onClick={() => openModal(`${a.name} Support`, `${a.name} powered by Particle Network.`)}>
-                      <img src={a.flag} alt={a.name} className="w-5 h-5 rounded-full object-cover" />
-                      <span className="text-[0.48rem] font-extrabold group-hover:text-white text-white/60">{a.name}</span>
-                    </motion.div>
-                  </div>
-                );
-              })}
-            </motion.div>
-
-            {/* Outer */}
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 65, repeat: Infinity, ease: 'linear' }}
-              className="absolute w-[640px] h-[640px] rounded-full pointer-events-none z-10">
-              {outerOrbit.map((a, i) => {
-                const r = 320, rad = (a.angle * Math.PI) / 180;
-                return (
-                  <div key={i} style={{ position: 'absolute', left: `calc(50% + ${r * Math.cos(rad)}px - 20px)`, top: `calc(50% + ${r * Math.sin(rad)}px - 20px)` }} className="pointer-events-auto">
-                    <motion.div animate={{ rotate: -360 }} transition={{ duration: 65, repeat: Infinity, ease: 'linear' }}
-                      className="w-10 h-10 rounded-[10px] flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:scale-110 transition-all group bg-[#04050E]/85 border border-white/10 backdrop-blur-md"
-                      onClick={() => openModal(`${a.name} Account`, `${a.name} (${a.label}) powered by Nuvion.`)}>
-                      <img src={a.flag} alt={a.name} className="w-5 h-5 rounded-full object-cover" />
-                      <span className="text-[0.46rem] font-extrabold group-hover:text-white text-white/45">{a.name}</span>
-                    </motion.div>
-                  </div>
-                );
-              })}
-            </motion.div>
-          </div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          5. BUSINESS — African Cityscape at Night & Photographic Crimson Southern Lights Arc
-          PICTORIAL LANGUAGE: Enterprise scale, corporate treasury & payroll.
-          Seamlessly blended top & bottom!
-          ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="business"
-        className="py-20 sm:py-28"
-        bgImage="/bg/african_city.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.68}
-        fadeInTop={true}
-        fadeInBottom={true}
-      >
-        <div className="max-w-6xl mx-auto px-5 sm:px-8">
-          <div className="grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
-
-            {/* Treasury Dashboard Artifact */}
-            <motion.div
-              initial={{ opacity: 0, x: -24 }} whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, amount: 0.2 }} transition={{ duration: 0.65, ease: 'easeOut' }}
-              className="rounded-[28px] overflow-hidden bg-[#04050E]/85 backdrop-blur-2xl border border-white/15 shadow-[0_24px_60px_rgba(0,0,0,0.6)]">
-              <div className="px-5 sm:px-6 py-4 flex items-center justify-between border-b border-white/10">
-                <div>
-                  <p className="text-[0.8rem] font-700 text-white">Corporate Treasury</p>
-                  <p className="text-[0.62rem] text-white/50 mt-0.5">Batch disbursement · 12 recipients</p>
-                </div>
-                <span className="text-[0.62rem] font-700 px-2.5 py-1 rounded-full bg-[#DC2626]/20 text-[#F43F5E] border border-[#DC2626]/30">Processed</span>
-              </div>
-              <div className="px-5 sm:px-6 py-4 space-y-2.5">
-                {[
-                  { n: 'Engineering Team Payroll', s: 'USD — batch disbursement', a: '$14,500.00', c: '#F43F5E' },
-                  { n: 'Contractor Invoice #INV-2026', s: 'NGN — direct bank payout', a: '₦2,800,000.00', c: '#F59E0B' },
-                  { n: 'Marketing · Q3 Budget', s: 'GBP — international transfer', a: '£4,200.00', c: '#DC2626' },
-                ].map((r, i) => (
-                  <div key={i} className="flex items-center justify-between p-3.5 rounded-xl bg-white/5 border border-white/10">
-                    <div>
-                      <p className="text-[0.78rem] font-700 text-white">{r.n}</p>
-                      <p className="text-[0.60rem] text-white/40">{r.s}</p>
-                    </div>
-                    <span className="text-[0.82rem] font-extrabold" style={{ color: r.c }}>{r.a}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between pt-2 border-t border-white/10">
-                  <p className="text-[0.65rem] text-white/40">Total disbursed this month</p>
-                  <p className="text-[0.9rem] font-extrabold text-white">$32,400.00</p>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* Copy */}
-            <motion.div className="space-y-6 text-center lg:text-left"
-              initial={{ opacity: 0, x: 24 }} whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, amount: 0.2 }} transition={{ duration: 0.65, ease: 'easeOut', delay: 0.12 }}>
-              <span className="tag tag-dark"><Briefcase className="w-3.5 h-3.5 text-[#DC2626]" />For businesses</span>
-              <h2 className="text-[1.9rem] sm:text-[2.9rem] font-extrabold text-white tracking-tight leading-tight">
-                Built for businesses<br className="hidden sm:block" /> that move.
-              </h2>
-              <p className="text-base leading-relaxed max-w-[420px] mx-auto lg:mx-0 text-white/70">
-                From invoices to payroll, PURLEN gives growing businesses one place to manage money across borders. Pay teams in their local currency, receive client payments, and manage corporate treasury — all from one account.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-                <button onClick={() => openModal('PURLEN Business', 'Corporate payroll and multi-currency business accounts.')}
-                  className="btn-primary">
-                  Explore Business <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
-                </button>
-                <button onClick={() => openModal('Talk to Us', 'Business partnerships and inquiries.')} className="btn-ghost-dark">
-                  Talk to us
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          6. PARTNERS — Institutional Trust & Compliance
-          Seamlessly blended top & bottom!
-          ────────────────────────────────────────── */}
-      <section id="partners" className="py-16 sm:py-20 bg-[#04050E] relative overflow-hidden">
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 relative z-10">
-          <motion.p className="text-center text-[0.7rem] font-700 uppercase tracking-widest mb-10 text-white/50"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }} variants={fadeUp}>
-            Built on trusted infrastructure
-          </motion.p>
-          <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 items-center max-w-3xl mx-auto"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.2 }}
-            variants={{ visible: { transition: { staggerChildren: 0.06 } } }}>
-            {[
-              { src: '/partner-particle-clean.png', alt: 'Particle Network', h: 'max-h-6' },
-              { src: '/partner-arbitrum-transparent.png', alt: 'Arbitrum', h: 'max-h-7' },
-              { src: '/partner-nuvion-transparent.png', alt: 'Nuvion', h: 'max-h-6' },
-              { src: '/partner-pods-transparent.png', alt: 'Pods Finance', h: 'max-h-5' },
-            ].map((p, i) => (
-              <motion.div key={i} variants={fadeUp}
-                className="flex items-center justify-center h-16 sm:h-20 rounded-2xl border border-white/10 bg-white/5 hover:border-white/25 transition-all group">
-                <img src={p.src} alt={p.alt}
-                  className={`${p.h} w-auto object-contain opacity-60 group-hover:opacity-90 transition-opacity invert brightness-200`} />
-              </motion.div>
-            ))}
-          </motion.div>
         </div>
       </section>
 
       {/* ──────────────────────────────────────────
-          7. FAQ — Ancient Baobab Tree under Starry Crimson Southern Lights Arc
-          PICTORIAL LANGUAGE: Deep clarity, peace of mind & clear answers.
-          Seamlessly blended top & bottom!
+          02 — REAL CURRENCY & PAYOUT ROUTES (SOFT IVORY SECTION)
           ────────────────────────────────────────── */}
-      <RealEnvSection
-        id="faq"
-        className="py-20 sm:py-28"
-        bgImage="/bg/baobab_starry.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.58}
-        fadeInTop={true}
-        fadeInBottom={true}
-      >
-        <div className="max-w-3xl mx-auto px-5 sm:px-8 relative z-10 space-y-12 sm:space-y-16">
-          <motion.div className="text-center space-y-4"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}
-            variants={{ ...stagger }}>
-            <motion.div variants={fadeUp}><span className="tag tag-dark"><HelpCircle className="w-3.5 h-3.5 text-[#DC2626]" />Questions</span></motion.div>
-            <motion.h2 variants={fadeUp}
-              className="text-[1.9rem] sm:text-[2.9rem] font-extrabold text-white tracking-tight">
-              Frequently asked.
-            </motion.h2>
-            <motion.p variants={fadeUp} className="text-white/70 text-base leading-relaxed">
-              Everything you need to know about PURLEN accounts, bank off-ramps, and global payments.
-            </motion.p>
-          </motion.div>
+      <section id="currencies" className="relative overflow-hidden py-24 bg-[#F7F8F4] text-[#0F1414]">
+        <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8 space-y-12">
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-700 uppercase tracking-wider bg-[#0F1414]/10 text-[#0F1414] border border-[#0F1414]/15">
+              Global Coverage &amp; Payout Routes
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-[#0F1414] tracking-tight">
+              Supported Fiat &amp; Digital Currencies
+            </h2>
+            <p className="text-sm sm:text-base text-[#0F1414]/70">
+              Direct settlement into local bank accounts across Africa, Europe, the US, and global digital reserves.
+            </p>
+          </div>
 
-          <motion.div className="space-y-2"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }}
-            variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {currenciesList.map((c) => (
+              <div
+                key={c.code}
+                className="p-5 rounded-2xl bg-white border border-[#0F1414]/10 shadow-md flex items-center justify-between hover:border-[#16C7B7] transition-all hover:shadow-lg"
+              >
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={c.flag}
+                    alt={c.name}
+                    className="w-10 h-10 rounded-full object-cover shrink-0 shadow-sm"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-extrabold text-[#0F1414] leading-tight">{c.code}</p>
+                      <span className="text-xs text-[#0F1414]/50 font-mono">({c.symbol})</span>
+                    </div>
+                    <p className="text-xs text-[#0F1414]/70 font-500">{c.name}</p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="inline-block px-2.5 py-1 rounded-lg text-[0.68rem] font-700 bg-[#16C7B7]/15 text-[#0F1414] border border-[#16C7B7]/30">
+                    {c.route}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          03 — THE PROBLEM STATEMENT
+          ────────────────────────────────────────── */}
+      <section className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-4xl mx-auto px-6 sm:px-8 space-y-8 text-center sm:text-left">
+          <span className="badge-aurora">The Challenge</span>
+          <h2 className="text-2xl sm:text-4xl font-bold text-white leading-tight tracking-tight">
+            Money is still fragmented across borders, currencies, and platforms.
+          </h2>
+          <p className="text-lg sm:text-xl text-[#F7F8F4]/80 leading-relaxed max-w-2xl">
+            High conversion fees, delayed international settlement times, and disconnected financial rails slow down individuals and growing businesses. Proxim unifies global money into one transparent system.
+          </p>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          04 — RE-ENGINEERED LIVE RATE SIMULATOR
+          ────────────────────────────────────────── */}
+      <section id="features" className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8">
+          <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+            
+            <div className="lg:col-span-5 space-y-6">
+              <span className="badge-aurora">01 — Move Money</span>
+              <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight leading-tight">
+                Transfer money anywhere in seconds.
+              </h2>
+              <p className="text-base sm:text-lg text-[#F7F8F4]/80 leading-relaxed">
+                Send money across borders directly into local destination bank accounts. Real-time rates, zero hidden markup, instant settlement.
+              </p>
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-3 text-sm text-[#F7F8F4]">
+                  <CheckCircle2 className="w-4 h-4 text-[#16C7B7]" />
+                  <span>Settles in under 30 seconds</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm text-[#F7F8F4]">
+                  <CheckCircle2 className="w-4 h-4 text-[#16C7B7]" />
+                  <span>Live institutional FX conversion rates</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Transparent Rate & Fee Simulator */}
+            <div className="lg:col-span-7 card-glass p-6 sm:p-8 rounded-[36px] border-[#16C7B7]/30 space-y-6 bg-[#0F1524]/90">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div>
+                  <span className="text-xs font-700 text-white uppercase tracking-wider">Live Institutional Rate Calculator</span>
+                  <p className="text-[0.7rem] text-[#35D9D0]">Real-time Mid-Market FX Feed</p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-700 bg-[#16C7B7]/20 text-[#16C7B7] border border-[#16C7B7]/40 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 animate-pulse" /> Live Market Feed
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="flex justify-between text-xs text-[#F7F8F4]/60 font-600">
+                    <span>You Send</span>
+                    <span>Source Balance</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <input
+                      type="number"
+                      value={sendAmount}
+                      onChange={(e) => setSendAmount(e.target.value)}
+                      className="w-full bg-transparent text-2xl font-extrabold text-white outline-none"
+                    />
+                    <select
+                      value={sourceCurrency}
+                      onChange={(e: any) => setSourceCurrency(e.target.value)}
+                      className="bg-[#060B14] text-white text-sm font-700 px-3 py-2 rounded-xl border border-white/15 outline-none cursor-pointer"
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="GBP">GBP (£)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center">
+                    <Repeat className="w-4 h-4 text-[#16C7B7]" />
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="flex justify-between text-xs text-[#F7F8F4]/60 font-600">
+                    <span>Recipient Receives (Direct Bank)</span>
+                    <span>Guaranteed Rate</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-2xl font-extrabold text-[#35D9D0]">
+                      {calculatedOutput}
+                    </span>
+                    <select
+                      value={targetCurrency}
+                      onChange={(e: any) => setTargetCurrency(e.target.value)}
+                      className="bg-[#060B14] text-white text-sm font-700 px-3 py-2 rounded-xl border border-white/15 outline-none cursor-pointer"
+                    >
+                      <option value="NGN">NGN (₦)</option>
+                      <option value="KES">KES (KSh)</option>
+                      <option value="GHS">GHS (GH₵)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transparent Fee & Delivery Guarantee Banner */}
+              <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-white/5 border border-white/10 text-center text-xs">
+                <div>
+                  <p className="text-[0.62rem] text-white/50 uppercase">Proxim Fee</p>
+                  <p className="font-extrabold text-[#16C7B7]">₦0.00</p>
+                </div>
+                <div>
+                  <p className="text-[0.62rem] text-white/50 uppercase">Delivery Time</p>
+                  <p className="font-extrabold text-[#35D9D0]">&lt; 30 Seconds</p>
+                </div>
+                <div>
+                  <p className="text-[0.62rem] text-white/50 uppercase">Rate Guarantee</p>
+                  <p className="font-extrabold text-white">Locked 15 Mins</p>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <a href={APP_URL} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-center block !py-3">
+                  Send Money Now
+                </a>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          05 — SPEND GLOBALLY (VIRTUAL DEBIT CARD)
+          ────────────────────────────────────────── */}
+      <section className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8">
+          <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+            
+            {/* Debit Card Artifact */}
+            <div className="lg:col-span-6 relative flex justify-center items-center min-h-[340px]">
+              <div className="w-[320px] sm:w-[360px] h-[200px] sm:h-[225px] rounded-3xl p-6 card-glass bg-gradient-to-br from-[#1A2333] via-[#060B14] to-[#0A0E17] border-[#16C7B7]/30 shadow-2xl relative z-10 flex flex-col justify-between">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <img src="/proxim-icon.png" alt="Proxim" className="w-7 h-7 rounded-lg object-cover" />
+                    <p className="text-[0.65rem] font-bold text-white tracking-wider uppercase mt-1">Proxim</p>
+                  </div>
+                  <Wifi className="w-5 h-5 text-[#35D9D0]" />
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-white/70 tracking-widest mb-1">4892 •••• •••• 9102</p>
+                  <div className="flex justify-between items-end text-xs text-white">
+                    <div>
+                      <p className="text-[0.6rem] text-white/50 uppercase">Cardholder</p>
+                      <p className="font-600">PRIMARY ACCOUNT</p>
+                    </div>
+                    <span className="font-bold text-[#16C7B7]">VISA</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-6 space-y-6">
+              <span className="badge-aurora">02 — Spend Globally</span>
+              <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight leading-tight">
+                Pay anywhere, auto-converted.
+              </h2>
+              <p className="text-base sm:text-lg text-[#F7F8F4]/80 leading-relaxed">
+                Generate virtual debit cards instantly. Pay for international subscriptions, software tools, and online travel. Auto-converts from your multi-currency balances at point-of-sale.
+              </p>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          06 — PROXIM FOR BUSINESS (DUAL STORYTELLING)
+          ────────────────────────────────────────── */}
+      <section id="business" className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8">
+          <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+
+            <div className="lg:col-span-6 space-y-6">
+              <span className="badge-aurora">Proxim for Business</span>
+              <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight leading-tight">
+                Built for businesses that move globally.
+              </h2>
+              <p className="text-base sm:text-lg text-[#F7F8F4]/80 leading-relaxed">
+                Pay global contractors, execute automated batch payroll runs in local currencies, and manage multi-currency treasury without traditional bank markups.
+              </p>
+              <div>
+                <a href={APP_URL} target="_blank" rel="noopener noreferrer" className="btn-primary">
+                  Explore Proxim for Business <ArrowRight className="w-4 h-4" />
+                </a>
+              </div>
+            </div>
+
+            {/* Business Treasury Artifact */}
+            <div className="lg:col-span-6 card-glass p-6 sm:p-8 rounded-[36px] space-y-6 border-[#16C7B7]/30 bg-[#0F1524]/90">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div>
+                  <h4 className="text-base font-bold text-white">Treasury &amp; Payroll Engine</h4>
+                  <p className="text-xs text-[#35D9D0]">Business Multi-Currency Account</p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-700 bg-[#16C7B7]/20 text-[#16C7B7] border border-[#16C7B7]/40">
+                  Active Treasury
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+                  <p className="text-[0.68rem] text-white/60 font-600 uppercase">Monthly Payroll</p>
+                  <p className="text-xl font-extrabold text-white mt-1">₦14,850,000</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+                  <p className="text-[0.68rem] text-white/60 font-600 uppercase">Global Vendors</p>
+                  <p className="text-xl font-extrabold text-[#35D9D0] mt-1">12 Paid</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <p className="font-700 text-white/60 uppercase">Batch Payout Executed</p>
+                <div className="p-3 rounded-xl bg-white/5 border border-white/10 flex justify-between">
+                  <span className="font-600 text-white">Engineering Team Payroll</span>
+                  <span className="text-[#16C7B7] font-700">Processed (&lt; 30s)</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          07 — SECURITY & LICENSED INFRASTRUCTURE
+          ────────────────────────────────────────── */}
+      <section id="security" className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8 space-y-16">
+          <div className="max-w-2xl space-y-4">
+            <span className="badge-aurora">Security Architecture</span>
+            <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+              Enterprise security. Zero compromise.
+            </h2>
+            <p className="text-base sm:text-lg text-[#F7F8F4]/80">
+              Built from the ground up to protect your funds, privacy, and account security.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="card-glass p-8 rounded-3xl space-y-4 border-white/12">
+              <div className="w-12 h-12 rounded-2xl bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center text-[#35D9D0]">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Biometric Passkey Security</h3>
+              <p className="text-sm text-[#F7F8F4]/75 leading-relaxed">
+                Sign in securely with FaceID, TouchID, or hardware keys. No passwords to leak or intercept.
+              </p>
+            </div>
+
+            <div className="card-glass p-8 rounded-3xl space-y-4 border-white/12">
+              <div className="w-12 h-12 rounded-2xl bg-[#7567F8]/20 border border-[#7567F8] flex items-center justify-center text-[#7567F8]">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Cryptographic Custody</h3>
+              <p className="text-sm text-[#F7F8F4]/75 leading-relaxed">
+                Hardware Security Modules (HSMs) and multi-party authentication safeguard multi-currency reserves.
+              </p>
+            </div>
+
+            <div className="card-glass p-8 rounded-3xl space-y-4 border-white/12">
+              <div className="w-12 h-12 rounded-2xl bg-[#FF5DA8]/20 border border-[#FF5DA8] flex items-center justify-center text-[#FF5DA8]">
+                <Server className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">24/7 Monitored Settlement</h3>
+              <p className="text-sm text-[#F7F8F4]/75 leading-relaxed">
+                Real-time bank payout tracking with automated failover guarantees your transfers complete in under 30 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          08 — INFRASTRUCTURE PARTNER LOGOS
+          ────────────────────────────────────────── */}
+      <section className="relative overflow-hidden py-24 sm:py-32 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-5xl mx-auto px-6 sm:px-8 space-y-12 text-center">
+          <div className="space-y-3 max-w-xl mx-auto">
+            <span className="badge-aurora">Infrastructure</span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+              Engineered on licensed financial &amp; security infrastructure.
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 items-center justify-center max-w-5xl mx-auto pt-4">
+            <div className="p-6 rounded-2xl bg-white flex items-center justify-center h-24 shadow-lg hover:scale-105 transition-all">
+              <img src="/partners/privy.png" alt="Privy" className="h-8 sm:h-9 w-auto object-contain" />
+            </div>
+
+            <div className="p-6 rounded-2xl bg-white flex items-center justify-center h-24 shadow-lg hover:scale-105 transition-all">
+              <img src="/partners/near.png" alt="NEAR" className="h-8 sm:h-9 w-auto object-contain" />
+            </div>
+
+            <div className="p-6 rounded-2xl bg-white flex items-center justify-center h-24 shadow-lg hover:scale-105 transition-all">
+              <img src="/partners/yellowcard.png" alt="Yellow Card" className="h-8 sm:h-9 w-auto object-contain" />
+            </div>
+
+            <div className="p-6 rounded-2xl bg-[#0F1524] border border-white/20 flex items-center justify-center h-24 shadow-lg hover:scale-105 transition-all">
+              <img src="/partners/senviok.png" alt="Senviok" className="h-8 sm:h-9 w-auto object-contain rounded-lg" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────
+          09 — FAQ SECTION
+          ────────────────────────────────────────── */}
+      <section id="faq" className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-3xl mx-auto px-6 sm:px-8 space-y-12">
+          <div className="space-y-3 text-center">
+            <span className="badge-aurora">FAQ</span>
+            <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+              Frequently asked questions.
+            </h2>
+          </div>
+
+          <div className="space-y-3">
             {faqs.map((faq, idx) => {
               const open = activeFaq === idx;
               return (
-                <motion.div key={idx} variants={fadeUp}
-                  className="overflow-hidden rounded-2xl border transition-all duration-200 bg-[#08091A]/80 backdrop-blur-xl text-white"
-                  style={{ borderColor: open ? '#DC2626' : 'rgba(255,255,255,0.12)' }}>
-                  <button onClick={() => setActiveFaq(open ? null : idx)}
-                    className="w-full px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between text-left gap-4 hover:bg-white/5 transition-colors"
-                    aria-expanded={open}>
-                    <span className="text-[0.88rem] sm:text-[0.96rem] font-700 text-white leading-snug">{faq.q}</span>
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200"
-                      style={{
-                        background: open ? 'rgba(220,38,38,0.20)' : 'rgba(255,255,255,0.08)',
-                        border: `1px solid ${open ? 'rgba(220,38,38,0.40)' : 'rgba(255,255,255,0.15)'}`,
-                        color: open ? '#F43F5E' : 'rgba(255,255,255,0.6)',
-                        transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-                      }}>
-                      <ChevronDown className="w-3.5 h-3.5" strokeWidth={2.5} />
-                    </div>
+                <div key={idx} className="card-glass rounded-2xl border-white/10 overflow-hidden">
+                  <button
+                    onClick={() => setActiveFaq(open ? null : idx)}
+                    className="w-full px-6 py-5 flex items-center justify-between text-left gap-4 hover:bg-white/5 transition-colors"
+                  >
+                    <span className="text-base font-700 text-white">{faq.q}</span>
+                    <ChevronDown className={`w-4 h-4 text-[#35D9D0] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
                   </button>
                   <AnimatePresence>
                     {open && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2, ease: 'easeInOut' }}
-                        className="px-5 sm:px-6 pb-5 text-sm text-white/70 leading-relaxed border-t border-white/10"
-                        style={{ paddingTop: 16 }}>
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="px-6 pb-5 text-sm text-[#F7F8F4]/80 leading-relaxed border-t border-white/10 pt-4"
+                      >
                         {faq.a}
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </motion.div>
+                </div>
               );
             })}
-          </motion.div>
-
-          <motion.div className="card p-6 sm:p-7 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-5 text-center sm:text-left bg-[#08091A]/85 backdrop-blur-2xl border border-white/15"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }} variants={fadeUp}>
-            <div>
-              <h4 className="text-[0.92rem] font-700 text-white">Partnerships, Support &amp; Inquiries</h4>
-              <p className="text-[0.82rem] text-white/60 mt-1">Have questions, business proposals, or feedback? We'd love to hear from you.</p>
-            </div>
-            <a href="mailto:igboze@purlen.com" className="btn-primary !text-sm shrink-0">
-              <Mail className="w-4 h-4" />igboze@purlen.com
-            </a>
-          </motion.div>
+          </div>
         </div>
-      </RealEnvSection>
+      </section>
 
       {/* ──────────────────────────────────────────
-          8. CTA — Namib Desert Dunes & Photographic Crimson Southern Lights Arc
-          PICTORIAL LANGUAGE: Frictionless future & infinite horizon.
-          Seamlessly blended top!
+          10 — FINAL CTA & FOOTER
           ────────────────────────────────────────── */}
-      <RealEnvSection
-        className="py-20 sm:py-28"
-        bgImage="/bg/desert_dunes.png"
-        bgOpacity={0.30}
-        auroraIntensity={0.72}
-        fadeInTop={true}
-        fadeInBottom={false}
-      >
-        <div className="max-w-4xl mx-auto px-5 sm:px-8 text-center relative z-10">
-          <motion.div className="space-y-8"
-            initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}
-            variants={{ ...stagger }}>
-            <motion.div variants={fadeUp}><span className="tag tag-dark"><Sparkles className="w-3.5 h-3.5 text-[#DC2626]" />Early Access</span></motion.div>
-            <motion.h2 variants={fadeUp}
-              className="text-[2rem] sm:text-[3.4rem] font-extrabold text-white leading-tight tracking-tight">
-              Your next payment should be<br className="hidden sm:block" />
-              <span style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #DC2626 50%, #F59E0B 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-                {' '}your easiest one.
-              </span>
-            </motion.h2>
-            <motion.p variants={fadeUp} className="text-base sm:text-lg leading-relaxed max-w-lg mx-auto text-white/60">
-              Create your free account and experience a simpler way to move money — across borders, across currencies, without limits.
-            </motion.p>
-            <motion.div variants={fadeUp} className="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto">
-              <button onClick={() => openModal('Join Early Access Waitlist', 'Be among the first invited to PURLEN.')}
-                className="btn-primary w-full sm:w-auto">
-                Get started <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
-              </button>
-              <button onClick={() => openModal('PURLEN Business', 'Explore business account features.')}
-                className="btn-ghost-dark w-full sm:w-auto">
-                For business
-              </button>
-            </motion.div>
-          </motion.div>
-        </div>
-      </RealEnvSection>
-
-      {/* ──────────────────────────────────────────
-          FOOTER
-          ────────────────────────────────────────── */}
-      <footer className="py-12 sm:py-16 bg-[#04050E] border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
-            <a href="#" className="flex items-center gap-2.5 group">
-              <img src="/purlen-icon.png" alt="PURLEN" className="w-7 h-7 object-contain group-hover:scale-105 transition-transform" />
-              <span className="text-lg font-extrabold text-white tracking-[-0.035em]">PURLEN</span>
+      <section className="relative overflow-hidden py-24 sm:py-36 border-t border-white/10 bg-[#060B14]">
+        <ProximBrandGuideSky />
+        <div className="relative z-10 max-w-4xl mx-auto text-center space-y-8">
+          <span className="badge-aurora">Get Started</span>
+          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight leading-tight">
+            Your money should work around you.
+          </h2>
+          <p className="text-base sm:text-lg text-[#F7F8F4]/80 max-w-xl mx-auto">
+            Open your Proxim account in minutes and experience borderless global money.
+          </p>
+          <div>
+            <a href={APP_URL} target="_blank" rel="noopener noreferrer" className="btn-primary !text-base !py-4 !px-9">
+              Open Account Free <ArrowRight className="w-4 h-4" />
             </a>
-            <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[0.8rem] font-500 text-white/50">
-              {[['#experience','Features'],['#currencies','Currencies'],['#business','Business'],['#faq','FAQ']].map(([h,l]) => (
-                <a key={h} href={h} className="hover:text-white transition-colors">{l}</a>
-              ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="py-14 bg-[#060B14] border-t border-white/10 text-xs text-[#F7F8F4]/60">
+        <div className="max-w-6xl mx-auto px-6 sm:px-8 space-y-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+            <a href="#" className="flex items-center gap-3">
+              <img src="/proxim-icon.png" alt="Proxim" className="w-7 h-7 rounded-lg object-cover" />
+              <span className="text-lg font-extrabold text-white tracking-tight">Proxim</span>
+            </a>
+
+            <nav className="flex flex-wrap gap-7 text-sm font-500">
+              <a href="#features" className="hover:text-white transition-colors">Features</a>
+              <a href="#currencies" className="hover:text-white transition-colors">Currencies</a>
+              <a href="#how-it-works" className="hover:text-white transition-colors">How it works</a>
+              <a href="#business" className="hover:text-white transition-colors">Business</a>
+              <a href="#security" className="hover:text-white transition-colors">Security</a>
+              <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
             </nav>
-            <div className="flex items-center gap-3">
-              <a href="https://x.com/purlen" target="_blank" rel="noopener noreferrer"
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white/50 hover:text-white"
-                title="@purlen">
-                <XIcon className="w-3.5 h-3.5" />
-              </a>
-            </div>
+
+            <a
+              href="https://x.com/proximfi" target="_blank" rel="noopener noreferrer"
+              className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 transition-colors"
+              title="@proximfi on X"
+            >
+              <XIcon className="w-4 h-4" />
+            </a>
           </div>
 
-          <div className="mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-white/10 text-[#8A8FAD]">
-            <p className="text-[0.72rem]">
-              © 2026 PURLEN Inc. All rights reserved.
-            </p>
-            <div className="flex items-center gap-4 text-[0.72rem]">
-              <a href="#" className="hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms</a>
-              <span className="font-700 text-[#DC2626]">purlen.com</span>
+          <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-[#F7F8F4]/40 text-xs">
+            <p>© 2026 Proxim Inc. All rights reserved.</p>
+            <div className="flex items-center gap-6">
+              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+              <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+              <span className="font-700 text-[#16C7B7]">proximfi.xyz</span>
             </div>
           </div>
         </div>
       </footer>
-
-      {/* ──────────────────────────────────────────
-          WAITLIST MODAL
-          ────────────────────────────────────────── */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 backdrop-blur-md bg-[#04050E]/80" />
-
-            <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 24, scale: 0.97 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="relative w-full sm:max-w-md bg-white rounded-t-[32px] sm:rounded-[28px] p-6 sm:p-8 z-10 space-y-5 max-h-[80vh] overflow-y-auto border border-[#DDE2F0] shadow-2xl">
-
-              <button onClick={() => setIsModalOpen(false)}
-                className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center transition-colors bg-[#EEF0FA] text-[#4E5275] border border-[#DDE2F0]">
-                <X className="w-4 h-4" />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#DC2626]/10 border border-[#DC2626]/20">
-                  <Sparkles className="w-4 h-4 text-[#DC2626]" />
-                </div>
-                <span className="tag tag-light">Early Access Waitlist</span>
-              </div>
-
-              <div className="space-y-1.5">
-                <h3 className="text-xl sm:text-[1.35rem] font-extrabold text-[#080B18] tracking-tight">{modalTitle}</h3>
-                <p className="text-sm text-[#4E5275] leading-relaxed">{modalSub}</p>
-              </div>
-
-              {!isSubmitted ? (
-                <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-700 text-[#080B18] flex justify-between">
-                      <span>Email Address</span>
-                      <span className="font-400 text-[#8A8FAD]">Required</span>
-                    </label>
-                    <input type="email" required placeholder="name@company.com" value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-2xl text-sm text-[#080B18] transition-all outline-none bg-[#F7F8FC] border border-[#DDE2F0] focus:border-[#DC2626]" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-700 text-[#080B18]">What best describes you?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { k: 'freelancer' as const, I: Briefcase, l: 'Freelancer', s: 'Remote worker' },
-                        { k: 'founder' as const, I: Rocket, l: 'Founder', s: 'Startup lead' },
-                        { k: 'sme' as const, I: Store, l: 'SME Owner', s: 'Business' },
-                        { k: 'interested' as const, I: UserCheck, l: 'Interested', s: 'Personal use' },
-                      ].map(({ k, I, l, s }) => (
-                        <button key={k} type="button" onClick={() => setPersona(k)}
-                          className="p-3 rounded-2xl border text-left flex flex-col gap-1 transition-all"
-                          style={{ background: persona === k ? 'rgba(220,38,38,0.06)' : '#F7F8FC', borderColor: persona === k ? '#DC2626' : '#DDE2F0' }}>
-                          <div className="flex items-center gap-1.5">
-                            <I className="w-3.5 h-3.5" style={{ color: persona === k ? '#DC2626' : '#8A8FAD' }} />
-                            <span className="text-[0.78rem] font-700 text-[#080B18]">{l}</span>
-                          </div>
-                          <span className="text-[0.64rem] text-[#8A8FAD]">{s}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {submitError && (
-                    <p className="text-xs font-700 text-rose-600 bg-rose-50 border border-rose-100 p-3 rounded-xl">{submitError}</p>
-                  )}
-
-                  <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3.5 disabled:opacity-60">
-                    {isSubmitting
-                      ? <><Loader2 className="w-4 h-4 animate-spin" />Submitting…</>
-                      : 'Reserve My Early Access Spot'}
-                  </button>
-                </form>
-              ) : (
-                <div className="rounded-2xl p-6 text-center space-y-4 bg-[#DC2626]/10 border border-[#DC2626]/20">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
-                    style={{ background: 'linear-gradient(135deg, #DC2626, #F59E0B)' }}>
-                    <Check className="w-6 h-6 text-white" strokeWidth={3} />
-                  </div>
-                  <h4 className="text-lg font-700 text-[#080B18]">You're on the list.</h4>
-                  <p className="text-sm text-[#4E5275] leading-relaxed">
-                    We've registered <span className="font-700 text-[#080B18]">{email}</span> for early access. We'll reach out with your private invitation soon.
-                  </p>
-                  <button onClick={() => setIsModalOpen(false)} className="btn-primary !text-sm" style={{ width: 'auto' }}>
-                    Done
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
     </div>
   );
