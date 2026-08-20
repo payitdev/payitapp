@@ -46,10 +46,10 @@ async function fetchBaseStrategies() {
     const usdtStrategies = await pods.findStrategiesByToken(baseUSDT);
     
     console.log(`USDC Strategies on Base: ${usdcStrategies.length}`);
-    usdcStrategies.forEach(s => console.log(`  - ${s.id} (${s.protocol})`));
+    usdcStrategies.forEach((s: any) => console.log(`  - ${s.id} (${s.protocol})`));
     
     console.log(`\nUSDT Strategies on Base: ${usdtStrategies.length}`);
-    usdtStrategies.forEach(s => console.log(`  - ${s.id} (${s.protocol})`));
+    usdtStrategies.forEach((s: any) => console.log(`  - ${s.id} (${s.protocol})`));
 
     // Check for OpenCover strategies
     console.log('\n🔍 Checking for OpenCover-insured strategies:\n');

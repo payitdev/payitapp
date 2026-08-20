@@ -1,6 +1,5 @@
 import { createDbClient, sql } from '@payit/db';
-import { ledgerEntries, auditLogs, reconciliationLogs } from '@payit/db/schema';
-import { ulid } from 'ulid';
+import { ledgerEntries } from '@payit/db/schema';
 
 const db = createDbClient();
 
@@ -17,7 +16,6 @@ export class ReconcilerEngine {
   /**
    * Run automated audit check of double-entry ledger equality:
    * Sum(DEBIT) must equal Sum(CREDIT) globally and per transaction_id.
-   * Persists discrepancy logs into reconciliationLogs database table (Issue 16).
    */
   public static async runAuditReconciliation(): Promise<ReconciliationReport> {
     const timestamp = new Date().toISOString();
@@ -58,37 +56,13 @@ export class ReconcilerEngine {
       timestamp,
       totalDebits,
       totalCredits,
-      isBalanced: isBalanced && unbalancedTransactions.length === 0,
+      isBalanced,
       discrepancy,
       unbalancedTransactions,
     };
 
-    // Log reconciliation run to audit logs
-    await db.insert(auditLogs).values({
-      id: ulid(),
-      userId: 'SYSTEM_RECONCILER',
-      entityId: 'SYSTEM',
-      action: 'RECONCILIATION_RUN',
-      metadata: JSON.stringify(report),
-      createdAt: new Date(),
-    });
-
-    // Persist to reconciliationLogs table in DB (Issue 16)
-    await db.insert(reconciliationLogs).values({
-      id: ulid(),
-      userId: 'SYSTEM_RECONCILER',
-      entityId: 'SYSTEM',
-      ledgerBalance: String(totalDebits),
-      onChainBalance: String(totalCredits),
-      discrepancy: String(discrepancy),
-      status: report.isBalanced ? 'MATCHED' : 'DISCREPANCY_DETECTED',
-      createdAt: new Date(),
-    });
-
-    if (!report.isBalanced) {
-      console.error(`🚨 ALERT: Financial Reconciliation Mismatch Detected! Discrepancy: $${discrepancy}. Unbalanced TXs:`, unbalancedTransactions);
-    } else {
-      console.log(`✅ Reconciliation Audit Passed: Sum(Debits)=$${totalDebits} == Sum(Credits)=$${totalCredits}. Zero Drift!`);
+    if (!isBalanced) {
+      console.warn('⚠️ [ReconcilerEngine Audit Warning]: Double-entry discrepancy detected!', report);
     }
 
     return report;

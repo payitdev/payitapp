@@ -32,7 +32,7 @@ if (missingInDist.length > 0) {
 
 // Critical endpoint assertions
 const criticalEndpointChecks = [
-  { file: 'dist/routes/auth.js', text: '/api/auth/particle-login', name: 'Particle Login Endpoint' },
+  { file: 'dist/routes/auth.js', text: '/api/auth/passkey/register', name: 'Turnkey Passkey Register Endpoint' },
   { file: 'dist/routes/auth.js', text: '/api/auth/session', name: 'Session Restore Endpoint' },
   { file: 'dist/routes/cards.js', text: '/api/cards/freeze', name: 'Card Freeze Endpoint' },
   { file: 'dist/routes/social.js', text: '/api/friends/request', name: 'Social Friends Request Endpoint' },

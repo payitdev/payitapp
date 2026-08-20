@@ -1,6 +1,6 @@
 /**
- * Global API Client Interceptor for PayIT Mobile-Web
- * Dynamically attaches X-Entity-Id header when Business Mode is selected (Issue 1).
+ * Global API Client Interceptor for Proxim Mobile-Web
+ * Dynamically attaches X-Entity-Id header when Business Mode is selected.
  */
 
 let activeEntityId: string | null = null;
@@ -16,7 +16,7 @@ export function getActiveEntityId(): string | null {
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers || {});
 
-  const token = localStorage.getItem('payit_auth_token');
+  const token = localStorage.getItem('proxim_auth_token') || localStorage.getItem('proxim_session_token') || localStorage.getItem('payit_auth_token');
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -29,4 +29,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ...init,
     headers,
   });
+}
+
+export async function apiFetchJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(input, init);
+  return res.json();
 }

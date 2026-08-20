@@ -151,6 +151,32 @@ async function runMigrations() {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS kyc_verifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        entity_kind TEXT NOT NULL CHECK (entity_kind IN ('PERSONAL', 'BUSINESS')),
+        id_type TEXT NOT NULL,
+        id_value_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        identity_verification_id TEXT,
+        identity_data JSONB,
+        liveness_session_id TEXT,
+        liveness_status TEXT,
+        liveness_score NUMERIC(8,6),
+        face_match_score NUMERIC(8,6),
+        aml_status TEXT,
+        aml_risk_level TEXT,
+        aml_flagged INTEGER,
+        brails_customer_id TEXT,
+        brails_customer_payload JSONB,
+        brails_account_payloads JSONB,
+        brails_account_ids JSONB,
+        failure_reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        completed_at TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS risk_events (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
