@@ -1,40 +1,68 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
 
-const DEFAULT_NUVION_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu4q95pqcOJa8RwUH4aXA
-TMzgvhqKK+RBOMkSSFJ9ALFneKV8Wc5y8itkdKFpQ/YsKrxc6aLipVQ0JzfQqpto
-P1MDbN1IhzWoQiGfzp4ShE5BWcndGLFnzNj9xhQSDFJPEWGgZsLxuqrsarttj7aw
-IosZnnU0E71TaPQDcN4EDNCZbUSO3L9ABrhiyobwuSHoBz44BL0H6b/32iqCJ4np
-mh+lgBjyccL8yloGdmf6KCt+Q2N3hfad7q/C8x5ArHC1K9ZmnlwpUzjdLE2IGdN9
-wrL69p972f9aEMfneG8iDkymkk7aOgxIbJq3DU55hxUfFDl1Q0+G3zCEHsj7aCz3
-hwIDAQAB
------END PUBLIC KEY-----`;
+dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 const EnvSchema = z.object({
   PORT: z.string().default('4000'),
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  NUVION_API_KEY: z.string().min(1, 'NUVION_API_KEY is required'),
-  NUVION_PUBLIC_KEY: z.string().min(1, 'NUVION_PUBLIC_KEY is required'),
-  NUVION_WEBHOOK_SECRET: z.string().min(1, 'NUVION_WEBHOOK_SECRET is required'),
-  PARTICLE_PROJECT_ID: z.string().min(1, 'PARTICLE_PROJECT_ID is required'),
-  PARTICLE_CLIENT_KEY: z.string().min(1, 'PARTICLE_CLIENT_KEY is required'),
-  PARTICLE_SERVER_KEY: z.string().min(1, 'PARTICLE_SERVER_KEY is required'),
-  MAGIC_PUBLISHABLE_KEY: z.string().min(1, 'MAGIC_PUBLISHABLE_KEY is required'),
-  MAGIC_SECRET_KEY: z.string().min(1, 'MAGIC_SECRET_KEY is required'),
-  GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required for payroll OCR'),
-  PAYIT_TREASURY_FEE_WALLET: z.string().min(10, 'PAYIT_TREASURY_FEE_WALLET is required for treasury fee sweeps'),
-  PAYIT_FX_MARGIN_PERCENT: z.string().default('0.030'),
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  PODS_API_KEY: z.string().optional(), // Optional for gradual rollout
-  NEAR_RELAYER_ACCOUNT_ID: z.string().optional(), // Optional for gradual rollout
-  NEAR_RELAYER_PRIVATE_KEY: z.string().optional(), // Optional for gradual rollout
-  NEAR_NETWORK_ID: z.enum(['testnet', 'mainnet']).default('testnet'),
-  NEAR_CONTRACT_ID: z.string().optional(), // Auto-selected based on network in code
-});
+  FIAT_PROVIDER_LIVE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  
+  // Proxim Due Network Configuration
+  DUE_API_KEY: z.string().optional().default(''),
+  DUE_BASE_URL: z.string().default('https://api.due.network'),
+  DUE_WEBHOOK_SECRET: z.string().optional().default(''),
 
+  // Proxim Turnkey MPC Configuration
+  TURNKEY_ORGANIZATION_ID: z.string().optional().default(''),
+  TURNKEY_API_PUBLIC_KEY: z.string().optional().default(''),
+  TURNKEY_API_PRIVATE_KEY: z.string().optional().default(''),
+  TURNKEY_BASE_URL: z.string().default('https://api.turnkey.com'),
+
+  // Proxim Treasury & Monetization
+  PROXIM_TREASURY_WALLET: z.string().min(1, 'PROXIM_TREASURY_WALLET is required'),
+  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters').default('proxim_super_secure_jwt_secret_key_2026'),
+  
+  // Savings & Stocks
+  PODS_API_KEY: z.string().optional(),
+  ONDO_API_KEY: z.string().optional(),
+
+  // Privy Configuration
+  PRIVY_APP_ID: z.string().optional(),
+  PRIVY_APP_SECRET: z.string().optional(),
+  PRIVY_CLIENT_ID: z.string().optional(),
+
+  // NEAR Chain Signatures Configuration
+  NEAR_NETWORK_ID: z.enum(['testnet', 'mainnet']).default('mainnet'),
+  NEAR_RELAYER_ACCOUNT_ID: z.string().min(1, 'NEAR_RELAYER_ACCOUNT_ID is required'),
+  NEAR_RELAYER_PRIVATE_KEY: z.string().min(1, 'NEAR_RELAYER_PRIVATE_KEY is required'),
+
+  // Biconomy MEE Configuration
+  BICONOMY_MEE_API_KEY: z.string().optional().default(''),
+  BICONOMY_PROJECT_ID: z.string().optional().default(''),
+
+  // NEAR Intent 1Click Configuration
+  NEAR_INTENT_1CLICK_API_KEY: z.string().optional().default(''),
+  NEAR_INTENT_EXPLORER_API_KEY: z.string().optional().default(''),
+
+  // EaseID Identity Verification (KYC/KYB for Nigerian rails)
+  EASEID_APP_ID: z.string().optional().default(''),
+  EASEID_API_KEY: z.string().optional().default(''),
+  EASEID_BASE_URL: z.string().default('https://open-api.easeid.ai'),
+
+  // Brails Fiat Banking Infrastructure
+  BRAILS_API_KEY: z.string().optional().default(''),
+  BRAILS_API_BASE_URL: z.string().default('https://api.brails.com/v1'),
+  BRAILS_WEBHOOK_SECRET: z.string().optional().default(''),
+
+  // Backend public URL for EaseID liveness callbacks
+  BACKEND_PUBLIC_URL: z.string().optional().default('https://api.proxim.finance'),
+});
 
 export function validateEnv() {
   try {
@@ -45,27 +73,41 @@ export function validateEnv() {
   }
 }
 
-export function validatePodsEnv() {
-  if (!process.env.PODS_API_KEY) {
-    console.warn('PODS_API_KEY not set - Pods savings features will be disabled');
-    return false;
-  }
-  if (!process.env.NEAR_RELAYER_ACCOUNT_ID || !process.env.NEAR_RELAYER_PRIVATE_KEY) {
-    console.warn('NEAR relayer credentials not set - Chain signatures will be disabled');
-    return false;
-  }
-  
-  const network = process.env.NEAR_NETWORK_ID || 'testnet';
-  console.log(`✅ Pods/Ondo integration enabled on NEAR ${network}`);
-  
-  if (network === 'testnet') {
-    console.log('⚠️  Currently using NEAR testnet - switch to mainnet by setting NEAR_NETWORK_ID=mainnet');
-  } else {
-    console.log('✅ Using NEAR mainnet for production transactions');
-  }
-  
-  return true;
+export const env = validateEnv();
+
+export function validatePrivyEnv() {
+  return {
+    appId: process.env.PRIVY_APP_ID,
+    appSecret: process.env.PRIVY_APP_SECRET,
+    clientId: process.env.PRIVY_CLIENT_ID,
+  };
 }
 
-export const env = validateEnv();
+export function validateNEAREnv() {
+  const networkId = process.env.NEAR_NETWORK_ID || 'mainnet';
+  const relayerAccountId = process.env.NEAR_RELAYER_ACCOUNT_ID;
+  const relayerPrivateKey = process.env.NEAR_RELAYER_PRIVATE_KEY;
+
+  return {
+    networkId,
+    contractId: networkId === 'mainnet' ? 'v1.signer' : 'v1.signer-prod.testnet',
+    relayerAccountId,
+    relayerPrivateKey,
+  };
+}
+
+export function validateBiconomyEnv() {
+  return {
+    apiKey: process.env.BICONOMY_MEE_API_KEY || 'mee_QgNK9G24KkNKeitXwh477b',
+    projectId: process.env.BICONOMY_PROJECT_ID || '02059f83-8000-4ed0-a1e3-71458f2010bd',
+  };
+}
+
+export function validateNEARIntentsEnv() {
+  return {
+    oneClickApiKey: process.env.NEAR_INTENT_1CLICK_API_KEY || '',
+    explorerApiKey: process.env.NEAR_INTENT_EXPLORER_API_KEY || '',
+    baseUrl: process.env.NEAR_INTENT_BASE_URL || 'https://1click.chaindefuser.com',
+  };
+}
 

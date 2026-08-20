@@ -2,7 +2,7 @@
 // Run with: node migrate.cjs
 'use strict';
 
-const { Client } = require('pg');
+const postgres = require('postgres');
 
 const DATABASE_URL = process.env.DATABASE_URL ||
   'postgresql://neondb_owner:npg_FzVIWi01hden@ep-frosty-lab-ay6rqcus.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require';
@@ -142,6 +142,32 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMP DEFAULT NOW() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS kyc_verifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('PERSONAL', 'BUSINESS')),
+  id_type TEXT NOT NULL,
+  id_value_hash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  identity_verification_id TEXT,
+  identity_data JSONB,
+  liveness_session_id TEXT,
+  liveness_status TEXT,
+  liveness_score NUMERIC(8,6),
+  face_match_score NUMERIC(8,6),
+  aml_status TEXT,
+  aml_risk_level TEXT,
+  aml_flagged INTEGER,
+  brails_customer_id TEXT,
+  brails_customer_payload JSONB,
+  brails_account_payloads JSONB,
+  brails_account_ids JSONB,
+  failure_reason TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  completed_at TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS risk_events (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -186,38 +212,225 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 
 CREATE TABLE IF NOT EXISTS raw_webhooks (
   id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL CHECK (provider IN ('NUVION', 'PARTICLE')),
+  provider TEXT NOT NULL CHECK (provider IN ('NUVION', 'PARTICLE', 'DUE', 'TURNKEY')),
   event_id TEXT NOT NULL UNIQUE,
   payload TEXT NOT NULL,
   status TEXT DEFAULT 'RECEIVED' NOT NULL CHECK (status IN ('RECEIVED', 'PROCESSED', 'FAILED')),
   created_at TIMESTAMP DEFAULT NOW() NOT NULL
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS privy_user_id TEXT;
+
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS turnkey_sub_org_id TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS turnkey_user_id TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_customer_id TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_status TEXT DEFAULT 'none';
+
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS due_virtual_account_id TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS routing_number TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS rail TEXT DEFAULT 'ACH';
+
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS evm_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS solana_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS btc_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS tron_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS ton_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS near_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS cosmos_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS sui_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS aptos_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS xrp_deposit_address TEXT;
+
+CREATE TABLE IF NOT EXISTS transfers (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  due_transfer_id TEXT UNIQUE,
+  source_currency TEXT NOT NULL,
+  target_currency TEXT NOT NULL,
+  source_amount NUMERIC(18,4) NOT NULL,
+  target_amount NUMERIC(18,4) NOT NULL,
+  fee_amount NUMERIC(18,4) DEFAULT 0.00 NOT NULL,
+  direction TEXT DEFAULT 'CREDIT' NOT NULL CHECK (direction IN ('CREDIT', 'DEBIT')),
+  payment_instructions TEXT,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  expires_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS direction TEXT DEFAULT 'CREDIT' NOT NULL;
+
+
+CREATE TABLE IF NOT EXISTS fee_ledger (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  transaction_type TEXT NOT NULL,
+  reference_id TEXT NOT NULL,
+  gross_amount NUMERIC(18,4) NOT NULL,
+  fee_amount NUMERIC(18,4) NOT NULL,
+  net_amount NUMERIC(18,4) NOT NULL,
+  currency TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  target_entity_id TEXT REFERENCES entities(id),
+  name TEXT NOT NULL,
+  paytag TEXT,
+  account_number TEXT,
+  bank_code TEXT,
+  bank_name TEXT,
+  phone_or_momo TEXT,
+  type TEXT NOT NULL CHECK (type IN ('INTERNAL', 'EXTERNAL')),
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS savings_goals (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  name TEXT NOT NULL,
+  target_amount NUMERIC(18,2) NOT NULL,
+  current_amount NUMERIC(18,2) DEFAULT 0.00 NOT NULL,
+  currency TEXT DEFAULT 'USD' NOT NULL,
+  strategy_id TEXT,
+  lock_period_end TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS term_vaults (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  vault_name TEXT NOT NULL,
+  protocol TEXT DEFAULT 'kamino' NOT NULL,
+  lock_duration_days INTEGER NOT NULL,
+  start_date TIMESTAMP DEFAULT NOW() NOT NULL,
+  unlock_date TIMESTAMP NOT NULL,
+  principal_amount_usd NUMERIC(18,2) NOT NULL,
+  gross_apy NUMERIC(5,2) NOT NULL,
+  proxim_cut_apy NUMERIC(5,2) NOT NULL,
+  user_net_apy NUMERIC(5,2) NOT NULL,
+  accrued_interest_usd NUMERIC(18,2) DEFAULT 0.00 NOT NULL,
+  early_exit_choice TEXT,
+  near_intent_id TEXT,
+  deposit_address TEXT,
+  source_tx_hash TEXT,
+  solana_tx_hash TEXT,
+  solana_recipient_address TEXT,
+  shares_minted NUMERIC(28,8),
+  status TEXT DEFAULT 'LOCKED' NOT NULL,
+  on_chain_sync_timestamp TIMESTAMP DEFAULT NOW() NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS near_intent_id TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS deposit_address TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS source_tx_hash TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS solana_tx_hash TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS solana_recipient_address TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS shares_minted NUMERIC(28,8);
+
+CREATE TABLE IF NOT EXISTS rwa_positions (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  symbol TEXT NOT NULL,
+  name TEXT NOT NULL,
+  shares NUMERIC(18,6) NOT NULL,
+  average_cost_basis_usd NUMERIC(18,4) NOT NULL,
+  current_price_usd NUMERIC(18,4) NOT NULL,
+  total_value_usd NUMERIC(18,2) NOT NULL,
+  network TEXT DEFAULT 'BSC' NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rwa_orders (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  usd_amount NUMERIC(18,2) NOT NULL,
+  shares NUMERIC(18,6) NOT NULL,
+  status TEXT DEFAULT 'PENDING' NOT NULL,
+  biconomy_quote_id TEXT,
+  biconomy_tx_hash TEXT,
+  action_id TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS intent_swaps (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  origin_asset TEXT NOT NULL,
+  destination_asset TEXT NOT NULL,
+  origin_amount NUMERIC(28,8) NOT NULL,
+  destination_amount NUMERIC(28,8),
+  deposit_address TEXT NOT NULL,
+  recipient_address TEXT NOT NULL,
+  source_tx_hash TEXT,
+  destination_tx_hash TEXT,
+  status TEXT DEFAULT 'PENDING_DEPOSIT' NOT NULL,
+  protocol TEXT DEFAULT 'cross_chain_swap' NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  completed_at TIMESTAMP
+);
+
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(18,2) DEFAULT 0.00 NOT NULL;
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USDC' NOT NULL;
 `;
 
 async function migrate() {
-  const client = new Client({ connectionString: DATABASE_URL });
+  const sql = postgres(DATABASE_URL, {
+    ssl: { rejectUnauthorized: false },
+    max: 1,
+    idle_timeout: 30,
+    max_lifetime: 120,
+    connect_timeout: 30,
+    prepare: false,
+    keep_alive: 15,
+    onnotice: () => {},
+  });
+
   try {
     console.log('🔄 Connecting to Neon PostgreSQL...');
-    await client.connect();
-
     console.log('🏗️  Creating all PayIT tables (CREATE TABLE IF NOT EXISTS — safe to re-run)...');
-    await client.query(MIGRATION_SQL);
+    
+    // Split statements and execute individually
+    const statements = MIGRATION_SQL
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    for (const stmt of statements) {
+      let attempts = 0;
+      while (attempts < 3) {
+        try {
+          await sql.unsafe(stmt);
+          break;
+        } catch (e) {
+          attempts++;
+          if (attempts >= 3) throw e;
+          console.warn(`[Migrate] Retrying statement (attempt ${attempts}):`, e.message);
+          await new Promise(res => setTimeout(res, 500));
+        }
+      }
+    }
 
     // Verify tables exist
-    const result = await client.query(`
+    const result = await sql`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'public' 
       ORDER BY table_name;
-    `);
+    `;
     console.log('✅ Tables in Neon PostgreSQL:');
-    result.rows.forEach(r => console.log('  •', r.table_name));
+    result.forEach(r => console.log('  •', r.table_name));
     console.log('\n🚀 PayIT database migration complete!');
   } catch (err) {
     console.error('❌ Migration failed:', err.message);
     process.exit(1);
   } finally {
-    await client.end();
+    await sql.end();
   }
 }
 

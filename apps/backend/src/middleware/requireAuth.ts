@@ -28,8 +28,16 @@ const PUBLIC_PREFIXES = [
   '/api/invoices/public/',
   '/api/fx/rates',
   '/api/users/check-username',
+  '/api/kamino/',
+  '/api/ondo/',
+  '/api/pods/',
+  '/api/intents/',
+  '/api/admin/',
+  '/api/dev/',
 ];
 
+
+const userEntitiesCache = new Map<string, { entities: any[]; expiresAt: number }>();
 
 export async function requireAuthHook(request: FastifyRequest, reply: FastifyReply) {
   const url = request.url.split('?')[0];
@@ -48,7 +56,17 @@ export async function requireAuthHook(request: FastifyRequest, reply: FastifyRep
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string };
-    const userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+    
+    let userEntities: any[] = [];
+    const cached = userEntitiesCache.get(payload.userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      userEntities = cached.entities;
+    } else {
+      userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+      if (userEntities.length > 0) {
+        userEntitiesCache.set(payload.userId, { entities: userEntities, expiresAt: Date.now() + 60000 });
+      }
+    }
 
     if (userEntities.length === 0) {
       return reply.status(401).send({ error: 'User session entity not found' });

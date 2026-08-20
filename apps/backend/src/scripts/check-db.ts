@@ -1,25 +1,17 @@
 import { createDbClient } from '@payit/db';
-import { entities, accounts } from '@payit/db/schema';
+import { users, entities, accounts, feeLedger } from '@payit/db/schema';
 
-const db = createDbClient();
-
-async function check() {
+async function main() {
+  const db = createDbClient();
+  const allUsers = await db.select().from(users);
   const allEntities = await db.select().from(entities);
-  console.log(`FOUND ${allEntities.length} ENTITIES IN NEON DB:`);
-  for (const e of allEntities) {
-    console.log(`\nEntity ID: ${e.id}`);
-    console.log(`  Legal Name: "${e.legalName}"`);
-    console.log(`  Kind: ${e.kind} | Status: ${e.nuvionStatus} | Tier: ${e.nuvionTier}`);
-    console.log(`  NuvionEntityId: ${e.nuvionEntityId}`);
+  const allAccounts = await db.select().from(accounts);
+  const allFees = await db.select().from(feeLedger);
 
-    const accs = await db.select().from(accounts).where((accounts as any).entityId ? (accounts as any).entityId : undefined);
-    console.log(`  Linked Accounts:`);
-    for (const a of accs) {
-      if (a.entityId === e.id) {
-        console.log(`    -> [${a.currency}] BAN: ${a.accountNumber} | Bank: ${a.bankName} | Holder: ${a.accountHolderName} | NuvionAccId: ${a.nuvionAccountId}`);
-      }
-    }
-  }
+  console.log(`Users: ${allUsers.length}`);
+  console.log(`Entities: ${allEntities.length}`);
+  console.log(`Virtual Accounts: ${allAccounts.length}`);
+  console.log(`Fee Ledger Entries: ${allFees.length}`);
 }
 
-check().catch(console.error).finally(() => process.exit(0));
+main().catch(console.error);

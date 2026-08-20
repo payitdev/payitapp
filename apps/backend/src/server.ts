@@ -17,6 +17,8 @@ import { waitlistRoutes } from './routes/waitlist.js';
 import { devSeedRoutes } from './routes/devSeed.js';
 import { podsRoutes } from './routes/pods.js';
 import { ondoRoutes } from './routes/ondo.js';
+import { intentRoutes } from './routes/intents.js';
+import { kaminoRoutes } from './routes/kamino.js';
 
 import { requireAuthHook } from './middleware/requireAuth.js';
 import { ReconcilerEngine } from './services/reconcilerEngine.js';
@@ -60,6 +62,8 @@ export function buildServer() {
   server.register(transferRoutes);
   server.register(podsRoutes);
   server.register(ondoRoutes);
+  server.register(intentRoutes);
+  server.register(kaminoRoutes);
 
   server.register(cardRoutes);
   server.register(invoiceRoutes);
@@ -126,4 +130,7 @@ if (process.env.NODE_ENV !== 'test') {
     }
     console.log(`🚀 PayIT Backend API running on ${address}`);
   });
+  
+  import('./scheduler.js').then(({ initScheduler }) => initScheduler());
 }
+

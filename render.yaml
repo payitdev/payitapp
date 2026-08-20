@@ -9,7 +9,7 @@ services:
     region: oregon
     plan: free
     buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm -r build
-    startCommand: pnpm --filter payit-backend start
+    startCommand: pnpm --filter @payit/db migrate && pnpm --filter payit-backend start
     envVars:
       - key: PORT
         value: 10000
@@ -38,6 +38,28 @@ services:
       - key: MAGIC_SECRET_KEY
         sync: false
       - key: KMS_MASTER_SECRET
+        sync: false
+      - key: NEAR_NETWORK_ID
+        value: mainnet
+      - key: NEAR_RELAYER_ACCOUNT_ID
+        sync: false
+      - key: NEAR_RELAYER_PRIVATE_KEY
+        sync: false
+      - key: PROXIM_TREASURY_WALLET
+        sync: false
+      - key: EASEID_APP_ID
+        sync: false
+      - key: EASEID_API_KEY
+        sync: false
+      - key: EASEID_BASE_URL
+        value: https://open-api.easeid.ai
+      - key: BRAILS_API_KEY
+        sync: false
+      - key: BRAILS_API_BASE_URL
+        value: https://api.brails.com/v1
+      - key: BRAILS_WEBHOOK_SECRET
+        sync: false
+      - key: BACKEND_PUBLIC_URL
         sync: false
 
   # ---------------------------------------------------------------------------

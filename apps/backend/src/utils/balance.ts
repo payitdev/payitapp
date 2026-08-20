@@ -28,7 +28,13 @@ export async function getEntityBalance(
     }
   }
 
-  const balance = totalCredit - totalDebit;
+  // Look up account type to apply proper double-entry accounting rules
+  const accRows = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, accountId)).limit(1);
+  const isAsset = accRows.length === 0 || accRows[0].type === 'ASSET';
+
+  // For ASSET accounts: Normal balance is DEBIT (Deposits increase on DEBIT, spending decreases on CREDIT)
+  // For LIABILITY/EQUITY: Normal balance is CREDIT (Funding increases on CREDIT, payout on DEBIT)
+  const balance = isAsset ? (totalDebit - totalCredit) : (totalCredit - totalDebit);
   return Math.max(0, Math.round(balance * 100) / 100);
 }
 

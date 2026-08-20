@@ -1,12 +1,6 @@
-/**
- * Dev/Staging-only seed routes.
- * These routes are ONLY registered when NODE_ENV !== 'production'.
- * They simulate a Nuvion deposit so developers can test the full
- * balance + activity flow without a live bank transfer.
- */
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq } from '@payit/db';
-import { entities, auditLogs, ledgerEntries, ledgerAccounts } from '@payit/db/schema';
+import { entities, ledgerEntries, ledgerAccounts } from '@payit/db/schema';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
@@ -14,8 +8,6 @@ const db = createDbClient();
 export async function devSeedRoutes(server: FastifyInstance) {
   /**
    * POST /api/dev/seed-deposit
-   * Seeds a fake Nuvion deposit into the ledger for the given entity.
-   * Body: { entityId: string, amount: number, currency?: string }
    */
   server.post('/api/dev/seed-deposit', async (request, reply) => {
     const adminSecret = request.headers['x-admin-secret'];
@@ -24,7 +16,7 @@ export async function devSeedRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: 'UNAUTHORIZED_SEED_REQUEST', message: 'Valid x-admin-secret header required' });
     }
 
-    const { entityId, amount, currency = 'NGN' } = request.body as {
+    const { entityId, amount, currency = 'USD' } = request.body as {
       entityId: string;
       amount: number;
       currency?: string;
@@ -38,53 +30,55 @@ export async function devSeedRoutes(server: FastifyInstance) {
     if (entityRows.length === 0) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
-    const entity = entityRows[0];
 
     const txId = ulid();
-    const currUpper = (currency || 'NGN').toUpperCase();
+    const currUpper = (currency || 'USD').toUpperCase();
     const ledgerAccId = `${entityId}_cash_${currUpper}`;
     const ledgerClearId = `${entityId}_inbound_${currUpper}`;
 
-    // Ensure ledger accounts exist
     const existingAcc = await db.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, ledgerAccId)).limit(1);
     if (existingAcc.length === 0) {
       await db.insert(ledgerAccounts).values([
-        { id: ledgerAccId, entityId, name: `Cash / Wallet (${currUpper})`, type: 'ASSET', currency: currUpper, createdAt: new Date() },
-        { id: ledgerClearId, entityId, name: `Inbound Deposit Clearing (${currUpper})`, type: 'LIABILITY', currency: currUpper, createdAt: new Date() },
+        {
+          id: ledgerAccId,
+          entityId,
+          name: `Available ${currUpper}`,
+          type: 'ASSET',
+          currency: currUpper,
+        },
+        {
+          id: ledgerClearId,
+          entityId,
+          name: `Inbound Clearing ${currUpper}`,
+          type: 'LIABILITY',
+          currency: currUpper,
+        },
       ]);
     }
 
-    // Double-entry: debit clearing, credit cash
     await db.insert(ledgerEntries).values([
-      { id: ulid(), entityId, transactionId: txId, ledgerAccountId: ledgerClearId, type: 'DEBIT', amount: String(amount), createdAt: new Date() },
-      { id: ulid(), entityId, transactionId: txId, ledgerAccountId: ledgerAccId, type: 'CREDIT', amount: String(amount), createdAt: new Date() },
+      {
+        id: ulid(),
+        entityId,
+        transactionId: txId,
+        ledgerAccountId: ledgerAccId,
+        type: 'DEBIT',
+        amount: String(amount.toFixed(4)),
+      },
+      {
+        id: ulid(),
+        entityId,
+        transactionId: txId,
+        ledgerAccountId: ledgerClearId,
+        type: 'CREDIT',
+        amount: String(amount.toFixed(4)),
+      },
     ]);
-
-    // Audit log so it shows up in /api/transfers/history
-    await db.insert(auditLogs).values({
-      id: ulid(),
-      userId: entity.userId,
-      entityId,
-      action: 'NUVION_DEPOSIT_CREDITED',
-      metadata: JSON.stringify({
-        rawAmount: amount,
-        normalizedAmount: amount,
-        netUserAmount: amount * 0.97,
-        payitFeeAmount: amount * 0.03,
-        currency,
-        senderName: 'Dev Test Deposit',
-        reference: `dev_seed_${txId}`,
-        txId,
-      }),
-      createdAt: new Date(),
-    });
 
     return reply.send({
       success: true,
-      message: `Seeded ${currency} ${amount.toLocaleString()} deposit into ledger`,
-      txId,
-      entityId,
-      newBalance: amount,
+      message: `Seeded ${amount} ${currUpper} deposit into entity ${entityId}`,
+      transactionId: txId,
     });
   });
 }
