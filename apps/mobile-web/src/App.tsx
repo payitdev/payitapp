@@ -2776,7 +2776,15 @@ export default function App() {
                       });
                       const data = await response.json().catch(() => ({}));
                       if (!response.ok) {
-                        alert(data.error || 'Kamino deposit is currently unavailable. No funds were moved.');
+                        console.error('Savings deposit request failed:', {
+                          status: response.status,
+                          strategy: yieldStrategy,
+                          vaultId: selectedYieldOption || selectedKaminoVault,
+                          error: data.error,
+                          details: data.details,
+                        });
+                        const providerReason = data.details ? `\n\nDetails: ${data.details}` : '';
+                        alert(`${data.error || 'Savings deposit is currently unavailable. No funds were moved.'}${providerReason}`);
                         return;
                       }
 
