@@ -77,6 +77,10 @@ services:
           type: web
           name: payit-backend
           property: host
+      - key: VITE_PRIVY_APP_ID
+        sync: false
+      - key: VITE_PRIVY_CLIENT_ID
+        sync: false
     routes:
       - type: rewrite
         source: /*
