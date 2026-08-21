@@ -9,7 +9,6 @@ import { PrivyProvider as BasePrivyProvider, usePrivy as usePrivyBase } from '@p
 
 // Environment variables
 const PRIVY_APP_ID = (import.meta as any).env?.VITE_PRIVY_APP_ID || '';
-const PRIVY_CLIENT_ID = (import.meta as any).env?.VITE_PRIVY_CLIENT_ID || '';
 
 interface PrivyContextType {
   authenticated: boolean;
@@ -79,13 +78,12 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
     >
       <BasePrivyProvider
         appId={PRIVY_APP_ID}
-        clientId={PRIVY_CLIENT_ID}
         config={{
+          loginMethods: ['google', 'apple', 'email'],
           appearance: {
             theme: 'dark',
             accentColor: '#16C7B7',
             logo: '/proxim-icon.png',
-            showWalletLoginFirst: false,
           },
         }}
       >

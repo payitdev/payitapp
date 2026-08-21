@@ -37,6 +37,10 @@ services:
         sync: false
       - key: MAGIC_SECRET_KEY
         sync: false
+      - key: PRIVY_APP_ID
+        sync: false
+      - key: PRIVY_APP_SECRET
+        sync: false
       - key: KMS_MASTER_SECRET
         sync: false
       - key: NEAR_NETWORK_ID
@@ -78,8 +82,6 @@ services:
           name: payit-backend
           property: host
       - key: VITE_PRIVY_APP_ID
-        sync: false
-      - key: VITE_PRIVY_CLIENT_ID
         sync: false
     routes:
       - type: rewrite
