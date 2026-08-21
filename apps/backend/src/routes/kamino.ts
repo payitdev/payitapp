@@ -148,9 +148,10 @@ export async function kaminoRoutes(server: FastifyInstance) {
    * Lock funds into a Kamino High-Yield Term Vault via NEAR Intent 1Click Cross-Chain Swap & Solana Deposit
    */
   server.post('/api/kamino/lock', async (request, reply) => {
-    const { entityId, amountUsd, lockDurationDays = 90, vaultId, strategy = 'kamino', passcode } = request.body as {
+    const { entityId, amountUsd, originAsset = 'base:usdc', lockDurationDays = 90, vaultId, strategy = 'kamino', passcode } = request.body as {
       entityId: string;
       amountUsd: number;
+      originAsset?: string;
       lockDurationDays?: number;
       vaultId?: string;
       strategy?: 'kamino' | 'near_intent';
@@ -190,7 +191,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         vaultName = vault.name || vault.id;
         grossApy = Number(vault.grossApy || 0);
         userNetApy = Number(vault.userNetApy || grossApy);
-        nearIntent = await nearIntentsClient.generateEarnIntent({ vaultId, originAsset: 'base:usdc', amount: String(amountUsd), recipientAddress: derivation.solanaAddress });
+        nearIntent = await nearIntentsClient.generateEarnIntent({ vaultId, originAsset, amount: String(amountUsd), recipientAddress: derivation.solanaAddress });
       } else {
         const vaults = await kaminoClient.getKaminoVaults();
         const vault = vaults.find((candidate) => candidate.id === vaultId);
@@ -199,7 +200,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         vaultName = vault.name;
         grossApy = normalizeApy(metrics.apy90d) * 100;
         userNetApy = Math.max(0, grossApy - 2);
-        nearIntent = await nearIntentsClient.generateIntentForSigning({ originAsset: 'base:usdc', destinationAsset: 'solana:usdc', amount: String(amountUsd), recipientAddress: vault.id });
+        nearIntent = await nearIntentsClient.generateIntentForSigning({ originAsset, destinationAsset: 'solana:usdc', amount: String(amountUsd), recipientAddress: vault.id });
       }
 
       const startDate = new Date();
@@ -231,7 +232,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         await db.insert(intentSwaps).values({
           id: `swap_${ulid()}`,
           entityId,
-          originAsset: 'base:usdc',
+          originAsset,
           destinationAsset: strategy === 'near_intent' ? vaultId : 'solana:usdc',
           originAmount: String(amountUsd),
           depositAddress: intentDepositAddress,
@@ -254,7 +255,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         nearIntent: {
           intentId,
           depositAddress: intentDepositAddress,
-          originAsset: 'base:usdc',
+          originAsset,
           destinationAsset: strategy === 'near_intent' ? vaultId : 'solana:usdc',
           amountUsdc: amountUsd,
           tokenAddressBase: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Canonical Base USDC

@@ -2771,8 +2771,8 @@ export default function App() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(isPods
-                          ? { strategyId: selectedYieldOption, amount: String(Math.floor(amt * 1_000_000)), userWallet: activeEntity.evmDepositAddress }
-                          : { entityId: activeEntity.id, amountUsd: amt, lockDurationDays: Number(savingsDurationDays), vaultId: selectedYieldOption || selectedKaminoVault, strategy: yieldStrategy, passcode }),
+                          ? { strategyId: selectedYieldOption, amount: String(Math.floor(amt * 1_000_000)), userWallet: wallets?.[0]?.address || activeEntity.evmDepositAddress }
+                          : { entityId: activeEntity.id, amountUsd: amt, originAsset: 'base:usdc', lockDurationDays: Number(savingsDurationDays), vaultId: selectedYieldOption || selectedKaminoVault, strategy: yieldStrategy, passcode }),
                       });
                       const data = await response.json().catch(() => ({}));
                       if (!response.ok) {
