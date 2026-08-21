@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createDbClient, eq, and } from '@payit/db';
 import { entities, termVaults, intentSwaps, feeLedger, trustedDevices, users } from '@payit/db/schema';
-import { kaminoClient, PrivyNEARBridge, NEARIntentsClient } from '@payit/integrations';
+import { kaminoClient, PrivyNEARBridge, NEARIntentsClient, signAndSubmitSolanaTransaction } from '@payit/integrations';
 import { ulid } from 'ulid';
 import { env } from '../env.js';
 
@@ -269,6 +269,74 @@ export async function kaminoRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       return reply.status(502).send({ error: 'Kamino deposit failed', details: err.message });
+    }
+  });
+
+  /**
+   * POST /api/kamino/execute-deposit
+   * Fetch Kamino's real Solana instruction payload and execute it with the
+   * entity's NEAR Chain Signatures-derived MPC wallet after USDC settles.
+   */
+  server.post('/api/kamino/execute-deposit', async (request, reply) => {
+    const { entityId, vaultId, amountUsdc, termVaultId, passcode } = request.body as {
+      entityId: string;
+      vaultId: string;
+      amountUsdc: number;
+      termVaultId?: string;
+      passcode?: string;
+    };
+
+    if (!entityId || !vaultId || !Number.isFinite(amountUsdc) || amountUsdc <= 0) {
+      return reply.status(400).send({ error: 'entityId, vaultId, and a valid amountUsdc are required' });
+    }
+
+    const userId = await requirePasscode(request, passcode);
+    if (!userId) return reply.status(401).send({ error: 'A valid 6-digit transaction PIN is required' });
+
+    const ownedEntity = await db.select().from(entities)
+      .where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1);
+    if (ownedEntity.length === 0) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    try {
+      const entity = ownedEntity[0];
+      const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+      if (!user?.privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+
+      const context = entity.kind === 'BUSINESS' ? 'business' : 'personal';
+      const derivation = await PrivyNEARBridge.deriveAddress(user.privyUserId, context, user.email);
+      if (!derivation.solanaAddress) return reply.status(409).send({ error: 'No Solana MPC address is available for this entity' });
+
+      const amount = String(Math.floor(amountUsdc * 1_000_000));
+      const instructionResponse = await kaminoClient.getDepositInstructions(derivation.solanaAddress, vaultId, amount);
+      const instructions = instructionResponse.instructions || [];
+      if (!Array.isArray(instructions) || instructions.length === 0) {
+        return reply.status(502).send({ error: 'Kamino returned no executable deposit instructions' });
+      }
+
+      const result = await signAndSubmitSolanaTransaction({
+        userIdentifier: `privy-${user.privyUserId}`,
+        context,
+        to: vaultId,
+        amount: 0n,
+        instructions: instructions as any,
+      });
+
+      if (termVaultId) {
+        await db.update(termVaults).set({ status: 'LOCKED' }).where(eq(termVaults.id, termVaultId));
+      }
+
+      return reply.send({
+        success: true,
+        entityId,
+        vaultId,
+        termVaultId,
+        solanaAddress: derivation.solanaAddress,
+        txHash: result.txHash,
+        status: 'LOCKED',
+      });
+    } catch (err: any) {
+      console.error('[Kamino MPC Deposit Error]:', err.message);
+      return reply.status(502).send({ error: 'Kamino MPC deposit failed', details: err.message });
     }
   });
 

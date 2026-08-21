@@ -1228,7 +1228,7 @@ export default function App() {
       const body = sendModeTab === 'fiat'
         ? { session: { userId, activeEntityId: activeEntity.id }, entityId: activeEntity.id, mode: 'fiat', currency: sendCurrency, amount: parseFloat(sendAmount), recipientName: sendRecipient, bankName: sendBankName, accountNumber: sendAccountNumber, ibanOrRoutingNumber: sendIbanOrRouting || undefined, bicOrSwiftCode: sendBicOrSwift || undefined, sortCode: sendSortCode || undefined, narration: sendNarration, passcode: sendStepUpPin || undefined }
         : { session: { userId, activeEntityId: activeEntity.id }, entityId: activeEntity.id, mode: 'crypto', currency: 'USD', amount: parseFloat(sendAmount), network: sendCryptoNetwork, recipientAddress: sendCryptoAddress, asset: sendCryptoAsset, narration: sendNarration, passcode: sendStepUpPin || undefined };
-      const res = await fetch(`${API_BASE_URL}/api/transfers/execute`, {
+      const res = await apiFetch(`${API_BASE_URL}/api/transfers/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-proxim-entity-id': activeEntity.id, 'x-idempotency-key': idempotencyKey },
         body: JSON.stringify(body),
@@ -2831,6 +2831,38 @@ export default function App() {
                                 chain: 'base',
                               }),
                             }).catch(() => {});
+
+                            if (yieldStrategy === 'kamino' && data.termVaultId && data.nearIntent?.intentId) {
+                              let settled = false;
+                              for (let attempt = 0; attempt < 24; attempt += 1) {
+                                await new Promise((resolve) => setTimeout(resolve, 5000));
+                                const statusResponse = await apiFetch(`${API_BASE_URL}/api/intents/status/${encodeURIComponent(data.nearIntent.intentId)}`);
+                                const statusData = await statusResponse.json().catch(() => ({}));
+                                const intentStatus = String(statusData.status || statusData.data?.status || '').toUpperCase();
+                                if (['COMPLETED', 'SUCCESS', 'EXECUTED'].includes(intentStatus)) {
+                                  const kaminoResponse = await apiFetch(`${API_BASE_URL}/api/kamino/execute-deposit`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      entityId: activeEntity.id,
+                                      vaultId: data.vaultAddress,
+                                      amountUsdc: amt,
+                                      termVaultId: data.termVaultId,
+                                      passcode,
+                                    }),
+                                  });
+                                  const kaminoData = await kaminoResponse.json().catch(() => ({}));
+                                  if (!kaminoResponse.ok) throw new Error(kaminoData.details || kaminoData.error || 'Kamino vault deposit failed.');
+                                  alert(`Kamino deposit confirmed: ${kaminoData.txHash}`);
+                                  settled = true;
+                                  break;
+                                }
+                                if (['FAILED', 'REFUNDED', 'EXPIRED'].includes(intentStatus)) {
+                                  throw new Error(`NEAR Intent settlement failed: ${intentStatus}`);
+                                }
+                              }
+                              if (!settled) throw new Error('NEAR Intent is still settling. Your deposit remains pending; check again shortly.');
+                            }
                           }
                           
                           alert(`Deposit authorized. Funds transferred to solver on Base with transaction: ${txHash || 'confirmed'}`);
