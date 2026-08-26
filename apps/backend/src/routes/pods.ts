@@ -61,7 +61,7 @@ export async function podsRoutes(server: FastifyInstance) {
 
       // 2. Compose gasless Biconomy quote
       const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: {},
+        userOp: { sender: userWallet },
         chainId: podsBytecode.chainIdIn || 8453,
         mode: 'gasless',
         sponsor: true,
@@ -160,7 +160,7 @@ export async function podsRoutes(server: FastifyInstance) {
       });
 
       const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: {},
+        userOp: { sender: resolvedWallet },
         chainId: podsBytecode.chainIdIn || 8453,
         mode: 'gasless',
         sponsor: true,

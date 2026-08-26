@@ -1,7 +1,7 @@
 /**
  * Privy Login Component
  * 
- * Handles social login via Privy (Google, Apple, Email, Passkeys)
+ * Handles authentication via Privy (Google, Apple, Email)
  * Styled according to the Proxim Brand System
  */
 
@@ -39,7 +39,7 @@ export function PrivyLogin({ onLoginSuccess, onLoginError }: PrivyLoginProps) {
     setIsLoggingIn(true);
     setLoginError('');
     try {
-      login();
+      await login();
     } catch (err: any) {
       setIsLoggingIn(false);
       setLoginError(err.message || 'Failed to initialize authentication');
@@ -71,7 +71,7 @@ export function PrivyLogin({ onLoginSuccess, onLoginError }: PrivyLoginProps) {
         }}
       >
         <Lock className="w-4 h-4" />
-        {isLoggingIn ? 'Connecting Passkey...' : 'Sign in with Passkey or Email'}
+        {isLoggingIn ? 'Connecting...' : 'Sign in with Privy'}
         <ArrowRight className="w-4 h-4" />
       </button>
       

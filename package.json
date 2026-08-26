@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
+    "check-secrets": "node scripts/check-secrets.mjs",
     "dev": "pnpm --parallel --filter ./apps/* dev"
   },
   "devDependencies": {
@@ -21,7 +22,6 @@
   ],
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@magic-sdk/admin": "^2.8.2",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "hdkey": "^2.1.0",

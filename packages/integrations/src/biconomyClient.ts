@@ -87,20 +87,15 @@ export class BiconomyClient {
         throw new Error(`Biconomy Quote Error (${response.status}): ${errText}`);
       }
 
-      return await response.json();
+      const result = await response.json();
+      const quote = result?.quote || result;
+      if (!quote?.userOp && !quote?.userOperation) {
+        throw new Error('Biconomy returned no signable user operation. Verify the signer wallet and strategy instructions.');
+      }
+      return quote;
     } catch (err: any) {
-      console.warn('[BiconomyClient] Live quote fallback to sponsored mock:', err.message);
-      return {
-        quoteId: `quote-mee-${Date.now()}`,
-        chainId: payload.chainId,
-        mode: payload.mode || 'gasless',
-        sponsor: true,
-        feeAmount: '0',
-        feeToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        userOp: payload.userOp || {},
-        instructions: payload.instructions || [],
-        validUntil: Math.floor(Date.now() / 1000) + 3600,
-      };
+      console.error('[BiconomyClient] quote generation failed:', err.message);
+      throw err;
     }
   }
 

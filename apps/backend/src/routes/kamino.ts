@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createDbClient, eq, and } from '@payit/db';
 import { entities, termVaults, intentSwaps, feeLedger, trustedDevices, users } from '@payit/db/schema';
-import { kaminoClient, PrivyNEARBridge, NEARIntentsClient } from '@payit/integrations';
+import { kaminoClient, PrivyNEARBridge, NEARIntentsClient, signAndSubmitSolanaTransaction } from '@payit/integrations';
 import { ulid } from 'ulid';
 import { env } from '../env.js';
 
@@ -148,9 +148,10 @@ export async function kaminoRoutes(server: FastifyInstance) {
    * Lock funds into a Kamino High-Yield Term Vault via NEAR Intent 1Click Cross-Chain Swap & Solana Deposit
    */
   server.post('/api/kamino/lock', async (request, reply) => {
-    const { entityId, amountUsd, lockDurationDays = 90, vaultId, strategy = 'kamino', passcode } = request.body as {
+    const { entityId, amountUsd, originAsset = 'base:usdc', lockDurationDays = 90, vaultId, strategy = 'kamino', passcode } = request.body as {
       entityId: string;
       amountUsd: number;
+      originAsset?: string;
       lockDurationDays?: number;
       vaultId?: string;
       strategy?: 'kamino' | 'near_intent';
@@ -190,7 +191,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         vaultName = vault.name || vault.id;
         grossApy = Number(vault.grossApy || 0);
         userNetApy = Number(vault.userNetApy || grossApy);
-        nearIntent = await nearIntentsClient.generateEarnIntent({ vaultId, originAsset: 'base:usdc', amount: String(amountUsd), recipientAddress: derivation.solanaAddress });
+        nearIntent = await nearIntentsClient.generateEarnIntent({ vaultId, originAsset, amount: String(amountUsd), recipientAddress: derivation.solanaAddress });
       } else {
         const vaults = await kaminoClient.getKaminoVaults();
         const vault = vaults.find((candidate) => candidate.id === vaultId);
@@ -199,7 +200,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         vaultName = vault.name;
         grossApy = normalizeApy(metrics.apy90d) * 100;
         userNetApy = Math.max(0, grossApy - 2);
-        nearIntent = await nearIntentsClient.generateIntentForSigning({ originAsset: 'base:usdc', destinationAsset: 'solana:usdc', amount: String(amountUsd), recipientAddress: vault.id });
+        nearIntent = await nearIntentsClient.generateIntentForSigning({ originAsset, destinationAsset: 'solana:usdc', amount: String(amountUsd), recipientAddress: vault.id });
       }
 
       const startDate = new Date();
@@ -231,7 +232,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         await db.insert(intentSwaps).values({
           id: `swap_${ulid()}`,
           entityId,
-          originAsset: 'base:usdc',
+          originAsset,
           destinationAsset: strategy === 'near_intent' ? vaultId : 'solana:usdc',
           originAmount: String(amountUsd),
           depositAddress: intentDepositAddress,
@@ -254,7 +255,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         nearIntent: {
           intentId,
           depositAddress: intentDepositAddress,
-          originAsset: 'base:usdc',
+          originAsset,
           destinationAsset: strategy === 'near_intent' ? vaultId : 'solana:usdc',
           amountUsdc: amountUsd,
           tokenAddressBase: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Canonical Base USDC
@@ -268,6 +269,74 @@ export async function kaminoRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       return reply.status(502).send({ error: 'Kamino deposit failed', details: err.message });
+    }
+  });
+
+  /**
+   * POST /api/kamino/execute-deposit
+   * Fetch Kamino's real Solana instruction payload and execute it with the
+   * entity's NEAR Chain Signatures-derived MPC wallet after USDC settles.
+   */
+  server.post('/api/kamino/execute-deposit', async (request, reply) => {
+    const { entityId, vaultId, amountUsdc, termVaultId, passcode } = request.body as {
+      entityId: string;
+      vaultId: string;
+      amountUsdc: number;
+      termVaultId?: string;
+      passcode?: string;
+    };
+
+    if (!entityId || !vaultId || !Number.isFinite(amountUsdc) || amountUsdc <= 0) {
+      return reply.status(400).send({ error: 'entityId, vaultId, and a valid amountUsdc are required' });
+    }
+
+    const userId = await requirePasscode(request, passcode);
+    if (!userId) return reply.status(401).send({ error: 'A valid 6-digit transaction PIN is required' });
+
+    const ownedEntity = await db.select().from(entities)
+      .where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1);
+    if (ownedEntity.length === 0) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    try {
+      const entity = ownedEntity[0];
+      const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+      if (!user?.privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+
+      const context = entity.kind === 'BUSINESS' ? 'business' : 'personal';
+      const derivation = await PrivyNEARBridge.deriveAddress(user.privyUserId, context, user.email);
+      if (!derivation.solanaAddress) return reply.status(409).send({ error: 'No Solana MPC address is available for this entity' });
+
+      const amount = String(Math.floor(amountUsdc * 1_000_000));
+      const instructionResponse = await kaminoClient.getDepositInstructions(derivation.solanaAddress, vaultId, amount);
+      const instructions = instructionResponse.instructions || [];
+      if (!Array.isArray(instructions) || instructions.length === 0) {
+        return reply.status(502).send({ error: 'Kamino returned no executable deposit instructions' });
+      }
+
+      const result = await signAndSubmitSolanaTransaction({
+        userIdentifier: `privy-${user.privyUserId}`,
+        context,
+        to: vaultId,
+        amount: 0n,
+        instructions: instructions as any,
+      });
+
+      if (termVaultId) {
+        await db.update(termVaults).set({ status: 'LOCKED' }).where(eq(termVaults.id, termVaultId));
+      }
+
+      return reply.send({
+        success: true,
+        entityId,
+        vaultId,
+        termVaultId,
+        solanaAddress: derivation.solanaAddress,
+        txHash: result.txHash,
+        status: 'LOCKED',
+      });
+    } catch (err: any) {
+      console.error('[Kamino MPC Deposit Error]:', err.message);
+      return reply.status(502).send({ error: 'Kamino MPC deposit failed', details: err.message });
     }
   });
 
