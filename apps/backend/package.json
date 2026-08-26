@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
-    "@magic-sdk/admin": "^2.3.0",
     "@payit/ai": "workspace:*",
     "@payit/contracts": "workspace:*",
     "@payit/db": "workspace:*",
@@ -24,6 +23,7 @@
     "axios": "^1.7.9",
     "drizzle-orm": "^0.45.2",
     "fastify": "^4.26.1",
+    "fastify-raw-body": "^4.3.0",
     "near-api-js": "^7.3.0",
     "zod": "^3.22.4"
   },

@@ -25,18 +25,6 @@ services:
         sync: false
       - key: NUVION_WEBHOOK_SECRET
         sync: false
-      - key: PARTICLE_PROJECT_ID
-        sync: false
-      - key: PARTICLE_CLIENT_KEY
-        sync: false
-      - key: PARTICLE_SERVER_KEY
-        sync: false
-      - key: PARTICLE_APP_ID
-        sync: false
-      - key: MAGIC_PUBLISHABLE_KEY
-        sync: false
-      - key: MAGIC_SECRET_KEY
-        sync: false
       - key: PRIVY_APP_ID
         sync: false
       - key: PRIVY_APP_SECRET
@@ -64,7 +52,9 @@ services:
       - key: BRAILS_WEBHOOK_SECRET
         sync: false
       - key: BACKEND_PUBLIC_URL
-        sync: false
+        value: https://payit-backend-td53.onrender.com
+      # Configure this exact URL in Brails:
+      # https://payit-backend-td53.onrender.com/webhooks/brails
 
   # ---------------------------------------------------------------------------
   # 2. PayIT Mobile Web Frontend
