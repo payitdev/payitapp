@@ -37,5 +37,8 @@ scripts/.secret-scan-cache
 backend-startup.log
 *.timestamp-*.mjs
 *.mjs.timestamp-*
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.js
+
 
 

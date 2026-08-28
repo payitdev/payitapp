@@ -203,6 +203,34 @@ export interface BrailsCollectionPayload {
   payload: Record<string, string>;
 }
 
+export type BrailsChain = 'base' | 'polygon' | 'solana' | 'ethereum' | 'optimism' | 'avalanche' | 'stellar';
+
+export interface BrailsSendStablecoinPayload {
+  amount: number; // amount in cents (e.g. 1000 = $10.00)
+  address: string; // recipient wallet address
+  chain: BrailsChain;
+  reference: string;
+  description: string;
+  customerEmail: string;
+  callbackUrl?: string;
+}
+
+export interface BrailsGenerateDepositAddressPayload {
+  chain: BrailsChain;
+  reference: string;
+  description?: string;
+  customerEmail: string;
+  callbackUrl?: string;
+}
+
+export interface BrailsListDepositAddressesParams {
+  chain?: BrailsChain;
+  currency?: 'USDC' | 'USDT';
+  active?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 export class BrailsClient {
   private apiKey: string;
   private v1BaseUrl: string;
@@ -210,7 +238,7 @@ export class BrailsClient {
 
   constructor(apiKey?: string, baseUrl?: string) {
     this.apiKey = apiKey || process.env.BRAILS_API_KEY || '';
-    const configuredBase = baseUrl || process.env.BRAILS_API_BASE_URL || 'https://api.brails.com/v1';
+    const configuredBase = baseUrl || process.env.BRAILS_API_BASE_URL || 'https://api.onbrails.com/api/v1';
     this.v1BaseUrl = configuredBase.replace(/\/$/, '').replace(/\/v2$/, '/v1');
     this.v2BaseUrl = (process.env.BRAILS_API_V2_BASE_URL || this.v1BaseUrl.replace(/\/v1$/, '/v2')).replace(/\/$/, '');
 
@@ -219,7 +247,8 @@ export class BrailsClient {
     }
   }
 
-  private async request<T = any>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', endpoint: string, data?: any, version: 1 | 2 = 1): Promise<T> {
+
+  private async request<T = any>(method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH', endpoint: string, data?: any, version: 1 | 2 = 1): Promise<T> {
     if (!this.apiKey || !this.apiKey.trim()) {
       throw new Error('BRAILS_API_KEY is missing or blank. Configure BRAILS_API_KEY in your environment variables before using Brails.');
     }
@@ -512,9 +541,91 @@ export class BrailsClient {
     return this.request('GET', '/wallets/payout/rates', undefined, 2);
   }
 
+
   /**
-   * 11. Verify Webhook HMAC Signature
+   * 11. Send Stablecoin (USDC / USDT) on Base Chain or Supported Networks
+   * Endpoint: POST /wallets/send/usdc or POST /wallets/send/usdt
+   * Amount in cents (e.g. 1000 = $10.00)
    */
+
+  async sendStablecoin(currency: 'USDC' | 'USDT', payload: BrailsSendStablecoinPayload) {
+    const endpoint = `/wallets/send/${currency.toLowerCase()}`;
+    return this.request('POST', endpoint, {
+      amount: payload.amount,
+      address: payload.address,
+      chain: payload.chain,
+      reference: payload.reference,
+      description: payload.description,
+      customerEmail: payload.customerEmail,
+      callbackUrl: payload.callbackUrl,
+    });
+  }
+
+  /**
+   * 12. Generate Deposit Address for Receiving Stablecoins (USDC / USDT)
+   * Endpoint: POST /wallets/receive/usdc/address or POST /wallets/receive/usdt/address
+   */
+  async generateDepositAddress(currency: 'USDC' | 'USDT', payload: BrailsGenerateDepositAddressPayload) {
+    const endpoint = `/wallets/receive/${currency.toLowerCase()}/address`;
+    return this.request('POST', endpoint, {
+      chain: payload.chain,
+      reference: payload.reference,
+      description: payload.description,
+      customerEmail: payload.customerEmail,
+      callbackUrl: payload.callbackUrl,
+    });
+  }
+
+  /**
+   * 13. Get Deposit Address by ID or Reference
+   * Endpoint: GET /wallets/receive/address/{addressId} or GET /wallets/receive/address?reference={reference}
+   */
+  async getDepositAddress(addressIdOrReference: string, isReference = false) {
+    if (!addressIdOrReference) throw new Error('Deposit address ID or reference is required');
+    if (isReference) {
+      return this.request('GET', `/wallets/receive/address?reference=${encodeURIComponent(addressIdOrReference)}`);
+    }
+    return this.request('GET', `/wallets/receive/address/${encodeURIComponent(addressIdOrReference)}`);
+  }
+
+  /**
+   * 14. List Deposit Addresses with Optional Filters
+   * Endpoint: GET /wallets/receive/addresses
+   */
+  async listDepositAddresses(params?: BrailsListDepositAddressesParams) {
+    const query = new URLSearchParams();
+    if (params?.chain) query.set('chain', params.chain);
+    if (params?.currency) query.set('currency', params.currency);
+    if (params?.active !== undefined) query.set('active', String(params.active));
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request('GET', `/wallets/receive/addresses${suffix}`);
+  }
+
+  /**
+   * 15. Deactivate a Deposit Address
+   * Endpoint: PATCH /wallets/receive/address/{addressId}/deactivate
+   */
+  async deactivateDepositAddress(addressId: string) {
+    if (!addressId) throw new Error('Deposit address ID is required');
+    return this.request('PATCH', `/wallets/receive/address/${encodeURIComponent(addressId)}/deactivate`);
+  }
+
+  /**
+   * 16. Verify Transaction Status (Send or Receive)
+   * Endpoint: GET /transactions/{transactionId}
+   */
+  async verifyTransactionStatus(transactionId: string) {
+    if (!transactionId) throw new Error('Transaction ID is required');
+    return this.request('GET', `/transactions/${encodeURIComponent(transactionId)}`);
+  }
+
+  /**
+   * 17. Verify Webhook HMAC Signature
+   */
+
   verifyWebhookSignature(rawBody: string, signature: string, secret?: string): boolean {
     const webhookSecret = secret || process.env.BRAILS_WEBHOOK_SECRET;
     if (!webhookSecret || !signature) return false;

@@ -163,8 +163,185 @@ export async function brailsRoutes(server: FastifyInstance) {
         }
       }
     }
+    // Stablecoin Receive & Send Webhook Handling
+    if (event.startsWith('stablecoin.')) {
+      const data = body?.data || body;
+      const isSend = event.includes('.send.');
+      const isReceive = event.includes('.receive.');
+      const isSuccess = event.endsWith('.success');
+      const isFailed = event.endsWith('.failed');
+      const currency = event.includes('.usdt.') ? 'USDT' : 'USDC';
+      const ref = String(data?.reference || reference || '');
+      const txId = String(data?.id || collectionId || '');
+
+      if (isReceive && isSuccess) {
+        // Find matching entity by reference prefix or deposit address
+        const matchingTransfers = ref ? await db.select().from(transfers).where(eq(transfers.dueTransferId, ref)).limit(1) : [];
+        const targetEntityId = matchingTransfers[0]?.entityId || (await db.select().from(entities).limit(1))[0]?.id;
+
+        if (targetEntityId) {
+          const amountMajor = (Number(data?.centAmount || Number(data?.amount || 0) * 100) / 100).toFixed(2);
+          const accountId = `${targetEntityId}_cash_${currency}`;
+          const clearingId = `${targetEntityId}_brails_stablecoin_clearing_${currency}`;
+
+          await db.insert(ledgerAccounts).values([
+            { id: accountId, entityId: targetEntityId, name: `Available ${currency}`, type: 'ASSET', currency },
+            { id: clearingId, entityId: targetEntityId, name: `Brails Stablecoin Clearing ${currency}`, type: 'LIABILITY', currency }
+          ]).onConflictDoNothing();
+
+          await db.insert(transfers).values({
+            id: `tr_brails_${ulid()}`,
+            entityId: targetEntityId,
+            dueTransferId: txId || ref,
+            sourceCurrency: currency,
+            targetCurrency: currency,
+            sourceAmount: amountMajor,
+            targetAmount: amountMajor,
+            feeAmount: '0',
+            direction: 'CREDIT',
+            settlementStatus: 'LEDGER_CREDITED',
+            status: 'completed',
+          }).onConflictDoNothing();
+
+          await db.insert(ledgerEntries).values([
+            { id: ulid(), entityId: targetEntityId, transactionId: txId || ref, ledgerAccountId: accountId, type: 'DEBIT', amount: amountMajor },
+            { id: ulid(), entityId: targetEntityId, transactionId: txId || ref, ledgerAccountId: clearingId, type: 'CREDIT', amount: amountMajor },
+          ]).onConflictDoNothing();
+        }
+      }
+
+      if (isSend) {
+        const nextStatus = isSuccess ? 'completed' : isFailed ? 'failed' : 'pending';
+        if (ref) {
+          await db.update(transfers).set({
+            status: nextStatus,
+            settlementStatus: isSuccess ? 'LEDGER_CREDITED' : isFailed ? 'FAILED' : 'SOURCE_SUBMITTED',
+            settlementError: isFailed ? String(data?.reason || data?.message || 'Brails stablecoin transfer failed') : null,
+          }).where(eq(transfers.dueTransferId, ref));
+        }
+      }
+    }
+
     await db.update(rawWebhooks).set({ status: 'PROCESSED' }).where(and(eq(rawWebhooks.eventId, eventId), eq(rawWebhooks.status, 'RECEIVED')));
     return reply.send({ received: true });
+  });
+
+  // Brails Stablecoin Endpoints (Base Chain)
+  server.post('/api/brails/stablecoin/send', async (request, reply) => {
+    const body = request.body as any;
+    const entityId = body.entityId || request.session!.activeEntityId;
+    if (!request.session!.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    const currency = (body.currency || 'USDC').toUpperCase() as 'USDC' | 'USDT';
+    const amountCents = Number(body.amountCents || body.amount || 0);
+    const address = String(body.address || '').trim();
+    const chain = (body.chain || 'base').toLowerCase() as any;
+    const description = String(body.description || 'Proxim Stablecoin Transfer');
+    const reference = String(body.reference || `brails_send_${ulid()}`);
+
+    if (amountCents <= 0 || !Number.isSafeInteger(amountCents)) {
+      return reply.status(400).send({ error: 'amountCents must be a positive integer in cents' });
+    }
+    if (!address) {
+      return reply.status(400).send({ error: 'Recipient address is required' });
+    }
+
+    try {
+      const result = await brails.sendStablecoin(currency, {
+        amount: amountCents,
+        address,
+        chain,
+        reference,
+        description,
+        customerEmail: request.session!.email || 'finance@proxim.financial',
+        callbackUrl: body.callbackUrl,
+      });
+
+      // Record outbound transfer
+      const amountMajor = (amountCents / 100).toFixed(2);
+      await db.insert(transfers).values({
+        id: `tr_${reference}`,
+        entityId,
+        dueTransferId: result?.data?.id || reference,
+        sourceCurrency: currency,
+        targetCurrency: currency,
+        sourceAmount: amountMajor,
+        targetAmount: amountMajor,
+        feeAmount: '2.00', // Brails standard $2.00 fee
+        direction: 'DEBIT',
+        settlementStatus: 'SOURCE_SUBMITTED',
+        status: 'pending',
+      }).onConflictDoNothing();
+
+      return reply.send({ success: true, result, reference });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Brails stablecoin send failed', details: err.message });
+    }
+  });
+
+  server.post('/api/brails/stablecoin/deposit-address', async (request, reply) => {
+    const body = request.body as any;
+    const entityId = body.entityId || request.session!.activeEntityId;
+    if (!request.session!.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    const currency = (body.currency || 'USDC').toUpperCase() as 'USDC' | 'USDT';
+    const chain = (body.chain || 'base').toLowerCase() as any;
+    const reference = String(body.reference || `dep_${entityId}_${ulid()}`);
+    const description = String(body.description || `Proxim ${currency} Deposit Address`);
+
+    try {
+      const result = await brails.generateDepositAddress(currency, {
+        chain,
+        reference,
+        description,
+        customerEmail: request.session!.email || 'finance@proxim.financial',
+        callbackUrl: body.callbackUrl,
+      });
+
+      return reply.send({ success: true, depositAddress: result?.data || result });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Failed to generate Brails deposit address', details: err.message });
+    }
+  });
+
+  server.get('/api/brails/stablecoin/deposit-addresses', async (request, reply) => {
+    const query = request.query as any;
+    const entityId = query.entityId || request.session!.activeEntityId;
+    if (!request.session!.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    try {
+      const result = await brails.listDepositAddresses({
+        chain: query.chain || 'base',
+        currency: query.currency,
+        active: query.active !== undefined ? query.active === 'true' : undefined,
+        limit: query.limit ? Number(query.limit) : undefined,
+        offset: query.offset ? Number(query.offset) : undefined,
+      });
+
+      return reply.send({ success: true, data: result?.data || result });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Failed to list Brails deposit addresses', details: err.message });
+    }
+  });
+
+  server.patch('/api/brails/stablecoin/deposit-address/:addressId/deactivate', async (request, reply) => {
+    const { addressId } = request.params as { addressId: string };
+    try {
+      const result = await brails.deactivateDepositAddress(addressId);
+      return reply.send({ success: true, result });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Failed to deactivate Brails deposit address', details: err.message });
+    }
+  });
+
+  server.get('/api/brails/transactions/:transactionId', async (request, reply) => {
+    const { transactionId } = request.params as { transactionId: string };
+    try {
+      const result = await brails.verifyTransactionStatus(transactionId);
+      return reply.send({ success: true, transaction: result?.data || result });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Failed to fetch Brails transaction status', details: err.message });
+    }
   });
 
   server.get('/api/transfers/brails-status/:payoutId', async (request, reply) => {
@@ -186,4 +363,4 @@ export async function brailsRoutes(server: FastifyInstance) {
     const refreshed = (await db.select().from(transfers).where(eq(transfers.id, rows[0].id)).limit(1))[0];
     return reply.send({ success: true, payoutId, status: refreshed.status, settlementStatus: refreshed.settlementStatus });
   });
-}
+}

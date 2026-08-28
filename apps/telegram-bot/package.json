@@ -6,10 +6,20 @@
   "main": "dist/bot.js",
   "scripts": {
     "build": "tsc",
+    "start": "node dist/bot.js",
+    "poll": "tsc && node dist/polling.js",
+    "test": "node --test dist/**/*.test.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@payit/ai": "workspace:*",
+    "@payit/contracts": "workspace:*",
+    "@payit/db": "workspace:*",
+    "@payit/integrations": "workspace:*",
+    "@payit/ledger": "workspace:*",
+    "@payit/security": "workspace:*",
     "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^4.26.1"
   },
   "devDependencies": {
