@@ -28,4 +28,14 @@ yarn-error.log*
 .tempmediaStorage
 scratch
 *.exe
+scripts/.secret-scan-cache
+
+# Local data exports and backups
+**/*backup*.json
+**/*backup*.sql
+**/*export*.json
+backend-startup.log
+*.timestamp-*.mjs
+*.mjs.timestamp-*
+
 

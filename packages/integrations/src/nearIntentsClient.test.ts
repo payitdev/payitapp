@@ -1,9 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { NEARIntentsClient } from './nearIntentsClient.js';
+import { NEARIntentsClient, toBaseUnits } from './nearIntentsClient.js';
 
 describe('NEARIntentsClient Integration Test', () => {
   const client = new NEARIntentsClient();
+
+  it('converts token amounts to base units without floating point rounding', () => {
+    assert.strictEqual(toBaseUnits('123.456789', 6), 123456789n);
+    assert.throws(() => toBaseUnits('1.0000001', 6));
+  });
 
   it('should fetch supported tokens across chains', async () => {
     const response = await client.getSupportedTokens();
@@ -35,6 +40,27 @@ describe('NEARIntentsClient Integration Test', () => {
     assert.ok(intent);
     assert.strictEqual(intent.success, true);
     assert.ok(intent.intentId);
+  });
+
+  it('should reject a provider-supported asset excluded by Proxim policy', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v0/tokens')) {
+        return new Response(JSON.stringify([
+          { assetId: 'base-usdc', blockchain: 'base', symbol: 'USDC', decimals: 6 },
+          { assetId: 'base-usdt', blockchain: 'base', symbol: 'USDT', decimals: 6 },
+          { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+        ]), { status: 200 });
+      }
+      throw new Error('Quote must not be requested for a disabled pair');
+    }) as typeof fetch;
+    const restrictedClient = new NEARIntentsClient({ allowedAssets: ['base:usdc', 'solana:usdc'] });
+    await assert.rejects(
+      () => restrictedClient.generateIntentForSigning({ originAsset: 'base:usdt', destinationAsset: 'solana:usdc', amount: '1', recipientAddress: '11111111111111111111111111111111' }),
+      /not enabled by Proxim policy/
+    );
+    globalThis.fetch = originalFetch;
   });
 
   it('should reject status lookup for an unknown deposit address', async () => {

@@ -1,7 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import { createDbClient, eq, sql } from '@payit/db';
-import { entities, contacts } from '@payit/db/schema';
+import { createDbClient, eq, and, or, sql } from '@payit/db';
+import { entities, contacts, paymentRequests, transfers, ledgerAccounts, ledgerEntries } from '@payit/db/schema';
 import { ulid } from 'ulid';
+import { getEntityBalance } from '../utils/balance.js';
 
 const db = createDbClient();
 
@@ -17,8 +18,6 @@ interface StoredPaymentRequest {
   createdAt: string;
 }
 
-const paymentRequestStore = new Map<string, StoredPaymentRequest>();
-
 export async function paymentRoutes(server: FastifyInstance) {
 
   /**
@@ -31,21 +30,14 @@ export async function paymentRoutes(server: FastifyInstance) {
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     const username = entityRows[0]?.username?.toLowerCase();
 
-    const allRequests = Array.from(paymentRequestStore.values());
-
-    // Inbound: where this entity is the payer
-    const inbound = allRequests.filter(r =>
-      r.payerEntityId === entityId || (username && r.payerUsername?.toLowerCase() === username)
-    );
-
-    // Outbound: where this entity is the requester
-    const outbound = allRequests.filter(r => r.requesterEntityId === entityId);
+    const inbound = await db.select().from(paymentRequests).where(or(eq(paymentRequests.payerEntityId, entityId), and(sql`LOWER(${paymentRequests.payerUsername}) = ${username || ''}`, eq(paymentRequests.status, 'PENDING'))));
+    const outbound = await db.select().from(paymentRequests).where(eq(paymentRequests.requesterEntityId, entityId));
 
     // Mutual contacts check
     const contactList = await db.select().from(contacts).where(eq(contacts.entityId, entityId));
     const contactEntityIds = new Set(contactList.map(c => c.targetEntityId).filter(Boolean));
 
-    const formatRequest = async (req: StoredPaymentRequest) => {
+    const formatRequest = async (req: any) => {
       const requesterRows = await db.select().from(entities).where(eq(entities.id, req.requesterEntityId)).limit(1);
       const requester = requesterRows[0];
       const isMutualContact = contactEntityIds.has(req.requesterEntityId);
@@ -110,25 +102,17 @@ export async function paymentRoutes(server: FastifyInstance) {
     const payer = payerRows[0];
     const requestId = ulid();
 
-    const newReq: StoredPaymentRequest = {
-      id: requestId,
-      requesterEntityId: entityId,
-      payerEntityId: payer?.id,
-      payerUsername: payer?.username || clean,
-      amount: Number(amount),
-      currency: currency.toUpperCase(),
-      narration: narration || 'Payment Request',
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-    };
-
-    paymentRequestStore.set(requestId, newReq);
+    await db.insert(paymentRequests).values({
+      id: requestId, requesterEntityId: entityId, payerEntityId: payer?.id,
+      payerUsername: payer?.username || clean, amount: Number(amount).toFixed(4),
+      currency: currency.toUpperCase(), narration: narration || 'Payment Request', status: 'PENDING',
+    });
 
     return reply.send({
       success: true,
       requestId,
       message: 'Payment request sent successfully',
-      request: newReq,
+      request: { id: requestId, requesterEntityId: entityId, payerEntityId: payer?.id, amount, currency: currency.toUpperCase(), narration: narration || 'Payment Request', status: 'PENDING' },
     });
   });
 
@@ -139,11 +123,36 @@ export async function paymentRoutes(server: FastifyInstance) {
     const { entityId, requestId } = request.body as { entityId: string; requestId: string };
     if (!requestId) return reply.status(400).send({ error: 'requestId is required' });
 
-    const req = paymentRequestStore.get(requestId);
-    if (req) {
-      req.status = 'PAID';
-      paymentRequestStore.set(requestId, req);
-    }
+    if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    const reqRows = await db.select().from(paymentRequests).where(eq(paymentRequests.id, requestId)).limit(1);
+    const req = reqRows[0];
+    if (!req || req.status !== 'PENDING') return reply.status(409).send({ error: 'Payment request is unavailable' });
+    if (req.payerEntityId && req.payerEntityId !== entityId) return reply.status(403).send({ error: 'Payment request is assigned to another entity' });
+    const normalizedCurrency = req.currency.toUpperCase();
+    const amount = Number(req.amount);
+    if (await getEntityBalance(db, entityId, normalizedCurrency, 'cash') < amount) return reply.status(409).send({ error: 'Insufficient available balance' });
+    const transferId = ulid();
+    const sourceCash = `${entityId}_cash_${normalizedCurrency}`;
+    const sourceClearing = `${entityId}_outbound_${normalizedCurrency}`;
+    const targetCash = `${req.requesterEntityId}_cash_${normalizedCurrency}`;
+    const targetClearing = `${req.requesterEntityId}_inbound_${normalizedCurrency}`;
+    const existingAccounts = await db.select().from(ledgerAccounts).where(sql`${ledgerAccounts.id} IN (${sourceCash}, ${sourceClearing}, ${targetCash}, ${targetClearing})`);
+    const existingIds = new Set(existingAccounts.map(account => account.id));
+    const missingAccounts = [
+      { id: sourceCash, entityId, name: `Available ${normalizedCurrency}`, type: 'ASSET' as const, currency: normalizedCurrency },
+      { id: sourceClearing, entityId, name: `Outbound Clearing ${normalizedCurrency}`, type: 'LIABILITY' as const, currency: normalizedCurrency },
+      { id: targetCash, entityId: req.requesterEntityId, name: `Available ${normalizedCurrency}`, type: 'ASSET' as const, currency: normalizedCurrency },
+      { id: targetClearing, entityId: req.requesterEntityId, name: `Inbound Clearing ${normalizedCurrency}`, type: 'LIABILITY' as const, currency: normalizedCurrency },
+    ].filter(account => !existingIds.has(account.id));
+    if (missingAccounts.length) await db.insert(ledgerAccounts).values(missingAccounts);
+    await db.insert(transfers).values({ id: transferId, entityId, dueTransferId: transferId, sourceCurrency: normalizedCurrency, targetCurrency: normalizedCurrency, sourceAmount: amount.toFixed(4), targetAmount: amount.toFixed(4), feeAmount: '0.0000', direction: 'DEBIT', settlementStatus: 'LEDGER_CREDITED', status: 'completed' });
+    await db.insert(ledgerEntries).values([
+      { id: ulid(), entityId, transactionId: `${transferId}_OUT`, ledgerAccountId: sourceCash, type: 'CREDIT', amount: amount.toFixed(4) },
+      { id: ulid(), entityId, transactionId: `${transferId}_OUT`, ledgerAccountId: sourceClearing, type: 'DEBIT', amount: amount.toFixed(4) },
+      { id: ulid(), entityId: req.requesterEntityId, transactionId: `${transferId}_IN`, ledgerAccountId: targetClearing, type: 'CREDIT', amount: amount.toFixed(4) },
+      { id: ulid(), entityId: req.requesterEntityId, transactionId: `${transferId}_IN`, ledgerAccountId: targetCash, type: 'DEBIT', amount: amount.toFixed(4) },
+    ]);
+    await db.update(paymentRequests).set({ status: 'PAID', paidAt: new Date() }).where(and(eq(paymentRequests.id, requestId), eq(paymentRequests.status, 'PENDING')));
 
     return reply.send({
       success: true,
@@ -160,11 +169,10 @@ export async function paymentRoutes(server: FastifyInstance) {
     const { entityId, requestId } = request.body as { entityId: string; requestId: string };
     if (!requestId) return reply.status(400).send({ error: 'requestId is required' });
 
-    const req = paymentRequestStore.get(requestId);
-    if (req) {
-      req.status = 'DECLINED';
-      paymentRequestStore.set(requestId, req);
-    }
+    if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    const reqRows = await db.select().from(paymentRequests).where(and(eq(paymentRequests.id, requestId), eq(paymentRequests.requesterEntityId, entityId))).limit(1);
+    if (reqRows.length === 0) return reply.status(404).send({ error: 'Payment request not found' });
+    await db.update(paymentRequests).set({ status: 'DECLINED' }).where(and(eq(paymentRequests.id, requestId), eq(paymentRequests.status, 'PENDING')));
 
     return reply.send({
       success: true,

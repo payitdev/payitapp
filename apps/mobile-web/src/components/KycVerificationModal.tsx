@@ -174,6 +174,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
   };
 
   const handleCreateLiveness = async () => {
+    const popup = window.open('', 'easeid_liveness', 'width=480,height=720,resizable=yes');
     setIsLoading(true);
     setErrorMsg('');
     try {
@@ -186,9 +187,18 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
       setLivenessToken(data.sessionToken);
       setPersonalStep('liveness');
 
-      // Open liveness URL in popup so user can complete the selfie
-      window.open(data.sessionUrl, 'easeid_liveness', 'width=480,height=720,resizable=yes');
+      if (!data.sessionUrl || !/^https:\/\//i.test(data.sessionUrl)) {
+        popup?.close();
+        throw new Error('EaseID did not return a valid liveness session URL.');
+      }
+      if (popup) {
+        popup.location.href = data.sessionUrl;
+        popup.focus();
+      } else {
+        window.location.href = data.sessionUrl;
+      }
     } catch (err: any) {
+      popup?.close();
       setErrorMsg(err.message);
     } finally {
       setIsLoading(false);

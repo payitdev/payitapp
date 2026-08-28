@@ -262,6 +262,9 @@ importers:
       '@near-js/crypto':
         specifier: ^2.5.1
         version: 2.5.1(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1))
+      '@noble/curves':
+        specifier: ^1.8.1
+        version: 1.9.7
       '@payit/contracts':
         specifier: workspace:*
         version: link:../contracts

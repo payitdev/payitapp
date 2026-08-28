@@ -5,10 +5,14 @@
  * Implements Privy's official security guidelines for server-side verification
  */
 
-import jwt from 'jsonwebtoken';
+import { PrivyClient } from '@privy-io/server-auth';
 
 export class PrivyServerAuth {
-  private static appId = process.env.PRIVY_APP_ID || process.env.VITE_PRIVY_APP_ID || '';
+  private static getClient() {
+    const appId = process.env.PRIVY_APP_ID || '';
+    const appSecret = process.env.PRIVY_APP_SECRET || '';
+    return { appId, client: new PrivyClient(appId, appSecret) };
+  }
 
   /**
    * Verify an incoming Privy JWT session token
@@ -20,34 +24,28 @@ export class PrivyServerAuth {
     }
 
     try {
-      // Decode JWT token without verification first to extract header & payload
-      const decoded: any = jwt.decode(token);
-
-      if (!decoded) {
-        // Fallback for custom dev session tokens
-        if (token.startsWith('session_') || token.startsWith('prox_')) {
-          return { valid: true, privyUserId: `privy_${token.slice(0, 16)}` };
-        }
-        return { valid: false, error: 'Malformed JWT session token' };
+      const { appId, client } = PrivyServerAuth.getClient();
+      if (!appId || !process.env.PRIVY_APP_SECRET) {
+        return { valid: false, error: 'Privy server credentials are not configured' };
       }
-
-      // Check token expiration
-      if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-        return { valid: false, error: 'Session token has expired' };
-      }
-
-      // Extract Privy User ID from sub or user_id claim
-      const privyUserId = decoded.sub || decoded.user_id || decoded.privyUserId;
-      if (!privyUserId) {
-        return { valid: false, error: 'Token missing user subject ID' };
-      }
-
-      return {
-        valid: true,
-        privyUserId,
-      };
+      const claims = await client.verifyAuthToken(token);
+      return { valid: true, privyUserId: claims.userId };
     } catch (err: any) {
       return { valid: false, error: `JWT verification failed: ${err.message}` };
+    }
+  }
+
+  static async getVerifiedIdentity(token: string): Promise<{ valid: boolean; privyUserId?: string; email?: string; error?: string }> {
+    const verified = await PrivyServerAuth.verifySessionToken(token);
+    if (!verified.valid || !verified.privyUserId) return verified;
+    try {
+      const { client } = PrivyServerAuth.getClient();
+      const user = await (client as any).getUser(verified.privyUserId);
+      const email = user?.email?.address || user?.linkedAccounts?.find((account: any) => account.type === 'email')?.address;
+      if (!email) return { valid: false, error: 'Privy account has no verified email address' };
+      return { valid: true, privyUserId: verified.privyUserId, email: String(email).toLowerCase().trim() };
+    } catch (err: any) {
+      return { valid: false, error: `Privy user lookup failed: ${err.message}` };
     }
   }
 }

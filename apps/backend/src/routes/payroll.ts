@@ -1,10 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq, desc } from '@payit/db';
 import { payrollRuns, payrollItems, entities, feeLedger } from '@payit/db/schema';
-import { dueClient, feeService } from '@payit/integrations';
+import { BrailsClient, feeService } from '@payit/integrations';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
+const brails = new BrailsClient();
 
 export async function payrollRoutes(server: FastifyInstance) {
 
@@ -98,32 +99,25 @@ export async function payrollRoutes(server: FastifyInstance) {
 
     for (const recipient of recipientList) {
       const itemId = ulid();
-      let duePayoutId = null;
+      let payoutId = null;
       let status: 'pending' | 'success' | 'failed' = 'success';
 
       try {
-        const payout = await dueClient.createPayout({
+        const payout = await brails.initiatePayout({
           amount: recipient.amount,
           currency,
-          rail: currency === 'NGN' ? 'nip' : currency === 'GHS' || currency === 'KES' ? 'momo' : 'sepa',
-          recipient: {
-            name: recipient.name,
-            accountNumber: recipient.accountOrPhone,
-            bankName: recipient.bankOrNetwork,
-            phoneNumber: recipient.accountOrPhone,
-            network: recipient.bankOrNetwork,
-          },
           reference: `proxim_pay_${itemId}`,
-          metadata: {
-            payroll_run_id: runId,
-            recipient_name: recipient.name,
-          },
+          accountNumber: recipient.accountOrPhone,
+          accountName: recipient.name,
+          narration: `Payroll: ${title}`,
+          bankCode: recipient.bankOrNetwork,
         });
 
-        duePayoutId = payout?.id || payout?.payout_id || `payout_${itemId}`;
+        payoutId = payout?.id || payout?.payout_id;
+        if (!payoutId) throw new Error('Brails returned no payout identifier.');
       } catch (err: any) {
-        console.warn(`[Due Payroll Fallback] ${recipient.name}:`, err.message);
-        duePayoutId = `payout_${itemId}`;
+        console.error(`[Brails Payroll] ${recipient.name}:`, err.message);
+        status = 'failed';
       }
 
       await db.insert(payrollItems).values({
@@ -134,15 +128,15 @@ export async function payrollRoutes(server: FastifyInstance) {
         bankOrNetwork: recipient.bankOrNetwork || null,
         amount: String(recipient.amount.toFixed(2)),
         currency,
-        duePayoutId,
-        status: 'success',
+        duePayoutId: payoutId,
+        status,
       });
 
       itemResults.push({
         id: itemId,
         recipientName: recipient.name,
         amount: recipient.amount,
-        status: 'success',
+        status,
       });
     }
 

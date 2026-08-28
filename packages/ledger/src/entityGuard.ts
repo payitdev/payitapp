@@ -33,9 +33,9 @@ export function validateEntityAccess(
     throw new EntityGuardViolationError(`UNAUTHORIZED ENTITY ACCESS: Entity ${targetEntityId} does not belong to user ${session.userId}`);
   }
 
-  // 2. Synchronize active entity context if user owns targetEntityId
+  // Entity selection must happen through an explicit context-switch flow.
   if (session.activeEntityId !== targetEntityId) {
-    session.activeEntityId = targetEntityId;
+    throw new EntityGuardViolationError(`ACTIVE CONTEXT MISMATCH: Active entity ${session.activeEntityId} does not match requested entity ${targetEntityId}`);
   }
 }
 

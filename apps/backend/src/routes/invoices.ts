@@ -1,10 +1,83 @@
 import { FastifyInstance } from 'fastify';
-import { createDbClient, eq, and, desc } from '@payit/db';
-import { invoices, invoiceItems, entities, accounts, feeLedger } from '@payit/db/schema';
-import { dueClient, feeService } from '@payit/integrations';
+import { createDbClient, eq, and, desc, sql, lte } from '@payit/db';
+import { invoices, invoiceItems, entities, accounts, feeLedger, transfers } from '@payit/db/schema';
+import { feeService, BrailsClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
+const brails = new BrailsClient();
+
+function brailsCollectionDetails(currency: string, accountName: string, phoneNumber?: string, provider?: string): { country: 'NG' | 'KE' | 'UG'; payload: Record<string, string>; channel: 'bank_transfer' | 'mobile_money' } {
+  const normalized = currency.toUpperCase();
+  if (normalized === 'NGN') {
+    const payload: Record<string, string> = { type: 'BANK', accountName };
+    return { country: 'NG' as const, payload, channel: 'bank_transfer' as const };
+  }
+  if (normalized === 'KES') {
+    const payload: Record<string, string> = { network: 'MPESA', type: 'MOMO', accountNumber: phoneNumber || '', accountName };
+    return { country: 'KE' as const, payload, channel: 'mobile_money' as const };
+  }
+  if (normalized === 'UGX') {
+    const payload: Record<string, string> = { network: (provider || 'MTN').toUpperCase(), type: 'MOMO', accountNumber: phoneNumber || '', accountName };
+    return { country: 'UG' as const, payload, channel: 'mobile_money' as const };
+  }
+  throw new Error(`Brails collections do not support ${normalized}`);
+}
+
+/**
+ * Helper to settle an invoice, record fees, and record an inbound activity transfer for merchant.
+ */
+export async function settleInvoiceAndRecordLedger(invoiceId: string, paymentMethod = 'Direct Transfer', txHashOrRef?: string) {
+  const invRows = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+  if (invRows.length === 0) return null;
+
+  const inv = invRows[0];
+  if (inv.status === 'paid') return { invoice: inv, alreadyPaid: true };
+
+  const totalNum = parseFloat(inv.totalAmount || '0');
+  const fxQuote = feeService.calculateInvoiceFxQuote(isNaN(totalNum) ? 0 : totalNum, inv.currency);
+
+  await db.update(invoices).set({ status: 'paid' }).where(eq(invoices.id, invoiceId));
+
+  // 1. Record realized platform fee in feeLedger
+  await db.insert(feeLedger).values({
+    id: ulid(),
+    entityId: inv.entityId,
+    transactionType: 'INVOICE',
+    referenceId: inv.id,
+    grossAmount: String(fxQuote.grossUsd.toFixed(4)),
+    feeAmount: String(fxQuote.feeUsd.toFixed(4)),
+    netAmount: String(fxQuote.netUsd.toFixed(4)),
+    currency: 'USD',
+    description: `Proxim Merchant Invoice Fee (${fxQuote.feePercent}%) settled for ${inv.tag}`,
+  });
+
+  // 2. Insert Inbound Transaction into activity feed so merchant gets instant activity notification
+  const transferRef = txHashOrRef || `inv_settle_${inv.id}_${Date.now()}`;
+  try {
+    await db.insert(transfers).values({
+      id: ulid(),
+      entityId: inv.entityId,
+      dueTransferId: transferRef,
+      sourceCurrency: inv.currency,
+      targetCurrency: inv.currency,
+      sourceAmount: String(totalNum.toFixed(2)),
+      targetAmount: String(totalNum.toFixed(2)),
+      feeAmount: String(fxQuote.feeAmount.toFixed(2)),
+      direction: 'CREDIT',
+      status: 'completed',
+      paymentInstructions: `Invoice ${inv.tag} paid by ${inv.clientName} (${paymentMethod})`,
+    });
+  } catch (err: any) {
+    console.warn('[Invoice Settlement Transfer Feed Note]:', err.message);
+  }
+
+  return {
+    invoice: { ...inv, status: 'paid' },
+    fxQuote,
+    alreadyPaid: false,
+  };
+}
 
 export async function invoiceRoutes(server: FastifyInstance) {
 
@@ -13,11 +86,11 @@ export async function invoiceRoutes(server: FastifyInstance) {
    */
   server.post('/api/invoices/quote', async (request, reply) => {
     const { amount, currency = 'USD' } = request.body as { amount: number; currency?: string };
-    if (!amount || amount <= 0) {
-      return reply.status(400).send({ error: 'Valid amount is required' });
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      return reply.status(400).send({ error: 'Valid positive amount is required' });
     }
 
-    const quote = feeService.calculateInvoiceFxQuote(amount, currency);
+    const quote = feeService.calculateInvoiceFxQuote(Number(amount), currency);
     return reply.send({
       success: true,
       quote,
@@ -25,24 +98,61 @@ export async function invoiceRoutes(server: FastifyInstance) {
   });
 
   /**
-   * List Invoices for an Entity
+   * List Invoices for an Entity (with parsed payment details, overdue checks, and items)
    */
   server.get('/api/invoices', async (request, reply) => {
-    const { entityId } = request.query as { entityId: string };
-    if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    const { entityId } = (request.query || {}) as { entityId?: string };
+    const targetEntityId: string = entityId || request.session?.userEntityIds?.[0] || '';
+    if (!targetEntityId) return reply.send({ success: true, invoices: [] });
+    if (!request.session?.userEntityIds.includes(targetEntityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Automated Overdue Status Check: Update any pending invoice whose due date has passed
+    try {
+      await db
+        .update(invoices)
+        .set({ status: 'overdue' })
+        .where(
+          and(
+            eq(invoices.entityId, targetEntityId),
+            eq(invoices.status, 'pending'),
+            lte(invoices.dueDate, todayStr)
+          )
+        );
+    } catch (err: any) {
+      console.warn('[Auto-Overdue Check Note]:', err.message);
+    }
 
     const invoiceList = await db
       .select()
       .from(invoices)
-      .where(eq(invoices.entityId, entityId))
+      .where(eq(invoices.entityId, targetEntityId))
       .orderBy(desc(invoices.createdAt));
 
     const result = [];
     for (const inv of invoiceList) {
       const items = await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, inv.id));
+
+      let paymentDetails: any = {};
+      let paymentLink = `https://pay.proxim.finance/inv/${inv.id}`;
+      try {
+        const parsed = JSON.parse(inv.paymentAccountOrLink || '{}');
+        paymentDetails = parsed;
+        if (parsed.link) paymentLink = parsed.link;
+      } catch {
+        paymentDetails = { link: inv.paymentAccountOrLink };
+      }
+
+      const totalNum = parseFloat(inv.totalAmount || '0');
+      const fxQuote = feeService.calculateInvoiceFxQuote(isNaN(totalNum) ? 0 : totalNum, inv.currency);
+
       result.push({
         ...inv,
         items,
+        paymentDetails,
+        paymentLink,
+        fxQuote,
       });
     }
 
@@ -50,7 +160,7 @@ export async function invoiceRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Create New Business Invoice (Fiat or Crypto Stablecoin Settlement)
+   * Create New Business Invoice (Fiat or Crypto Settlement)
    */
   const handleCreateInvoice = async (request: any, reply: any) => {
     const {
@@ -82,6 +192,7 @@ export async function invoiceRoutes(server: FastifyInstance) {
     if (!entityId || !clientName || !clientEmail) {
       return reply.status(400).send({ error: 'entityId, clientName, and clientEmail are required' });
     }
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) {
@@ -90,72 +201,100 @@ export async function invoiceRoutes(server: FastifyInstance) {
 
     const entity = entityRows[0];
     const invoiceId = ulid();
-    const tag = `${entity.businessTag || 'PROX'}-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Generate collision-proof unique business invoice tag
+    const prefix = (entity.businessTag || 'PROX').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'PROX';
+    const tag = `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const itemTotal = items && items.length > 0
-      ? items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0)
+      ? items.reduce((sum, item) => sum + ((Number(item.quantity) || 1) * (Number(item.unitPrice) || 0)), 0)
       : 0;
 
-    if (!items?.length && (totalAmount == null || totalAmount <= 0)) {
-      return reply.status(400).send({ error: 'A valid totalAmount is required when no invoice items are supplied.' });
+    const parsedTotal = Number(totalAmount);
+    if ((!items || items.length === 0) && (isNaN(parsedTotal) || parsedTotal <= 0)) {
+      return reply.status(400).send({ error: 'A valid totalAmount greater than 0 is required.' });
     }
 
-    const computedTotal = items && items.length > 0 ? itemTotal : Number(totalAmount);
-
-    const fxQuote = feeService.calculateInvoiceFxQuote(computedTotal, currency);
+    const computedTotal = items && items.length > 0 ? itemTotal : parsedTotal;
+    const currUpper = (currency || 'USD').toUpperCase();
+    const fxQuote = feeService.calculateInvoiceFxQuote(computedTotal, currUpper);
 
     let paymentDetails: any = {};
     let paymentAccountOrLink = `https://pay.proxim.finance/inv/${invoiceId}`;
-    let dueQuoteId = null;
-    let dueTransferId = null;
 
     if (settlementType === 'fiat') {
-      const currUpper = (currency || 'USD').toUpperCase();
+      // 1. Look up dedicated virtual account for billing currency from DB
+      let accRows = await db
+        .select()
+        .from(accounts)
+        .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currUpper)))
+        .limit(1);
 
-      if (!process.env.FIAT_PROVIDER_LIVE || process.env.FIAT_PROVIDER_LIVE === 'false') {
-        paymentDetails = {
-          mode: 'fiat',
-          currency: currUpper,
-          status: 'provider_offline',
-          message: 'Fiat account provider is not live yet. Account numbers will appear once the provider is enabled.',
-          bankName: null,
-          accountNumber: null,
-          accountHolderName: null,
-          rail: currUpper === 'NGN' ? 'nip' : currUpper === 'EUR' ? 'sepa' : 'ach',
-        };
-      } else {
-        // Look up dedicated virtual account for billing currency
-        let accRows = await db
+      if (accRows.length === 0) {
+        // Fallback to primary entity account (e.g. NGN or USD)
+        accRows = await db
           .select()
           .from(accounts)
-          .where(and(eq(accounts.entityId, entityId), eq(accounts.currency, currUpper)))
+          .where(eq(accounts.entityId, entityId))
           .limit(1);
+      }
 
-        if (accRows.length === 0) {
-          // Fallback to primary account or USD account
-          accRows = await db
-            .select()
-            .from(accounts)
-            .where(eq(accounts.entityId, entityId))
-            .limit(1);
-        }
+      const activeAcc = accRows[0];
 
-        const activeAcc = accRows[0];
+      if (activeAcc) {
         paymentDetails = {
           mode: 'fiat',
           currency: currUpper,
-          bankName: activeAcc?.bankName || (currUpper === 'NGN' ? 'Wema Bank' : currUpper === 'EUR' ? 'Banking Circle S.A.' : 'Evolve Bank & Trust'),
-          accountNumber: activeAcc?.accountNumber,
-          accountHolderName: activeAcc?.accountHolderName || `${entity.legalName} / Proxim`,
-          routingNumber: activeAcc?.routingNumber || (currUpper === 'GBP' ? '04-00-04' : '021000021'),
-          rail: activeAcc?.rail || (currUpper === 'NGN' ? 'nip' : currUpper === 'EUR' ? 'sepa' : 'ach'),
+          bankName: activeAcc.bankName,
+          accountNumber: activeAcc.accountNumber,
+          accountHolderName: activeAcc.accountHolderName || `${entity.legalName} / Proxim`,
+          routingNumber: activeAcc.routingNumber || (currUpper === 'GBP' ? '04-00-04' : '021000021'),
+          rail: activeAcc.rail || (currUpper === 'NGN' ? 'nip' : currUpper === 'EUR' ? 'sepa' : 'ach'),
+        };
+      } else {
+        // Provider fallback default instructions
+        paymentDetails = {
+          mode: 'fiat',
+          currency: currUpper,
+          bankName: currUpper === 'NGN' ? 'Wema Bank' : currUpper === 'EUR' ? 'Banking Circle S.A.' : 'Evolve Bank & Trust',
+          accountNumber: null,
+          accountHolderName: `${entity.legalName} / Proxim`,
+          routingNumber: currUpper === 'GBP' ? '04-00-04' : '021000021',
+          rail: currUpper === 'NGN' ? 'nip' : currUpper === 'EUR' ? 'sepa' : 'ach',
+          message: 'Dedicated virtual account will be attached once KYC verification is completed.',
         };
       }
+
+      // Try generating Brails collection checkout link if API key is active
+      try {
+        if (process.env.BRAILS_API_KEY && ['NGN', 'USD', 'KES', 'UGX', 'GHS'].includes(currUpper)) {
+          const collectionDetails = brailsCollectionDetails(currUpper, clientName);
+          const brailsRes = await brails.createCollection({
+            amount: Math.round(computedTotal),
+            currency: currUpper as any,
+            country: collectionDetails.country,
+            payload: collectionDetails.payload,
+            channel: collectionDetails.channel,
+            email: clientEmail,
+            customerName: clientName,
+            reference: tag,
+            redirectUrl: `https://pay.proxim.finance/inv/${invoiceId}/success`,
+            description: description || `Invoice ${tag}`,
+          });
+          const onlineLink = brailsRes?.data?.paymentUrl || brailsRes?.paymentUrl || brailsRes?.data?.checkoutUrl;
+          if (onlineLink) {
+            paymentDetails.onlineCheckoutUrl = onlineLink;
+            paymentAccountOrLink = onlineLink;
+          }
+        }
+      } catch (colErr: any) {
+        console.warn(`[Brails Collection] Notice:`, colErr.message);
+      }
     } else {
-      // Crypto / Stablecoin Settlement across all NEAR MPC supported chains
-      const netLower = cryptoNetwork.toLowerCase();
+      // 2. Crypto / Stablecoin Settlement across NEAR MPC supported multi-chain addresses
+      const netLower = (cryptoNetwork || 'Base').toLowerCase();
       let depositAddress = entity.evmDepositAddress || '';
-      
+
       if (netLower.includes('solana') || netLower === 'sol') {
         depositAddress = entity.solanaDepositAddress || entity.evmDepositAddress || '';
       } else if (netLower.includes('bitcoin') || netLower === 'btc') {
@@ -170,48 +309,12 @@ export async function invoiceRoutes(server: FastifyInstance) {
 
       paymentDetails = {
         mode: 'crypto',
-        network: cryptoNetwork,
-        asset: cryptoAsset,
+        network: cryptoNetwork || 'Base',
+        asset: cryptoAsset || 'USDC',
         depositAddress,
         amount: computedTotal,
-        currency: cryptoAsset,
+        currency: cryptoAsset || 'USDC',
       };
-    }
-
-    // Provision Due dynamic transfer link
-    try {
-      if (entity.evmDepositAddress) {
-        const quote = await dueClient.createQuote({
-          sourceCurrency: currency || 'USD',
-          targetCurrency: 'USDC',
-          amount: computedTotal,
-        });
-
-        dueQuoteId = quote?.id || quote?.quote_id;
-
-        if (dueQuoteId) {
-          const transfer = await dueClient.createTransfer({
-            quoteId: dueQuoteId,
-            sourceCurrency: currency || 'USD',
-            targetCurrency: 'USDC',
-            amount: computedTotal,
-            destinationAddress: entity.evmDepositAddress,
-            recipientDetails: {
-              name: clientName,
-              email: clientEmail,
-            },
-            metadata: {
-              proxim_invoice_id: invoiceId,
-              proxim_entity_id: entityId,
-            },
-          });
-
-          dueTransferId = transfer?.id || transfer?.transfer_id;
-          if (transfer?.payment_link) paymentAccountOrLink = transfer.payment_link;
-        }
-      }
-    } catch (dueErr: any) {
-      console.warn('[Due Invoicing Fallback]:', dueErr.message);
     }
 
     await db.insert(invoices).values({
@@ -221,10 +324,10 @@ export async function invoiceRoutes(server: FastifyInstance) {
       clientName,
       clientEmail,
       totalAmount: String(computedTotal.toFixed(2)),
-      currency: currency.toUpperCase(),
+      currency: currUpper,
       dueDate: dueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
-      dueQuoteId,
-      dueTransferId,
+      dueQuoteId: null,
+      dueTransferId: null,
       paymentAccountOrLink: JSON.stringify({ ...paymentDetails, link: paymentAccountOrLink }),
       expiresAt: new Date(Date.now() + 14 * 86400000),
       settlementType: settlementType === 'crypto' ? 'stablecoin' : 'fiat',
@@ -233,41 +336,28 @@ export async function invoiceRoutes(server: FastifyInstance) {
 
     if (items && items.length > 0) {
       for (const item of items) {
+        const q = Number(item.quantity) || 1;
+        const p = Number(item.unitPrice) || 0;
         await db.insert(invoiceItems).values({
           id: ulid(),
           invoiceId,
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: String(item.unitPrice.toFixed(2)),
-          amount: String((item.quantity * item.unitPrice).toFixed(2)),
+          description: item.description || 'Line Item',
+          quantity: q,
+          unitPrice: String(p.toFixed(2)),
+          amount: String((q * p).toFixed(2)),
         });
       }
     } else {
-      if (!description || !description.trim()) {
-        return reply.status(400).send({ error: 'Invoice description is required when no line items are supplied.' });
-      }
+      const fallbackDesc = (description && description.trim()) || 'Professional Services';
       await db.insert(invoiceItems).values({
         id: ulid(),
         invoiceId,
-        description: description.trim(),
+        description: fallbackDesc,
         quantity: 1,
         unitPrice: String(computedTotal.toFixed(2)),
         amount: String(computedTotal.toFixed(2)),
       });
     }
-
-    // Register platform fee in feeLedger targeting Proxim treasury
-    await db.insert(feeLedger).values({
-      id: ulid(),
-      entityId,
-      transactionType: 'INVOICE',
-      referenceId: invoiceId,
-      grossAmount: String(fxQuote.grossUsd.toFixed(4)),
-      feeAmount: String(fxQuote.feeUsd.toFixed(4)),
-      netAmount: String(fxQuote.netUsd.toFixed(4)),
-      currency: 'USD',
-      description: `Proxim Merchant Invoice Fee (${fxQuote.feePercent}%) swept to Treasury`,
-    });
 
     return reply.send({
       success: true,
@@ -277,7 +367,7 @@ export async function invoiceRoutes(server: FastifyInstance) {
         clientName,
         clientEmail,
         totalAmount: computedTotal,
-        currency: currency.toUpperCase(),
+        currency: currUpper,
         settlementType,
         paymentDetails,
         paymentLink: paymentAccountOrLink,
@@ -293,13 +383,72 @@ export async function invoiceRoutes(server: FastifyInstance) {
   server.post('/api/invoices/create', handleCreateInvoice);
 
   /**
-   * Generate Mobile Money / Local Checkout Collection Link
+   * Settle / Mark Invoice as Paid & Record Realized Platform Fee
+   */
+  server.post('/api/invoices/:id/settle', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { paymentMethod = 'Merchant Confirmation', reference } = (request.body || {}) as any;
+
+    const result = await settleInvoiceAndRecordLedger(id, paymentMethod, reference);
+    if (!result) {
+      return reply.status(404).send({ error: 'Invoice not found' });
+    }
+
+    return reply.send({
+      success: true,
+      message: result.alreadyPaid ? 'Invoice is already settled' : 'Invoice marked as paid and platform fee recorded',
+      invoice: result.invoice,
+      fxQuote: result.fxQuote,
+    });
+  });
+
+  /**
+   * Public Pay / Settle Endpoint for External Web Checkout (No Auth Required)
+   */
+  server.post('/api/invoices/public/:id/pay', async (request, reply) => {
+    return reply.status(409).send({
+      error: 'PAYMENT_CONFIRMATION_REQUIRED',
+      message: 'Payment confirmation is completed automatically after Brails or an approved settlement webhook verifies the payment.',
+    });
+  });
+
+  /**
+   * Generate Mobile Money / Local Checkout Collection Link via Brails
    */
   server.post('/api/invoices/generate-collection-link', async (request, reply) => {
-    const { invoiceId, entityId, channel = 'mobile_money', provider = 'mpesa' } = request.body as any;
+    const { invoiceId, channel = 'mobile_money', provider = 'mpesa', phoneNumber } = request.body as any;
     if (!invoiceId) return reply.status(400).send({ error: 'invoiceId is required' });
 
-    const checkoutUrl = `https://pay.proxim.finance/checkout/${invoiceId}?channel=${channel}&provider=${provider}`;
+    const invRows = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+    if (invRows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
+    const inv = invRows[0];
+
+    let checkoutUrl = `https://pay.proxim.finance/checkout/${invoiceId}?channel=${channel}&provider=${provider}`;
+
+    try {
+      if (process.env.BRAILS_API_KEY) {
+        const currency = String(inv.currency || 'NGN').toUpperCase();
+        const collectionDetails = brailsCollectionDetails(currency, inv.clientName, phoneNumber, provider);
+        const brailsRes = await brails.createCollection({
+          amount: Math.round(parseFloat(inv.totalAmount)),
+          currency: currency as any,
+          country: collectionDetails.country,
+          payload: collectionDetails.payload,
+          channel: collectionDetails.channel,
+          paymentProvider: provider,
+          phoneNumber,
+          email: inv.clientEmail,
+          customerName: inv.clientName,
+          reference: inv.tag || `INV-${invoiceId.slice(0, 8)}`,
+          redirectUrl: `https://pay.proxim.finance/inv/${invoiceId}/success`,
+          description: `Payment for Invoice ${inv.tag}`,
+        });
+        const onlineUrl = brailsRes?.data?.paymentUrl || brailsRes?.paymentUrl || brailsRes?.data?.checkoutUrl;
+        if (onlineUrl) checkoutUrl = onlineUrl;
+      }
+    } catch (err: any) {
+      console.warn(`[Brails Collection Notice]:`, err.message);
+    }
 
     return reply.send({
       success: true,
@@ -311,7 +460,7 @@ export async function invoiceRoutes(server: FastifyInstance) {
   });
 
   /**
-   * Get Public Invoice by ID (for Payers & PDF generator)
+   * Get Public Invoice by ID (for Payers, Public Checkout & PDF generator)
    */
   server.get('/api/invoices/public/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -326,7 +475,8 @@ export async function invoiceRoutes(server: FastifyInstance) {
     const entityRows = await db.select().from(entities).where(eq(entities.id, inv.entityId)).limit(1);
     const merchant = entityRows[0];
 
-    const fxQuote = feeService.calculateInvoiceFxQuote(Number(inv.totalAmount), inv.currency);
+    const totalNum = parseFloat(inv.totalAmount || '0');
+    const fxQuote = feeService.calculateInvoiceFxQuote(isNaN(totalNum) ? 0 : totalNum, inv.currency);
 
     let paymentData: any = {};
     try {
@@ -341,7 +491,11 @@ export async function invoiceRoutes(server: FastifyInstance) {
         ...inv,
         items,
         merchantName: merchant?.legalName || 'Proxim Business',
+        merchantTag: merchant?.businessTag || 'PROXIM',
+        merchantEvmAddress: merchant?.evmDepositAddress,
+        merchantSolanaAddress: merchant?.solanaDepositAddress,
         paymentData,
+        paymentDetails: paymentData,
         fxQuote,
       },
     });
@@ -409,3 +563,5 @@ export async function invoiceRoutes(server: FastifyInstance) {
     return reply.type('image/svg+xml').send(svgContent);
   });
 }
+
+

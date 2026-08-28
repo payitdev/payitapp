@@ -46,10 +46,10 @@ server.post('/telegram/webhook', async (request, reply) => {
     return reply.send({
       method: 'sendMessage',
       chat_id: chatId,
-      text: 'Welcome to PayIT Mini App! Launch your non-custodial personal & business wallet below.',
+      text: 'Welcome to Proxim! Launch your multi-currency business & personal account below.',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🚀 Open PayIT App', web_app: { url: process.env.PAYIT_MOBILE_WEB_URL || 'https://payit.co' } }],
+          [{ text: '🚀 Open Proxim', web_app: { url: process.env.PROXIM_MOBILE_WEB_URL || process.env.PAYIT_MOBILE_WEB_URL || 'https://proxim.finance' } }],
         ],
       },
     });
@@ -66,7 +66,7 @@ server.post('/telegram/webhook', async (request, reply) => {
     return reply.send({
       method: 'sendMessage',
       chat_id: chatId,
-      text: `🔒 Security Check Required:\nTo confirm transfer of $${amount} to ${recipient}, please reply with your 4-digit PayIT transaction PIN.`,
+      text: `🔒 Security Check Required:\nTo confirm transfer of $${amount} to ${recipient}, please reply with your 4-digit Proxim passcode.`,
     });
   }
 
@@ -82,7 +82,7 @@ server.post('/telegram/webhook', async (request, reply) => {
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
-        text: '❌ Invalid 4-digit PIN. Transfer cancelled for your security.',
+        text: '❌ Invalid passcode. Transfer cancelled for your security.',
       });
     }
 
@@ -92,7 +92,7 @@ server.post('/telegram/webhook', async (request, reply) => {
     return reply.send({
       method: 'sendMessage',
       chat_id: chatId,
-      text: `✅ Money Sent!\nSuccessfully transferred $${amount} to ${recipient}.\n\n🔒 Session secured for 5 minutes.`,
+      text: `Money sent.\nSuccessfully transferred $${amount} to ${recipient}.\n\n🔒 Session secured for 5 minutes.`,
     });
   }
 
@@ -105,6 +105,6 @@ if (process.env.NODE_ENV !== 'test') {
       console.error('Telegram bot webhook startup error:', err);
       process.exit(1);
     }
-    console.log('🤖 PayIT Telegram Bot Webhook Server running on port 5000');
+    console.log('🤖 Proxim Telegram Bot Webhook Server running on port 5000');
   });
 }

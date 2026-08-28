@@ -16,24 +16,26 @@ export interface VerifiedSession {
 declare module 'fastify' {
   interface FastifyRequest {
     session?: VerifiedSession;
-    rawBody?: string;
+    rawBody?: string | Buffer;
   }
 }
 
 const PUBLIC_PREFIXES = [
   '/health',
+  '/favicon.ico',
   '/api/auth/',
   '/webhooks/',
   '/api/waitlist',
   '/api/invoices/public/',
+  '/api/schools/applications',
+  '/v1',
+  '/v1/',
   '/api/fx/rates',
+  '/api/transfers/fx-quote',
   '/api/users/check-username',
-  '/api/kamino/',
-  '/api/ondo/',
-  '/api/pods/',
-  '/api/intents/',
-  '/api/admin/',
-  '/api/dev/',
+  '/api/pods/strategies',
+  '/api/pods/base-strategies',
+  '/api/intents/supported-tokens',
 ];
 
 
@@ -54,47 +56,59 @@ export async function requireAuthHook(request: FastifyRequest, reply: FastifyRep
 
   const token = authHeader.slice(7);
 
+  let payload: { userId: string; email: string };
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string };
-    
-    let userEntities: any[] = [];
-    const cached = userEntitiesCache.get(payload.userId);
-    if (cached && cached.expiresAt > Date.now()) {
-      userEntities = cached.entities;
-    } else {
-      userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
-      if (userEntities.length > 0) {
-        userEntitiesCache.set(payload.userId, { entities: userEntities, expiresAt: Date.now() + 60000 });
+    payload = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string };
+  } catch (jwtErr: any) {
+    return reply.status(401).send({ error: 'Invalid or expired session token. Please sign in again.' });
+  }
+
+  let userEntities: any[] = [];
+  const cached = userEntitiesCache.get(payload.userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    userEntities = cached.entities;
+  } else {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        userEntities = await db.select().from(entities).where(eq(entities.userId, payload.userId));
+        if (userEntities.length > 0) {
+          userEntitiesCache.set(payload.userId, { entities: userEntities, expiresAt: Date.now() + 60000 });
+          break;
+        }
+      } catch (dbErr: any) {
+        if (attempt === 2) {
+          console.warn('[requireAuth DB Connection Retry Warning]:', dbErr.message);
+          return reply.status(503).send({ error: 'Database service is temporarily reconnecting. Please retry.' });
+        }
+        await new Promise(r => setTimeout(r, 500));
       }
     }
+  }
 
-    if (userEntities.length === 0) {
-      return reply.status(401).send({ error: 'User session entity not found' });
-    }
+  if (userEntities.length === 0) {
+    return reply.status(401).send({ error: 'User session entity not found' });
+  }
 
-    const userEntityIds = userEntities.map(e => e.id);
-    const headerEntityId = (request.headers['x-entity-id'] || request.headers['X-Entity-Id']) as string | undefined;
+  const userEntityIds = userEntities.map(e => e.id);
+  const headerEntityId = (request.headers['x-entity-id'] || request.headers['X-Entity-Id']) as string | undefined;
 
-    let activeEntityId = userEntities[0]?.id || '';
-    if (headerEntityId && userEntityIds.includes(headerEntityId)) {
-      activeEntityId = headerEntityId;
-    }
+  let activeEntityId = userEntities[0]?.id || '';
+  if (headerEntityId && userEntityIds.includes(headerEntityId)) {
+    activeEntityId = headerEntityId;
+  }
 
-    request.session = {
-      userId: payload.userId,
-      email: payload.email,
-      activeEntityId,
-      userEntityIds,
-    };
+  request.session = {
+    userId: payload.userId,
+    email: payload.email,
+    activeEntityId,
+    userEntityIds,
+  };
 
-    // Protect against client-supplied session injection in request body
-    if (request.body && typeof request.body === 'object') {
-      const body = request.body as Record<string, any>;
-      delete body.session;
-      delete body.userId;
-      delete body.userEntityIds;
-    }
-  } catch (err: any) {
-    return reply.status(401).send({ error: 'Invalid or expired session token. Please sign in again.' });
+  // Protect against client-supplied session injection in request body
+  if (request.body && typeof request.body === 'object') {
+    const body = request.body as Record<string, any>;
+    delete body.session;
+    delete body.userId;
+    delete body.userEntityIds;
   }
 }

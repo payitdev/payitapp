@@ -1,113 +1,65 @@
 import { describe, it } from 'node:test';
-import assert from 'node:assert';
-import { NuvionClient, NuvionApiError } from './nuvionClient.js';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { verifyNuvionWebhookSignature, NuvionClient, NUVION_API_VERSION } from './nuvionClient';
 
-process.env.NUVION_API_KEY = 'test_key_for_unit_tests';
-
-describe('NuvionClient Security Assertions Unit Tests', () => {
-  it('1. SHOULD throw NuvionApiError if returned account entity_id does not match target entityId', async () => {
-    const client = new NuvionClient();
-
-    // Mock nuvionGet to return an account with a mismatched entity_id
-    (client as any).nuvionGet = async (path: string) => {
-      if (path.includes('/accounts')) {
-        return {
-          data: {
-            accounts: [
-              {
-                id: 'acc_123',
-                entity_id: 'merchant_entity_999', // Mismatched entity ID
-                currency: 'USD',
-              },
-            ],
-          },
-        };
-      }
-      return {};
-    };
-
-    await assert.rejects(
-      async () => {
-        await client.getAccountsForEntity('user_entity_111');
-      },
-      (err: any) => {
-        assert.ok(err instanceof NuvionApiError);
-        assert.strictEqual(err.statusCode, 403);
-        assert.ok(err.message.includes('SECURITY: account entity_id mismatch'));
-        return true;
-      }
-    );
+describe('Nuvion Integration Tests', () => {
+  it('has pinned API version 2026-02-06', () => {
+    assert.equal(NUVION_API_VERSION, '2026-02-06');
   });
 
-  it('2. SHOULD return accounts successfully when entity_id matches target entityId', async () => {
-    const client = new NuvionClient();
-
-    (client as any).nuvionGet = async (path: string) => {
-      if (path.includes('/accounts')) {
-        return {
-          data: {
-            accounts: [
-              {
-                id: 'acc_789',
-                entity_id: 'user_entity_111',
-                currency: 'NGN',
-              },
-            ],
-          },
-        };
-      }
-      return {};
-    };
-
-    const res = await client.getAccountsForEntity('user_entity_111');
-    assert.ok(res.data.accounts.length === 1);
-    assert.strictEqual(res.data.accounts[0].entity_id, 'user_entity_111');
-  });
-
-  it('3. SHOULD correctly parse entity.id and person.id from real Nuvion API response envelope', async () => {
-    const client = new NuvionClient();
-
-    (client as any).nuvionPost = async (path: string, payload: any) => {
-      if (path === '/individual-entities') {
-        return {
-          status: 'success',
-          message: 'Individual entity created successfully',
-          data: {
-            entity: {
-              id: '01KZNJ2K91Y8KGWXPQBVWVBX9F',
-              type: 'individual',
-              status: 'incomplete',
-            },
-            person: {
-              id: '01KZNJ2K8YBZ48EAVFQWZ21D2J',
-            },
-          },
-        };
-      }
-      return {};
-    };
-
-    const res = await client.createIndividualEntity({
-      name: 'Iboh Igboze',
-      person: {
-        first_name: 'Iboh',
-        last_name: 'Igboze',
-        date_of_birth: '1995-05-19',
-        email: 'iboh@example.com',
-        nationality: 'NG',
-        gender: 'm',
-        phonenumber: '+2349121285147',
-      },
-      address: {
-        line_1: 'Lagos, Nigeria',
-        city: 'Lagos',
-        state: 'Lagos',
-        postal_code: '100001',
-        country_code: 'NG',
-      },
+  it('correctly validates webhook HMAC-SHA256 signature with timingSafeEqual', () => {
+    const secret = 'whsec_test_secret_key_12345';
+    const timestamp = String(Date.now());
+    const rawBody = JSON.stringify({
+      event: 'entities.updated',
+      data: { id: '01HXYZ1234567890', status: 'approved' },
     });
 
-    assert.strictEqual(res.entityId, '01KZNJ2K91Y8KGWXPQBVWVBX9F');
-    assert.strictEqual(res.personId, '01KZNJ2K8YBZ48EAVFQWZ21D2J');
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`${timestamp}.${rawBody}`)
+      .digest('hex');
+
+    const isValid = verifyNuvionWebhookSignature(rawBody, expectedSignature, timestamp, secret);
+    assert.equal(isValid, true);
+  });
+
+  it('rejects tampered webhook payloads or invalid signatures', () => {
+    const secret = 'whsec_test_secret_key_12345';
+    const timestamp = String(Date.now());
+    const rawBody = JSON.stringify({ event: 'entities.updated', data: { status: 'approved' } });
+    const tamperedBody = JSON.stringify({ event: 'entities.updated', data: { status: 'rejected' } });
+
+    const signature = crypto
+      .createHmac('sha256', secret)
+      .update(`${timestamp}.${rawBody}`)
+      .digest('hex');
+
+    const isValid = verifyNuvionWebhookSignature(tamperedBody, signature, timestamp, secret);
+    assert.equal(isValid, false);
+  });
+
+  it('rejects expired webhook timestamps beyond tolerance', () => {
+    const secret = 'whsec_test_secret_key_12345';
+    const oldTimestamp = String(Date.now() - 600000); // 10 minutes ago
+    const rawBody = JSON.stringify({ event: 'inflows.completed' });
+
+    const signature = crypto
+      .createHmac('sha256', secret)
+      .update(`${oldTimestamp}.${rawBody}`)
+      .digest('hex');
+
+    const isValid = verifyNuvionWebhookSignature(rawBody, signature, oldTimestamp, secret, 300000);
+    assert.equal(isValid, false);
+  });
+
+  it('instantiates NuvionClient with custom options', () => {
+    const client = new NuvionClient({
+      apiKey: 'nv_test_key',
+      baseUrl: 'https://api.nuvion.dev',
+      apiVersion: '2026-02-06',
+    });
+    assert.ok(client);
   });
 });

@@ -256,8 +256,9 @@ export class OndoClient {
   private baseURL: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.PODS_API_KEY || 'proxim_ondo_client_key';
-    this.baseURL = process.env.PODS_BASE_URL || process.env.PODS_API_BASE_URL || 'https://api.pods.finance';
+    this.apiKey = apiKey || process.env.PODS_API_KEY || '';
+    this.baseURL = process.env.PODS_BASE_URL || process.env.PODS_API_BASE_URL || '';
+    if (!this.apiKey || !this.baseURL) throw new Error('Ondo provider API configuration is required');
 
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -301,20 +302,7 @@ export class OndoClient {
       });
       return data;
     } catch (error: any) {
-      // Fallback: evaluate live US stock market trading hours
-      const isOpen = this.checkUsMarketHours();
-      return {
-        isOpen,
-        marketStatus: isOpen ? 'OPEN' : 'CLOSED',
-        asset: {
-          symbol: symbol.toUpperCase(),
-          tradable: true,
-          limited: false,
-          blockingReason: null,
-          paused: false,
-          status: 'ACTIVE',
-        },
-      };
+      throw new Error(`Ondo market status unavailable: ${error.message}`);
     }
   }
 
@@ -338,9 +326,10 @@ export class OndoClient {
         if (baseStocks.length > 0) return baseStocks;
       }
     } catch (error: any) {
-      console.warn('[OndoClient] Live stock discovery fallback to verified catalog:', error.message);
+      console.warn('[OndoClient] Live stock discovery unavailable:', error.message);
+      throw new Error(`Ondo stock discovery unavailable: ${error.message}`);
     }
-    return VERIFIED_ONDO_STOCKS;
+    throw new Error('Ondo returned no live stock assets');
   }
 
   /**
@@ -364,12 +353,7 @@ export class OndoClient {
       console.warn('[OndoClient] Live strategy resolution fallback:', error.message);
     }
 
-    // Static strategy mapping fallback
-    const matchedToken = VERIFIED_ONDO_STOCKS.find(t => 
-      t.address.toLowerCase() === tokenAddress.toLowerCase() || t.symbol.toLowerCase() === tokenAddress.toLowerCase()
-    );
-
-    return matchedToken ? `ondo-${matchedToken.symbol.toLowerCase()}-bsc` : `ondo-stock-bsc`;
+    return null;
   }
 
   /**

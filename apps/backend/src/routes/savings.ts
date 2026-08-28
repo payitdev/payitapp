@@ -18,6 +18,8 @@ export async function savingsRoutes(server: FastifyInstance) {
   server.get('/api/savings/summary', async (request, reply) => {
     const { entityId, currency = 'USD' } = request.query as { entityId?: string; currency?: string };
 
+    if (entityId && !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+
     let dbGoals: any[] = [];
     if (entityId) {
       try {
@@ -135,6 +137,7 @@ export async function savingsRoutes(server: FastifyInstance) {
     if (!entityId || !name || !targetAmount) {
       return reply.status(400).send({ error: 'entityId, name, and targetAmount are required' });
     }
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     const goalId = ulid();
     const lockPeriodEnd = lockPeriodDays ? new Date(Date.now() + lockPeriodDays * 86400000) : null;

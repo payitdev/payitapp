@@ -297,9 +297,10 @@ export class PodsClient {
         return rawList.map(s => this.enrichStrategyWithYieldSplit(s));
       }
     } catch (error: any) {
-      console.warn('[PodsClient] Live Base strategy lookup fallback:', error.message);
+      console.warn('[PodsClient] Live Base strategy lookup unavailable:', error.message);
+      throw new Error(`Pods Base strategy discovery unavailable: ${error.message}`);
     }
-    return VERIFIED_BASE_STRATEGIES.map(s => this.enrichStrategyWithYieldSplit(s));
+    throw new Error('Pods returned no live Base strategies');
   }
 
   /**
@@ -312,9 +313,10 @@ export class PodsClient {
         return data.data;
       }
     } catch (error: any) {
-      console.warn('[PodsClient] Live all strategies lookup fallback:', error.message);
+      console.warn('[PodsClient] Live strategy lookup unavailable:', error.message);
+      throw new Error(`Pods strategy discovery unavailable: ${error.message}`);
     }
-    return [...VERIFIED_BASE_STRATEGIES, ...VERIFIED_OPENCOVER_STRATEGIES];
+    throw new Error('Pods returned no live strategies');
   }
 
   /**
@@ -333,9 +335,10 @@ export class PodsClient {
         return data.data;
       }
     } catch (error: any) {
-      console.warn('[PodsClient] Protocol strategies fallback:', error.message);
+      console.warn('[PodsClient] Protocol strategy lookup unavailable:', error.message);
+      throw new Error(`Pods protocol strategy discovery unavailable: ${error.message}`);
     }
-    return VERIFIED_BASE_STRATEGIES.filter(s => s.protocol.toLowerCase().includes(protocol.toLowerCase()));
+    throw new Error('Pods returned no live protocol strategies');
   }
 
   /**
@@ -366,29 +369,8 @@ export class PodsClient {
 
       return data;
     } catch (error: any) {
-      console.warn('[PodsClient] Live deposit bytecode fallback:', error.message);
-      // Deterministic Base USDC deposit bytecode fallback
-      const tokenAddress = params.fromTokenAddress || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-      return {
-        feeCharged: '0',
-        chainIdIn: params.fromChainId || 8453,
-        chainIdOut: 8453,
-        id: `pods-${params.strategyId}-${Date.now()}`,
-        crossChain: {
-          isCrossChain: false,
-          chainIdIn: params.fromChainId || 8453,
-          chainIdOut: 8453,
-        },
-        quote: null,
-        bytecode: [
-          {
-            to: tokenAddress,
-            data: '0x095ea7b3' + params.destinationWallet.replace('0x', '').padStart(64, '0') + BigInt(params.amount).toString(16).padStart(64, '0'),
-            value: '0',
-            chainId: params.fromChainId || 8453,
-          },
-        ],
-      };
+      console.warn('[PodsClient] Live deposit bytecode unavailable:', error.message);
+      throw new Error(`Pods savings deposit quote unavailable: ${error.message}`);
     }
   }
 
@@ -467,9 +449,9 @@ export class PodsClient {
       if (gnosisStrategies.length > 0) {
         return gnosisStrategies.map(s => ({ ...s, isInsured: true, insuranceProvider: 'OpenCover / Lloyd’s' }));
       }
-      return VERIFIED_OPENCOVER_STRATEGIES;
+      throw new Error('No live OpenCover strategy is available');
     } catch (error: any) {
-      return VERIFIED_OPENCOVER_STRATEGIES;
+      throw new Error(`OpenCover strategy discovery unavailable: ${error.message}`);
     }
   }
 

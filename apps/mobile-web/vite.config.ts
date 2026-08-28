@@ -21,12 +21,9 @@ export default defineConfig({
     target: 'esnext',
   },
   optimizeDeps: {
-    include: ['buffer', '@fast-auth-near/react-sdk'],
+    include: ['buffer'],
     esbuildOptions: {
       target: 'esnext',
-      loader: {
-        '.js': 'jsx',
-      },
     },
   },
   server: {

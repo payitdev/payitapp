@@ -8,10 +8,12 @@
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "pnpm clean && tsc",
     "test": "pnpm -w -r build && node --test dist/*.test.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "smoke:nuvion": "node scripts/nuvion-sandbox-smoke.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "^2.5.1",
+    "@noble/curves": "^1.8.1",
     "@payit/contracts": "workspace:*",
     "@privy-io/server-auth": "^1.32.5",
     "@solana/spl-token": "^0.4.15",
