@@ -9,11 +9,11 @@ export function createDbClient(connectionString?: string) {
   const queryClient = postgres(url, {
     ssl: { rejectUnauthorized: false },
     max: 10,
-    idle_timeout: 30,
-    max_lifetime: 120,
-    connect_timeout: 30,
+    idle_timeout: 10,
+    max_lifetime: 60,
+    connect_timeout: 15,
     prepare: false,
-    keep_alive: 15,
+    fetch_types: false,
     onnotice: () => {},
   });
 

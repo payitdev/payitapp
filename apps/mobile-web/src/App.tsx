@@ -17,6 +17,8 @@ import {
   Lock,
   FileText,
   Users,
+  FileSpreadsheet,
+  Code2,
 } from 'lucide-react';
 
 import { UsernameCustomizationModal } from './components/UsernameCustomizationModal';
@@ -24,6 +26,11 @@ import { PaymentRequestHubModal } from './components/PaymentRequestHubModal';
 import { ContactsManagerModal } from './components/ContactsManagerModal';
 import { PrivyLogin } from './components/PrivyLogin';
 import { KycVerificationModal } from './components/KycVerificationModal';
+import { PublicInvoiceCheckout } from './components/PublicInvoiceCheckout';
+import { BusinessBalanceSheetModal } from './components/BusinessBalanceSheetModal';
+import { DeveloperHubModal } from './components/DeveloperHubModal';
+import { NuvionHub } from './components/NuvionHub';
+import { NuvionOnboardingForm } from './components/NuvionOnboardingForm';
 const configuredApiBaseUrl = String((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
 const API_BASE_URL = configuredApiBaseUrl
   ? (/^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : `https://${configuredApiBaseUrl}`).replace(/\/$/, '')
@@ -137,7 +144,7 @@ const getLegalFirstName = (entity?: UserEntity, user?: any) => {
 export default function App() {
 
   // ── Session & Auth State ──────────────────────────────────────────────────
-  const { authenticated, user: privyUser, logout: privyLogout } = usePrivy();
+  const { authenticated, user: privyUser, logout: privyLogout, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const nearAccount = null;
   const [currentUser, setCurrentUser] = useState<any | null>(() => {
@@ -174,6 +181,9 @@ export default function App() {
   // ── Balance & Currency ────────────────────────────────────────────────────
   const [selectedCurrency, setSelectedCurrency] = useState<string>('NGN');
   const [availableBalance, setAvailableBalance] = useState<number>(0);
+  const [availableBalanceCurrency, setAvailableBalanceCurrency] = useState<string>('USDC');
+  const [onChainBalances, setOnChainBalances] = useState<Record<string, number>>({});
+  const [onChainBalanceError, setOnChainBalanceError] = useState<string | null>(null);
   const [savingsPool, setSavingsPool] = useState<number>(0);
   const [roundUpEnabled, setRoundUpEnabled] = useState<boolean>(true);
   const [savingsGoals, setSavingsGoals] = useState<any[]>([]);
@@ -187,6 +197,18 @@ export default function App() {
   const [selectedYieldOption, setSelectedYieldOption] = useState('');
   const [selectedKaminoVault, setSelectedKaminoVault] = useState('');
   const [kaminoVaultStatus, setKaminoVaultStatus] = useState('Loading live Kamino vaults...');
+
+  const updateAutoSave = async (enabled: boolean) => {
+    if (!activeEntity?.id) return;
+    const response = await apiFetch(`${API_BASE_URL}/api/pods/auto-save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entityId: activeEntity.id, enabled, liquidBufferUsd, strategyId: selectedYieldOption || undefined }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to update automatic savings.');
+    setAutoSweepEnabled(data.enabled);
+  };
   const [fxRates, setFxRates] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
@@ -196,6 +218,18 @@ export default function App() {
   const [friendsList, setFriendsList] = useState<any[]>([]);
   const [invoicesList, setInvoicesList] = useState<any[]>([]);
   const [payrollRunsList, setPayrollRunsList] = useState<any[]>([]);
+  const [publicInvoiceId, setPublicInvoiceId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p.startsWith('/inv/') || p.startsWith('/checkout/')) {
+        return p.replace(/^\/(inv|checkout)\//, '').split('/')[0] || null;
+      }
+    }
+    return null;
+  });
+  const [showBalanceSheetModal, setShowBalanceSheetModal] = useState(false);
+  const [showDeveloperHubModal, setShowDeveloperHubModal] = useState(false);
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'all' | 'unpaid' | 'paid' | 'overdue'>('all');
 
   // ── Stocks ────────────────────────────────────────────────────────────────
   const [stockList, setStockList] = useState<any[]>([]);
@@ -224,9 +258,12 @@ export default function App() {
   const [showSendModal, setShowSendModal] = useState(false);
   const [sendModeTab, setSendModeTab] = useState<'fiat' | 'crypto'>('fiat');
   const [sendCurrency, setSendCurrency] = useState<string>('NGN');
-  const [sendCryptoNetwork, setSendCryptoNetwork] = useState<string>('Polygon');
+  const [sendCryptoNetwork, setSendCryptoNetwork] = useState<string>('Base');
+  const [sendCryptoSourceAsset, setSendCryptoSourceAsset] = useState<string>('USDC');
   const [sendCryptoAsset, setSendCryptoAsset] = useState<string>('USDC');
   const [sendCryptoAddress, setSendCryptoAddress] = useState<string>('');
+  const [sendOnChainBalance, setSendOnChainBalance] = useState<number | null>(null);
+  const [isLoadingSendBalance, setIsLoadingSendBalance] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [receiveTab, setReceiveTab] = useState<'fiat' | 'crypto'>('fiat');
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
@@ -363,90 +400,59 @@ export default function App() {
 
   const activeAbortController = useRef<AbortController | null>(null);
   const currentSendIdempotencyKey = useRef<string | null>(null);
+  const privyLoginInFlight = useRef(false);
 
-  // ── Passkey / Turnkey Auth ────────────────────────────────────────────────
-  const handlePasskeySignIn = async () => {
-    setAuthError('');
-    if (!userEmail || !userEmail.includes('@')) {
-      setAuthError('Please enter a valid email address.');
-      return;
+  const getMaxSendAmount = () => {
+    if (sendModeTab === 'fiat') {
+      const rate = sendCurrency === 'NGN' ? 1 : fxRates.find(item => item.currency === sendCurrency)?.rateToNgn;
+      return rate ? availableBalance / rate : 0;
     }
-    setIsLoggingIn(true);
-    try {
-      // Step 1: Start passkey auth ceremony with backend
-      const optionsRes = await apiFetch(`${API_BASE_URL}/api/auth/passkey/challenge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail.trim().toLowerCase() }),
-      });
-      const optionsData = await optionsRes.json();
+    const network = sendCryptoNetwork.toLowerCase();
+    const feeReserve = network === 'solana' && sendCryptoAsset === 'SOL' ? 0.00001 : 0;
+    return Math.max(0, (sendOnChainBalance || 0) - feeReserve);
+  };
 
-      if (optionsData.isNewUser) {
-        // Registration flow — create credential
-        const credential = await navigator.credentials.create({
-          publicKey: {
-            ...optionsData.creationOptions,
-            challenge: base64ToBuffer(optionsData.creationOptions.challenge),
-            user: {
-              ...optionsData.creationOptions.user,
-              id: base64ToBuffer(optionsData.creationOptions.user.id),
-            },
-          },
-        }) as PublicKeyCredential;
+  const handleUseMaxSendAmount = () => {
+    const maxAmount = getMaxSendAmount();
+    if (maxAmount > 0) setSendAmount(maxAmount.toFixed(getSendAmountPrecision()));
+  };
 
-        const regRes = await apiFetch(`${API_BASE_URL}/api/auth/passkey/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: userEmail.trim().toLowerCase(),
-            credential: serializeCredential(credential),
-          }),
-        });
-        const regData = await regRes.json();
-        if (!regRes.ok) throw new Error(regData.error || "We couldn't complete sign-up. Please try again.");
-        applySession(regData);
-      } else {
-        // Authentication flow — get assertion
-        const assertion = await navigator.credentials.get({
-          publicKey: {
-            ...optionsData.requestOptions,
-            challenge: base64ToBuffer(optionsData.requestOptions.challenge),
-            allowCredentials: optionsData.requestOptions.allowCredentials?.map((c: any) => ({
-              ...c, id: base64ToBuffer(c.id),
-            })),
-          },
-        }) as PublicKeyCredential;
+  const getSendAmountPrecision = () => {
+    if (sendModeTab === 'fiat') return 2;
+    return 6;
+  };
 
-        const authRes = await apiFetch(`${API_BASE_URL}/api/auth/passkey/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: userEmail.trim().toLowerCase(),
-            assertion: serializeCredential(assertion),
-          }),
-        });
-        const authData = await authRes.json();
-        if (!authRes.ok) throw new Error(authData.error || "We couldn't verify your identity. Please try again.");
-        applySession(authData);
-      }
-    } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        setAuthError('Sign-in was cancelled. Please try again.');
-      } else {
-        setAuthError(err.message || "We couldn't complete sign-in. Please try again.");
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
+  const getSendAmountAsset = () => {
+    if (sendModeTab === 'fiat') return sendCurrency;
+    return 'USDC on Base';
+  };
+
+  const getDestinationCryptoAssets = (network: string) => {
+    const normalizedNetwork = network.toLowerCase();
+    if (normalizedNetwork === 'solana') return ['SOL', 'USDC', 'USDT'];
+    if (normalizedNetwork === 'bitcoin') return ['BTC'];
+    if (normalizedNetwork === 'near') return ['NEAR'];
+    if (normalizedNetwork === 'tron') return ['TRX', 'USDT'];
+    if (normalizedNetwork === 'ton') return ['TON', 'USDT'];
+    if (normalizedNetwork === 'cosmos') return ['ATOM'];
+    if (normalizedNetwork === 'sui') return ['SUI'];
+    if (normalizedNetwork === 'aptos') return ['APT'];
+    if (normalizedNetwork === 'xrp') return ['XRP'];
+    if (normalizedNetwork === 'bsc') return ['USDC', 'USDT', 'BNB'];
+    if (normalizedNetwork === 'polygon') return ['USDC', 'USDT', 'POL'];
+    if (normalizedNetwork === 'ethereum' || normalizedNetwork === 'arbitrum' || normalizedNetwork === 'optimism' || normalizedNetwork === 'base') return ['USDC', 'USDT', 'ETH'];
+    return ['USDC'];
   };
 
   // ── Privy Auth ────────────────────────────────────────────────────────────────
   const handlePrivyLogin = async (privyUser: any) => {
+    if (privyLoginInFlight.current) return;
     setAuthError('');
     if (!privyUser || typeof privyUser !== 'object') {
       console.warn('handlePrivyLogin called with invalid user object:', privyUser);
       return;
     }
+    privyLoginInFlight.current = true;
     setIsLoggingIn(true);
     
     try {
@@ -458,9 +464,11 @@ export default function App() {
 
       const walletAddress = privyUser.wallet?.address || privyUser.linkedAccounts?.[0]?.address;
 
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Privy did not provide a verified access token. Please sign in again.');
       const res = await apiFetch(`${API_BASE_URL}/api/auth/privy/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           privyUserId: privyUser.id || `privy_${Date.now()}`,
           email,
@@ -472,20 +480,22 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.error === 'Wallet provisioning is unavailable'
           ? 'Wallet was not created, come back later'
-          : data.error || "Failed to create session");
+          : data.details || data.error || "Failed to create session");
       }
       
       applySession(data);
     } catch (err: any) {
       setAuthError(err.message || "We couldn't complete sign-in. Please try again.");
     } finally {
+      privyLoginInFlight.current = false;
       setIsLoggingIn(false);
     }
   };
 
   // Automatically process Privy session when authenticated
   useEffect(() => {
-    if (authenticated && privyUser && !currentUser) {
+    const hasBackendToken = Boolean(localStorage.getItem('proxim_auth_token') || localStorage.getItem('proxim_session_token') || localStorage.getItem('payit_auth_token'));
+    if (authenticated && privyUser && (!currentUser || !hasBackendToken)) {
       handlePrivyLogin(privyUser);
     }
   }, [authenticated, privyUser, currentUser]);
@@ -595,7 +605,8 @@ export default function App() {
   const applySession = (data: any) => {
     if (data.token) {
       localStorage.setItem('proxim_auth_token', data.token);
-      localStorage.removeItem('payit_auth_token');
+      localStorage.setItem('proxim_session_token', data.token);
+      localStorage.setItem('payit_auth_token', data.token);
     }
     const userObj = data.user || data.session;
     if (userObj) {
@@ -609,36 +620,6 @@ export default function App() {
   };
 
   // WebAuthn helpers
-  const base64ToBuffer = (base64: string): ArrayBuffer => {
-    const binary = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
-  };
-
-  const bufferToBase64 = (buffer: ArrayBuffer): string => {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    bytes.forEach(b => binary += String.fromCharCode(b));
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  };
-
-  const serializeCredential = (cred: PublicKeyCredential): any => {
-    const response = cred.response as any;
-    return {
-      id: cred.id,
-      rawId: bufferToBase64(cred.rawId),
-      type: cred.type,
-      response: {
-        clientDataJSON: bufferToBase64(response.clientDataJSON),
-        attestationObject: response.attestationObject ? bufferToBase64(response.attestationObject) : undefined,
-        authenticatorData: response.authenticatorData ? bufferToBase64(response.authenticatorData) : undefined,
-        signature: response.signature ? bufferToBase64(response.signature) : undefined,
-        userHandle: response.userHandle ? bufferToBase64(response.userHandle) : undefined,
-      },
-    };
-  };
-
   // ── Restore Session ───────────────────────────────────────────────────────
   useEffect(() => { restoreSession(); }, []);
 
@@ -735,11 +716,14 @@ export default function App() {
       if (activeAbortController.current) activeAbortController.current.abort();
       const controller = new AbortController();
       activeAbortController.current = controller;
+      fetchBalance(activeEntity.id, controller.signal);
+      fetchOnChainBalances(activeEntity.id, controller.signal);
       fetchEntityDetails(currentUserId, activeEntity.id, controller.signal);
       fetchLiveFxRates();
       const pollInterval = setInterval(() => {
         if (!controller.signal.aborted) {
           fetchBalance(activeEntity.id, controller.signal);
+          fetchOnChainBalances(activeEntity.id, controller.signal);
           fetchTransactions(activeEntity.id, controller.signal);
         }
       }, 10000);
@@ -835,9 +819,60 @@ export default function App() {
     try {
       const res = await apiFetch(`${API_BASE_URL}/api/transfers/balance?entityId=${entityId}`, { signal });
       const data = await res.json();
-      if (!signal.aborted && data.balance !== undefined) setAvailableBalance(data.balance);
+      if (res.status === 401 && authenticated && privyUser) {
+        await handlePrivyLogin(privyUser);
+        return;
+      }
+      if (!signal.aborted && data.balance !== undefined) {
+        setAvailableBalance(data.balance);
+        setAvailableBalanceCurrency(data.currency || 'USDC');
+      }
     } catch { }
   };
+
+  const fetchOnChainBalances = async (entityId: string, signal: AbortSignal) => {
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/transfers/on-chain-balances?entityId=${encodeURIComponent(entityId)}`, { signal });
+      const data = await res.json();
+      if (res.status === 401 && authenticated && privyUser) {
+        await handlePrivyLogin(privyUser);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || 'Unable to read on-chain balances');
+      if (!signal.aborted && data.assets) {
+        setOnChainBalanceError(null);
+        setOnChainBalances(Object.fromEntries(Object.entries(data.assets).map(([key, value]) => [key, Number(value)])));
+      }
+    } catch (error: any) {
+      if (!signal.aborted) setOnChainBalanceError(error.message || 'Unable to read on-chain balances');
+    }
+  };
+
+  useEffect(() => {
+    if (!showSendModal || sendModeTab !== 'crypto' || !activeEntity?.id) {
+      setSendOnChainBalance(null);
+      return;
+    }
+    const controller = new AbortController();
+    setIsLoadingSendBalance(true);
+    setSendOnChainBalance(null);
+    apiFetch(`${API_BASE_URL}/api/transfers/on-chain-balance?entityId=${encodeURIComponent(activeEntity.id)}&network=Base&asset=USDC`, { signal: controller.signal })
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || data.details || 'Unable to read on-chain balance');
+        if (!controller.signal.aborted) setSendOnChainBalance(Number(data.balance));
+      })
+      .catch((error: any) => {
+        if (!controller.signal.aborted) {
+          setSendOnChainBalance(null);
+          setOnChainBalanceError(error.message || 'Unable to read on-chain balance');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingSendBalance(false);
+      });
+    return () => controller.abort();
+  }, [showSendModal, sendModeTab, activeEntity?.id, sendCryptoNetwork, sendCryptoAsset]);
 
   const fetchSavingsSummary = async (entityId: string, signal: AbortSignal) => {
     try {
@@ -1097,13 +1132,11 @@ export default function App() {
           if (activeActionId) pollOrderStatus(activeActionId);
         } else {
           setShowBuyModal(false);
-          alert(`✅ Purchase order for $${buyAmount} of ${selectedStock.symbol} authorized.`);
-          fetchStockPositions();
+          throw new Error(response.error || 'Ondo returned no executable purchase quote.');
         }
       } catch (err: any) {
         setShowBuyModal(false);
-        alert(`✅ Order authorized. Executing trade via Proxim Treasury.`);
-        fetchStockPositions();
+        alert(`Purchase could not be submitted: ${err.message}`);
       }
     });
   };
@@ -1139,13 +1172,11 @@ export default function App() {
           if (activeActionId) pollOrderStatus(activeActionId);
         } else {
           setShowSellModal(false);
-          alert(`✅ Sale order for ${sellAmount} shares authorized.`);
-          fetchStockPositions();
+          throw new Error(response.error || 'Ondo returned no executable sale quote.');
         }
       } catch (err: any) {
         setShowSellModal(false);
-        alert(`✅ Sale order authorized. Executing trade via Proxim Treasury.`);
-        fetchStockPositions();
+        alert(`Sale could not be submitted: ${err.message}`);
       }
     });
   };
@@ -1158,7 +1189,7 @@ export default function App() {
         if (data.status) {
           const phase = data.status?.suw?.phase || 'processing';
           setPendingOrder((prev: any) => ({ ...prev, phase, stepIndex: getStepIndex(phase) }));
-          if (['completed', 'refunded', 'expired', 'failed', 'cancelled'].includes(data.status?.status)) {
+          if (['COMPLETED', 'SUCCESS', 'REFUNDED', 'EXPIRED', 'FAILED', 'CANCELLED'].includes(String(data.status?.status || '').toUpperCase())) {
             clearInterval(interval);
             fetchStockPositions();
           }
@@ -1224,14 +1255,17 @@ export default function App() {
       currentSendIdempotencyKey.current = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
     const idempotencyKey = currentSendIdempotencyKey.current;
+    const requestController = new AbortController();
+    const requestTimeout = window.setTimeout(() => requestController.abort(), 60000);
     try {
       const body = sendModeTab === 'fiat'
         ? { session: { userId, activeEntityId: activeEntity.id }, entityId: activeEntity.id, mode: 'fiat', currency: sendCurrency, amount: parseFloat(sendAmount), recipientName: sendRecipient, bankName: sendBankName, accountNumber: sendAccountNumber, ibanOrRoutingNumber: sendIbanOrRouting || undefined, bicOrSwiftCode: sendBicOrSwift || undefined, sortCode: sendSortCode || undefined, narration: sendNarration, passcode: sendStepUpPin || undefined }
-        : { session: { userId, activeEntityId: activeEntity.id }, entityId: activeEntity.id, mode: 'crypto', currency: 'USD', amount: parseFloat(sendAmount), network: sendCryptoNetwork, recipientAddress: sendCryptoAddress, asset: sendCryptoAsset, narration: sendNarration, passcode: sendStepUpPin || undefined };
+        : { session: { userId, activeEntityId: activeEntity.id }, entityId: activeEntity.id, mode: 'crypto', currency: 'USD', amount: parseFloat(sendAmount), network: sendCryptoNetwork, sourceAsset: 'USDC', recipientAddress: sendCryptoAddress, asset: sendCryptoAsset, narration: sendNarration, passcode: sendStepUpPin || undefined };
       const res = await apiFetch(`${API_BASE_URL}/api/transfers/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-proxim-entity-id': activeEntity.id, 'x-idempotency-key': idempotencyKey },
         body: JSON.stringify(body),
+        signal: requestController.signal,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1241,7 +1275,27 @@ export default function App() {
           return;
         }
         if (data.status === 'HELD_FOR_REVIEW') throw new Error(data.explanation || 'Payment held for security review.');
-        throw new Error(data.error || "We couldn't complete your payment. Please try again.");
+        const serverError = (import.meta as any).env?.DEV && data.details
+          ? `${data.error || 'Transfer failed'}: ${data.details}`
+          : data.error;
+        throw new Error(serverError || "We couldn't complete your payment. Please try again.");
+      }
+      if (data.intentId) {
+        setSendStatusMsg({ type: 'warning', text: 'Transfer submitted. Waiting for destination settlement...' });
+        let settled = false;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const statusRes = await apiFetch(`${API_BASE_URL}/api/intents/status/${encodeURIComponent(data.intentId)}`, { headers: { 'x-proxim-entity-id': activeEntity.id } });
+          const statusData = await statusRes.json();
+          if (!statusRes.ok) throw new Error(statusData.error || 'Unable to confirm cross-chain settlement.');
+          const intentStatus = String(statusData.status || statusData.data?.status || '').toUpperCase();
+          if (['COMPLETED', 'SUCCESS', 'EXECUTED'].includes(intentStatus)) {
+            settled = true;
+            break;
+          }
+          if (['FAILED', 'REFUNDED'].includes(intentStatus)) throw new Error(statusData.reason || 'Cross-chain transfer failed.');
+        }
+        if (!settled) throw new Error('Transfer is still processing. Check transaction history for updates.');
       }
       setSendStatusMsg({ type: 'success', text: `Money sent. Reference: ${data.transactionId}` });
       currentSendIdempotencyKey.current = null;
@@ -1255,8 +1309,8 @@ export default function App() {
         setSendRecipient(''); setSendBankName(''); setSendAccountNumber(''); setSendIbanOrRouting(''); setSendBicOrSwift(''); setSendSortCode(''); setSendAmount(''); setSendNarration('');
       }, 1800);
     } catch (err: any) {
-      setSendStatusMsg({ type: 'error', text: err.message || "We couldn't complete your payment. Please try again." });
-    } finally { setIsSubmittingSend(false); }
+      setSendStatusMsg({ type: 'error', text: err.name === 'AbortError' ? 'Transfer timed out while waiting for the signing service. Please check transaction history before retrying.' : err.message || "We couldn't complete your payment. Please try again." });
+    } finally { window.clearTimeout(requestTimeout); setIsSubmittingSend(false); }
   };
 
   // ── Payment Request ───────────────────────────────────────────────────────
@@ -1375,19 +1429,26 @@ export default function App() {
   const toggleAccountMode = () => setAccountType(prev => prev === 'PERSONAL' ? 'BUSINESS' : 'PERSONAL');
 
   const formatDisplayBalance = () => {
-    if (selectedCurrency === 'NGN') return `₦${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const solBalance = onChainBalances['solana:SOL'];
+    if (solBalance > 0) return `SOL ${solBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 9 })}`;
+    if (selectedCurrency === availableBalanceCurrency) return `${selectedCurrency} ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rateObj = fxRates.find(r => r.currency === selectedCurrency);
     if (!rateObj || !rateObj.rateToNgn) return `${selectedCurrency} 0.00`;
-    const converted = availableBalance / rateObj.rateToNgn;
+    const usdRate = fxRates.find(r => r.currency === 'USD')?.rateToNgn || 1550;
+    const converted = (availableBalance * usdRate) / rateObj.rateToNgn;
     const symbol = rateObj.symbol || selectedCurrency;
     return `${symbol}${converted.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const getTrueUsdcBalance = () => {
-    const usdRate = fxRates.find(r => r.currency === 'USD')?.rateToNgn || 1500;
-    const usdcAmt = availableBalance / usdRate;
-    return `Held as $${usdcAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
+    const usdcAmt = availableBalanceCurrency === 'USDC' ? availableBalance : 0;
+    return `Base USDC: $${usdcAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
+
+  const getAssetSummary = () => Object.entries(onChainBalances)
+    .filter(([, balance]) => balance > 0)
+    .map(([asset, balance]) => `${balance} ${asset.split(':')[1]}`)
+    .join(' · ');
 
   // ── KYC status helper ───────────────────────────────────────────────────
   const kycStatus = activeEntity?.kycStatus || activeEntity?.dueStatus || 'incomplete';
@@ -1431,6 +1492,23 @@ export default function App() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
+  // ── PUBLIC INVOICE CHECKOUT ROUTE (/inv/:id or /checkout/:id) ────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  if (publicInvoiceId) {
+    return (
+      <PublicInvoiceCheckout
+        invoiceId={publicInvoiceId}
+        onBack={() => {
+          if (typeof window !== 'undefined') {
+            window.history.pushState({}, '', '/');
+          }
+          setPublicInvoiceId(null);
+        }}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // ── LOGIN SCREEN ──────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────
   if (!currentUser) {
@@ -1472,7 +1550,7 @@ export default function App() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left' }}>
             {[
-              { icon: '🔐', text: 'Sign in with Passkey, Google, Apple, or Email' },
+              { icon: '🔐', text: 'Sign in securely with Google, Apple, or Email' },
               { icon: '⚡', text: 'Instant access across all mobile devices' },
               { icon: '🌍', text: 'Hold, convert, and send multi-currency balances' },
             ].map(item => (
@@ -1520,6 +1598,9 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          <NuvionHub apiBaseUrl={API_BASE_URL} entityId={activeEntity?.id} />
+          {activeEntity?.id && <NuvionOnboardingForm apiBaseUrl={API_BASE_URL} entityId={activeEntity.id} kind={accountType} />}
 
           <div className="scroll">
             {/* EaseID KYC/KYB Verification Banner on Home — shown when not yet verified */}
@@ -1600,6 +1681,8 @@ export default function App() {
               </div>
               <div className="amount num" style={{ fontFamily: "'Satoshi', sans-serif", fontWeight: 900, fontSize: accountType === 'PERSONAL' ? 42 : 34 }}>{formatDisplayBalance()}</div>
               <div className="true-balance" style={{ fontFamily: "'Satoshi', sans-serif" }}>{getTrueUsdcBalance()}</div>
+              {getAssetSummary() && <div className="true-balance" style={{ fontFamily: "'Satoshi', sans-serif" }}>On-chain: {getAssetSummary()}</div>}
+              {onChainBalanceError && <div className="true-balance" style={{ fontFamily: "'Satoshi', sans-serif", color: '#FF8A8A' }}>On-chain balance unavailable: {onChainBalanceError}</div>}
               <div className="delta num" style={{ color: '#35D9D0', fontWeight: 700 }}>+₦0.00 today</div>
 
               {/* Quick Actions */}
@@ -1667,6 +1750,12 @@ export default function App() {
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg>
                     </div>
                     <span>Cards</span>
+                  </button>
+                  <button className="quick-btn" onClick={() => setShowBalanceSheetModal(true)}>
+                    <div className="quick-icon-box" style={{ color: '#35D9D0' }}>
+                      <FileSpreadsheet size={20} />
+                    </div>
+                    <span>Reports</span>
                   </button>
                 </div>
               )}
@@ -2198,41 +2287,130 @@ export default function App() {
         {/* ===== SCREEN: INVOICES ===== */}
         <div className={`screen ${currentScreen === 'invoices' ? 'active' : ''}`}>
           <div className="statusbar"><span>9:41</span><span>•••</span></div>
-          <div className="topbar">
+          <div className="topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button className="chip" onClick={() => { triggerLightHaptic(); setCurrentScreen('home'); }} style={{ cursor: 'pointer' }}>← Back</button>
             <div className="logo" style={{ fontFamily: "'Satoshi', sans-serif", fontWeight: 800 }}>Invoices</div>
-            <button onClick={() => { triggerLightHaptic(); setInvoiceAmount(''); setInvoiceFxQuote(null); setCurrentScreen('invoice-new'); }} className="chip" style={{ background: '#4A8CFF', color: '#061B18', fontWeight: 800, padding: '8px 16px', borderRadius: 999, cursor: 'pointer', border: 'none', fontFamily: "'Satoshi', sans-serif" }}>+ Create</button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => { triggerLightHaptic(); setShowBalanceSheetModal(true); }} className="chip" style={{ background: 'rgba(53, 217, 208, 0.15)', border: '1px solid rgba(53, 217, 208, 0.3)', color: '#35D9D0', fontWeight: 800, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: "'Satoshi', sans-serif", fontSize: 11 }}>📊 Statements</button>
+              <button onClick={() => { triggerLightHaptic(); setInvoiceAmount(''); setInvoiceFxQuote(null); setCurrentScreen('invoice-new'); }} className="chip" style={{ background: '#4A8CFF', color: '#061B18', fontWeight: 800, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', border: 'none', fontFamily: "'Satoshi', sans-serif", fontSize: 11 }}>+ Create</button>
+            </div>
           </div>
           <div className="scroll" style={{ fontFamily: "'Satoshi', sans-serif" }}>
-            <div style={{ fontSize: 13, color: 'rgba(247, 248, 244, 0.7)', marginBottom: 20 }}>Issue digital multi-currency invoices for business clients worldwide.</div>
-            {invoicesList.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'rgba(247, 248, 244, 0.7)', textAlign: 'center', padding: '40px 20px', background: 'rgba(11, 41, 36, 0.65)', borderRadius: 20, border: '1px solid rgba(74, 140, 255, 0.3)' }}>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                  <FileText size={44} color="#4A8CFF" />
-                </div>
-                No invoices created yet. Tap <strong>+ Create</strong> to issue your first invoice.
-              </div>
-            ) : (
-              <div className="row-card">
-                {invoicesList.map((inv: any) => (
-                  <div key={inv.id} className="row" onClick={() => { triggerLightHaptic(); setSelectedInvoiceForModal(inv); }} style={{ cursor: 'pointer' }}>
-                    <div className="category-squircle bank">
-                      <FileText size={18} />
-                    </div>
-                    <div className="row-body">
-                      <div className="row-title" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-                        <span>{inv.clientName || 'Valued Client'}</span>
-                        <span className="chip" style={{ fontSize: 10, padding: '2px 6px', background: 'rgba(53, 217, 208, 0.2)', border: '1px solid #35D9D0', color: '#35D9D0', borderRadius: 999 }}>
-                          {inv.settlementType === 'crypto' || inv.settlementType === 'stablecoin' ? 'CRYPTO' : 'FIAT'}
-                        </span>
-                      </div>
-                      <div className="row-sub" style={{ color: 'rgba(247, 248, 244, 0.5)', fontSize: 11 }}>{inv.tag || inv.id?.slice(0, 8)} · {inv.status || 'PENDING'}</div>
-                    </div>
-                    <div className="row-amount pos num" style={{ color: '#4A8CFF', fontWeight: 800 }}>{inv.currency || 'USD'} {parseFloat(inv.amount || inv.totalAmount || '0').toLocaleString()}</div>
+
+            {/* Top Metric Cards */}
+            {(() => {
+              const totalBilled = invoicesList.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.amount || '0'), 0);
+              const totalPaid = invoicesList.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.amount || '0'), 0);
+              const totalUnpaid = invoicesList.filter(inv => inv.status !== 'paid').reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.amount || '0'), 0);
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
+                  <div style={{ background: 'rgba(11, 41, 36, 0.65)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(247, 248, 244, 0.5)' }}>TOTAL BILLED</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: '#ffffff', marginTop: 2 }}>${totalBilled.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
                   </div>
-                ))}
-              </div>
-            )}
+                  <div style={{ background: 'rgba(11, 41, 36, 0.65)', border: '1px solid rgba(53, 217, 208, 0.25)', borderRadius: 14, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#35D9D0' }}>COLLECTED</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: '#4ADE80', marginTop: 2 }}>${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                  </div>
+                  <div style={{ background: 'rgba(11, 41, 36, 0.65)', border: '1px solid rgba(251, 191, 36, 0.25)', borderRadius: 14, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#FBBF24' }}>OUTSTANDING</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: '#FBBF24', marginTop: 2 }}>${totalUnpaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Status Filter Tabs */}
+            {(() => {
+              const allCount = invoicesList.length;
+              const unpaidCount = invoicesList.filter(i => i.status === 'pending').length;
+              const paidCount = invoicesList.filter(i => i.status === 'paid').length;
+              const overdueCount = invoicesList.filter(i => i.status === 'overdue').length;
+
+              return (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
+                  {[
+                    { key: 'all', label: `All (${allCount})` },
+                    { key: 'unpaid', label: `Unpaid (${unpaidCount})` },
+                    { key: 'paid', label: `Paid (${paidCount})` },
+                    { key: 'overdue', label: `Overdue (${overdueCount})` },
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setInvoiceStatusFilter(tab.key as any)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 10,
+                        border: invoiceStatusFilter === tab.key ? '1px solid #35D9D0' : '1px solid rgba(255,255,255,0.08)',
+                        background: invoiceStatusFilter === tab.key ? 'rgba(53, 217, 208, 0.15)' : 'rgba(255,255,255,0.03)',
+                        color: invoiceStatusFilter === tab.key ? '#35D9D0' : '#F7F8F4',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Filtered Invoices List */}
+            {(() => {
+              const filteredList = invoicesList.filter(inv => {
+                if (invoiceStatusFilter === 'paid') return inv.status === 'paid';
+                if (invoiceStatusFilter === 'unpaid') return inv.status === 'pending';
+                if (invoiceStatusFilter === 'overdue') return inv.status === 'overdue';
+                return true;
+              });
+
+              if (filteredList.length === 0) {
+                return (
+                  <div style={{ fontSize: 13, color: 'rgba(247, 248, 244, 0.7)', textAlign: 'center', padding: '40px 20px', background: 'rgba(11, 41, 36, 0.65)', borderRadius: 20, border: '1px solid rgba(74, 140, 255, 0.3)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                      <FileText size={44} color="#4A8CFF" />
+                    </div>
+                    No {invoiceStatusFilter !== 'all' ? invoiceStatusFilter : ''} invoices found. Tap <strong>+ Create</strong> to issue an invoice.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="row-card">
+                  {filteredList.map((inv: any) => {
+                    const isPaid = inv.status === 'paid';
+                    const isOverdue = inv.status === 'overdue';
+                    const badgeBg = isPaid ? 'rgba(34, 197, 94, 0.2)' : isOverdue ? 'rgba(239, 68, 68, 0.2)' : 'rgba(251, 191, 36, 0.2)';
+                    const badgeColor = isPaid ? '#4ADE80' : isOverdue ? '#EF4444' : '#FBBF24';
+
+                    return (
+                      <div key={inv.id} className="row" onClick={() => { triggerLightHaptic(); setSelectedInvoiceForModal(inv); }} style={{ cursor: 'pointer' }}>
+                        <div className="category-squircle bank" style={{ background: isPaid ? 'rgba(34, 197, 94, 0.15)' : 'rgba(74, 140, 255, 0.15)' }}>
+                          <FileText size={18} color={isPaid ? '#4ADE80' : '#4A8CFF'} />
+                        </div>
+                        <div className="row-body">
+                          <div className="row-title" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                            <span>{inv.clientName || 'Valued Client'}</span>
+                            <span className="chip" style={{ fontSize: 9, padding: '1px 6px', background: badgeBg, color: badgeColor, borderRadius: 999, fontWeight: 800, textTransform: 'uppercase' }}>
+                              {inv.status || 'PENDING'}
+                            </span>
+                          </div>
+                          <div className="row-sub" style={{ color: 'rgba(247, 248, 244, 0.5)', fontSize: 11 }}>
+                            {inv.tag || inv.id?.slice(0, 8)} · Due {inv.dueDate || '14 days'}
+                          </div>
+                        </div>
+                        <div className="row-amount pos num" style={{ color: isPaid ? '#4ADE80' : '#4A8CFF', fontWeight: 800 }}>
+                          {inv.currency || 'USD'} {parseFloat(inv.amount || inv.totalAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
           <div className="bottomnav">
             <button className={`navbtn ${currentScreen === 'home' ? 'active' : ''}`} onClick={() => setCurrentScreen('home')}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11l8-7 8 7M6 10v10h12V10"/></svg>Home</button>
@@ -2255,6 +2433,11 @@ export default function App() {
             <form onSubmit={async (e) => {
               e.preventDefault();
               if (!activeEntity?.id) return;
+              const parsedAmt = parseFloat(invoiceAmount);
+              if (isNaN(parsedAmt) || parsedAmt <= 0) {
+                alert('Please enter a valid billing amount greater than 0.');
+                return;
+              }
               setIsCreatingInvoice(true);
               try {
                 const res = await apiFetch(`${API_BASE_URL}/api/invoices/create`, {
@@ -2262,15 +2445,15 @@ export default function App() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     entityId: activeEntity.id,
-                    clientName: invoiceClientName,
-                    clientEmail: invoiceClientEmail,
-                    totalAmount: parseFloat(invoiceAmount),
+                    clientName: invoiceClientName.trim(),
+                    clientEmail: invoiceClientEmail.trim(),
+                    totalAmount: parsedAmt,
                     currency: invoiceSettlementMode === 'crypto' ? invoiceCryptoAsset : invoiceCurrency,
                     settlementType: invoiceSettlementMode,
                     cryptoNetwork: invoiceCryptoChain,
                     cryptoAsset: invoiceCryptoAsset,
                     dueDate: invoiceDueDate || undefined,
-                    description: invoiceDescription || 'Professional Services',
+                    description: invoiceDescription.trim() || 'Professional Services',
                   }),
                 });
                 const data = await res.json();
@@ -2279,10 +2462,10 @@ export default function App() {
                   id: Date.now().toString(),
                   clientName: invoiceClientName,
                   clientEmail: invoiceClientEmail,
-                  totalAmount: invoiceAmount,
+                  totalAmount: parsedAmt,
                   currency: invoiceSettlementMode === 'crypto' ? invoiceCryptoAsset : invoiceCurrency,
                   settlementType: invoiceSettlementMode,
-                  status: 'PENDING',
+                  status: 'pending',
                 };
                 setInvoicesList(prev => [createdInv, ...prev]);
                 setSelectedInvoiceForModal(createdInv);
@@ -2830,7 +3013,12 @@ export default function App() {
                                 txHash,
                                 chain: 'base',
                               }),
-                            }).catch(() => {});
+                            }).then(async (response) => {
+                              if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({}));
+                                throw new Error(errorData.details || errorData.error || 'The deposit was submitted on-chain, but the solver was not notified.');
+                              }
+                            });
 
                             if (yieldStrategy === 'kamino' && data.termVaultId && data.nearIntent?.intentId) {
                               let settled = false;
@@ -3292,7 +3480,7 @@ export default function App() {
                   <>
                     <div className="field">
                       <label style={{ color: '#94A3B8', fontWeight: 700 }}>Network</label>
-                      <select value={sendCryptoNetwork} onChange={e => setSendCryptoNetwork(e.target.value)} style={{ width: '100%', padding: 12, borderRadius: 12, border: '1px solid rgba(53, 217, 208, 0.3)', background: '#0D1424', color: '#ffffff', fontSize: 14, fontWeight: 600 }}>
+                      <select value={sendCryptoNetwork} onChange={e => { const network = e.target.value; setSendCryptoNetwork(network); setSendCryptoAsset(getDestinationCryptoAssets(network)[0]); }} style={{ width: '100%', padding: 12, borderRadius: 12, border: '1px solid rgba(53, 217, 208, 0.3)', background: '#0D1424', color: '#ffffff', fontSize: 14, fontWeight: 600 }}>
                         <option value="Polygon">Polygon</option>
                         <option value="Ethereum">Ethereum</option>
                         <option value="Arbitrum">Arbitrum One</option>
@@ -3305,18 +3493,21 @@ export default function App() {
                     <div className="field">
                       <label style={{ color: '#94A3B8', fontWeight: 700 }}>Token</label>
                       <select value={sendCryptoAsset} onChange={e => setSendCryptoAsset(e.target.value)} style={{ width: '100%', padding: 12, borderRadius: 12, border: '1px solid rgba(53, 217, 208, 0.3)', background: '#0D1424', color: '#ffffff', fontSize: 14, fontWeight: 600 }}>
-                        <option value="USDC">USDC</option>
-                        <option value="USDT">USDT</option>
-                        <option value="ETH">ETH</option>
-                        <option value="SOL">SOL</option>
-                        <option value="MATIC">POL (Polygon)</option>
+                        {getDestinationCryptoAssets(sendCryptoNetwork).map(assetOption => <option key={assetOption} value={assetOption}>{assetOption}</option>)}
                       </select>
                     </div>
-                    <div className="field"><label>Where should we send it?</label><input type="text" placeholder="0x71C...9e4A" value={sendCryptoAddress} onChange={e => setSendCryptoAddress(e.target.value)} required style={{ fontFamily: 'monospace', fontSize: 13 }} /></div>
+                    <div className="field"><label>Where should we send it?</label><input type="text" placeholder={sendCryptoNetwork.toLowerCase() === 'solana' ? 'Solana address' : '0x71C...9e4A'} value={sendCryptoAddress} onChange={e => setSendCryptoAddress(e.target.value)} required style={{ fontFamily: 'monospace', fontSize: 13 }} /></div>
                     <div style={{ background: 'var(--tint)', border: '1px solid var(--green)', borderRadius: 10, padding: 10, fontSize: 11, color: 'var(--green-dark)', fontWeight: 700, marginBottom: 12, textAlign: 'center' }}>⚡ No network fees charged</div>
                   </>
                 )}
-                <div className="field"><label>Amount ({sendModeTab === 'fiat' ? sendCurrency : sendCryptoAsset})</label><input type="number" step="0.01" min="0.01" placeholder="0.00" value={sendAmount} onChange={e => setSendAmount(e.target.value)} required /></div>
+                <div className="field">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <label style={{ marginBottom: 0 }}>Amount ({getSendAmountAsset()})</label>
+                    <button type="button" onClick={handleUseMaxSendAmount} disabled={sendModeTab === 'crypto' ? sendOnChainBalance === null || isLoadingSendBalance : availableBalance <= 0} style={{ border: '1px solid rgba(53, 217, 208, 0.45)', borderRadius: 8, padding: '4px 8px', background: 'rgba(53, 217, 208, 0.12)', color: '#35D9D0', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>MAX</button>
+                  </div>
+                  {sendModeTab === 'crypto' && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{isLoadingSendBalance ? 'Reading live on-chain balance...' : sendOnChainBalance === null ? 'Live balance unavailable' : `Live balance: ${sendOnChainBalance} ${getSendAmountAsset()}`}</div>}
+                  <input type="number" step={sendModeTab === 'fiat' ? '0.01' : `0.${'0'.repeat(Math.max(0, getSendAmountPrecision() - 1))}1`} min={sendModeTab === 'fiat' ? '0.01' : `0.${'0'.repeat(Math.max(0, getSendAmountPrecision() - 1))}1`} placeholder={sendModeTab === 'fiat' ? '0.00' : '0.000000'} value={sendAmount} onChange={e => setSendAmount(e.target.value)} required />
+                </div>
                 <div className="field"><label>Narration <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label><input type="text" placeholder="Invoice payment, rent, etc." value={sendNarration} onChange={e => setSendNarration(e.target.value)} /></div>
                 {requiresPinStepUp && (
                   <div className="field">
@@ -3633,149 +3824,211 @@ export default function App() {
         )}
 
         {/* ===== MODAL: INVOICE DETAILS & PDF DOWNLOAD ===== */}
-        {selectedInvoiceForModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, padding: 16 }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: 440, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
-              <button onClick={() => setSelectedInvoiceForModal(null)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span className="chip" style={{ fontSize: 11, background: 'var(--tint)', color: 'var(--green-dark)', fontWeight: 800 }}>
-                  {selectedInvoiceForModal.tag || 'PROX-INV'}
-                </span>
-                <span className="chip" style={{ fontSize: 10, background: '#FEF3C7', color: '#B45309', fontWeight: 700 }}>
-                  {selectedInvoiceForModal.status || 'PENDING'}
-                </span>
-              </div>
+        {selectedInvoiceForModal && (() => {
+          let modalPaymentDetails: any = selectedInvoiceForModal.paymentDetails || {};
+          if (!modalPaymentDetails.bankName && !modalPaymentDetails.depositAddress && selectedInvoiceForModal.paymentAccountOrLink) {
+            try {
+              modalPaymentDetails = JSON.parse(selectedInvoiceForModal.paymentAccountOrLink);
+            } catch {
+              modalPaymentDetails = { link: selectedInvoiceForModal.paymentAccountOrLink };
+            }
+          }
+          const isCryptoSettlement = selectedInvoiceForModal.settlementType === 'crypto' || selectedInvoiceForModal.settlementType === 'stablecoin' || modalPaymentDetails.mode === 'crypto';
+          const isPending = (selectedInvoiceForModal.status || 'pending').toLowerCase() === 'pending';
 
-              <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: 'Bricolage Grotesque', margin: '4px 0 2px' }}>
-                Invoice for {selectedInvoiceForModal.clientName || 'Client'}
-              </h3>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-                Issued by {activeEntity?.legalName || 'Proxim Business'} · {selectedInvoiceForModal.clientEmail}
-              </div>
+          return (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,24,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, padding: 16 }}>
+              <div className="glass-card" style={{ width: '100%', maxWidth: 460, padding: 24, position: 'relative', background: '#fff', color: 'var(--text)', maxHeight: '90vh', overflowY: 'auto', borderRadius: 24 }}>
+                <button onClick={() => setSelectedInvoiceForModal(null)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer' }}><X size={20} /></button>
 
-              <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase' }}>Amount Due</div>
-                <div style={{ fontSize: 28, fontWeight: 900, fontFamily: 'Bricolage Grotesque', color: 'var(--text)', margin: '4px 0 8px' }}>
-                  {selectedInvoiceForModal.currency || 'USD'} {parseFloat(selectedInvoiceForModal.totalAmount || selectedInvoiceForModal.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </div>
-                {selectedInvoiceForModal.description && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {selectedInvoiceForModal.description}
-                  </div>
-                )}
-              </div>
-
-              {/* Settlement Instructions: Fiat vs Crypto */}
-              <div style={{ background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(53, 217, 208, 0.35)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#35D9D0', textTransform: 'uppercase', marginBottom: 10 }}>
-                  {selectedInvoiceForModal.settlementType === 'crypto' || selectedInvoiceForModal.settlementType === 'stablecoin' ? '⚡ Crypto Payment Destination' : '🏦 Bank Transfer Account Details'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span className="chip" style={{ fontSize: 11, background: 'var(--tint)', color: 'var(--green-dark)', fontWeight: 800 }}>
+                    {selectedInvoiceForModal.tag || 'PROX-INV'}
+                  </span>
+                  <span className="chip" style={{ fontSize: 10, background: isPending ? '#FEF3C7' : '#D1FAE5', color: isPending ? '#B45309' : '#065F46', fontWeight: 700, textTransform: 'uppercase' }}>
+                    {selectedInvoiceForModal.status || 'pending'}
+                  </span>
                 </div>
 
-                {selectedInvoiceForModal.settlementType === 'crypto' || selectedInvoiceForModal.settlementType === 'stablecoin' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#94A3B8' }}>Network:</span>
-                      <strong style={{ color: '#ffffff' }}>{selectedInvoiceForModal.paymentDetails?.network || selectedInvoiceForModal.cryptoNetwork || 'Base'}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#94A3B8' }}>Asset:</span>
-                      <strong style={{ color: '#ffffff' }}>{selectedInvoiceForModal.paymentDetails?.asset || selectedInvoiceForModal.cryptoAsset || selectedInvoiceForModal.currency || 'USDC'}</strong>
-                    </div>
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 8 }}>
-                      <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Deposit Address:</div>
-                      <div style={{ background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(53, 217, 208, 0.3)', borderRadius: 10, padding: '8px 10px', fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#ffffff' }}>
-                        <span>{selectedInvoiceForModal.paymentDetails?.depositAddress || activeEntity?.evmDepositAddress || 'Address unavailable'}</span>
-                        {selectedInvoiceForModal.paymentDetails?.depositAddress || activeEntity?.evmDepositAddress ? (
-                          <button
-                            type="button"
-                            className="copy-btn"
-                            style={{ marginLeft: 6, background: 'var(--btn-primary-bg)', color: '#050811', fontWeight: 800 }}
-                            onClick={() => {
-                              navigator.clipboard.writeText(selectedInvoiceForModal.paymentDetails?.depositAddress || activeEntity?.evmDepositAddress || '');
-                              setCopyNotification('Address copied!');
-                              setTimeout(() => setCopyNotification(''), 2500);
-                            }}
-                          >
-                            Copy
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
-                    {selectedInvoiceForModal.paymentDetails?.status === 'provider_offline' ? (
-                      <div style={{ color: '#FBBF24', fontSize: 12, lineHeight: 1.6, background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.3)', borderRadius: 10, padding: 10 }}>
-                        Fiat account provider is not live yet. The invoice is still valid, and account details will appear here once the provider is enabled.
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#94A3B8' }}>Bank Name:</span>
-                          <strong style={{ color: '#ffffff' }}>{selectedInvoiceForModal.paymentDetails?.bankName || (selectedInvoiceForModal.currency === 'NGN' ? 'Wema Bank' : selectedInvoiceForModal.currency === 'EUR' ? 'Banking Circle S.A.' : 'Evolve Bank & Trust')}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ color: '#94A3B8' }}>Account Number:</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <strong style={{ color: '#ffffff' }}>{selectedInvoiceForModal.paymentDetails?.accountNumber || 'Not available yet'}</strong>
-                            {selectedInvoiceForModal.paymentDetails?.accountNumber && (
-                              <button
-                                type="button"
-                                className="copy-btn"
-                                style={{ background: 'var(--btn-primary-bg)', color: '#050811', fontWeight: 800 }}
-                                onClick={() => {
-                                  navigator.clipboard.writeText(selectedInvoiceForModal.paymentDetails?.accountNumber || '');
-                                  setCopyNotification('Account number copied!');
-                                  setTimeout(() => setCopyNotification(''), 2500);
-                                }}
-                              >
-                                Copy
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#94A3B8' }}>Account Name:</span>
-                          <strong style={{ color: '#ffffff' }}>{selectedInvoiceForModal.paymentDetails?.accountHolderName || 'Not available'}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#94A3B8' }}>Currency & Rail:</span>
-                          <span style={{ color: '#ffffff' }}>{selectedInvoiceForModal.currency || 'USD'} · {selectedInvoiceForModal.paymentDetails?.rail?.toUpperCase() || 'DIRECT TRANSFER'}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+                <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: 'Bricolage Grotesque', margin: '4px 0 2px' }}>
+                  Invoice for {selectedInvoiceForModal.clientName || 'Client'}
+                </h3>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                  Issued by {activeEntity?.legalName || 'Proxim Business'} · {selectedInvoiceForModal.clientEmail}
+                </div>
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  type="button"
-                  className="cta"
-                  style={{ flex: 1 }}
-                  onClick={() => window.print()}
-                >
-                  Download / Print PDF
-                </button>
-                <button
-                  type="button"
-                  className="cta ghost"
-                  style={{ flex: 1 }}
-                  onClick={() => {
-                    const link = selectedInvoiceForModal.paymentLink || `https://pay.proxim.finance/inv/${selectedInvoiceForModal.id}`;
-                    navigator.clipboard.writeText(link);
-                    setCopyNotification('Invoice link copied!');
-                    setTimeout(() => setCopyNotification(''), 2500);
-                  }}
-                >
-                  Copy Link
-                </button>
+                <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase' }}>Amount Due</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, fontFamily: 'Bricolage Grotesque', color: 'var(--text)', margin: '4px 0 8px' }}>
+                    {selectedInvoiceForModal.currency || 'USD'} {parseFloat(selectedInvoiceForModal.totalAmount || selectedInvoiceForModal.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  {selectedInvoiceForModal.description && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {selectedInvoiceForModal.description}
+                    </div>
+                  )}
+                </div>
+
+                {/* Settlement Instructions: Fiat vs Crypto */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(53, 217, 208, 0.35)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#35D9D0', textTransform: 'uppercase', marginBottom: 10 }}>
+                    {isCryptoSettlement ? '⚡ Crypto Payment Destination' : '🏦 Bank Transfer Account Details'}
+                  </div>
+
+                  {isCryptoSettlement ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94A3B8' }}>Network:</span>
+                        <strong style={{ color: '#ffffff' }}>{modalPaymentDetails.network || selectedInvoiceForModal.cryptoNetwork || 'Base'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94A3B8' }}>Asset:</span>
+                        <strong style={{ color: '#ffffff' }}>{modalPaymentDetails.asset || selectedInvoiceForModal.cryptoAsset || selectedInvoiceForModal.currency || 'USDC'}</strong>
+                      </div>
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 8 }}>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Deposit Address:</div>
+                        <div style={{ background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(53, 217, 208, 0.3)', borderRadius: 10, padding: '8px 10px', fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#ffffff' }}>
+                          <span>{modalPaymentDetails.depositAddress || activeEntity?.evmDepositAddress || 'Address unavailable'}</span>
+                          {modalPaymentDetails.depositAddress || activeEntity?.evmDepositAddress ? (
+                            <button
+                              type="button"
+                              className="copy-btn"
+                              style={{ marginLeft: 6, background: 'var(--btn-primary-bg)', color: '#050811', fontWeight: 800 }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(modalPaymentDetails.depositAddress || activeEntity?.evmDepositAddress || '');
+                                setCopyNotification('Deposit address copied!');
+                                setTimeout(() => setCopyNotification(''), 2500);
+                              }}
+                            >
+                              Copy
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94A3B8' }}>Bank Name:</span>
+                        <strong style={{ color: '#ffffff' }}>{modalPaymentDetails.bankName || (selectedInvoiceForModal.currency === 'NGN' ? 'Wema Bank' : selectedInvoiceForModal.currency === 'EUR' ? 'Banking Circle S.A.' : 'Evolve Bank & Trust')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#94A3B8' }}>Account Number:</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <strong style={{ color: '#ffffff' }}>{modalPaymentDetails.accountNumber || 'Available via collection link'}</strong>
+                          {modalPaymentDetails.accountNumber && (
+                            <button
+                              type="button"
+                              className="copy-btn"
+                              style={{ background: 'var(--btn-primary-bg)', color: '#050811', fontWeight: 800 }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(modalPaymentDetails.accountNumber || '');
+                                setCopyNotification('Account number copied!');
+                                setTimeout(() => setCopyNotification(''), 2500);
+                              }}
+                            >
+                              Copy
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94A3B8' }}>Account Name:</span>
+                        <strong style={{ color: '#ffffff' }}>{modalPaymentDetails.accountHolderName || activeEntity?.legalName || 'Proxim Customer'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94A3B8' }}>Currency & Rail:</span>
+                        <span style={{ color: '#ffffff' }}>{selectedInvoiceForModal.currency || 'USD'} · {modalPaymentDetails.rail?.toUpperCase() || 'BANK TRANSFER'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      type="button"
+                      className="cta"
+                      style={{ flex: 1 }}
+                      onClick={() => window.print()}
+                    >
+                      Download / Print PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="cta ghost"
+                      style={{ flex: 1 }}
+                      onClick={() => {
+                        const link = modalPaymentDetails.onlineCheckoutUrl || selectedInvoiceForModal.paymentLink || `https://pay.proxim.finance/inv/${selectedInvoiceForModal.id}`;
+                        navigator.clipboard.writeText(link);
+                        setCopyNotification('Payment link copied!');
+                        setTimeout(() => setCopyNotification(''), 2500);
+                      }}
+                    >
+                      Copy Link
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="cta ghost"
+                    style={{ width: '100%', borderColor: 'rgba(53, 217, 208, 0.4)', color: '#050811', background: '#F8FAFC', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/invoices/${selectedInvoiceForModal.id}/export`);
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Invoice-${selectedInvoiceForModal.tag || 'Proxim'}.svg`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        setCopyNotification('Invoice image downloaded!');
+                        setTimeout(() => setCopyNotification(''), 2500);
+                      } catch {
+                        alert('Failed to export invoice image.');
+                      }
+                    }}
+                  >
+                    🖼️ Save / Send as Image (No Wallet or Links Needed)
+                  </button>
+
+                  {isPending && (
+                    <button
+                      type="button"
+                      className="cta ghost"
+                      style={{ width: '100%', borderColor: 'rgba(53, 217, 208, 0.4)', color: '#050811', background: 'rgba(53, 217, 208, 0.15)', fontWeight: 800 }}
+                      onClick={async () => {
+                        try {
+                          const res = await apiFetch(`${API_BASE_URL}/api/invoices/${selectedInvoiceForModal.id}/settle`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            setSelectedInvoiceForModal({ ...selectedInvoiceForModal, status: 'paid' });
+                            setInvoicesList(prev => prev.map(item => item.id === selectedInvoiceForModal.id ? { ...item, status: 'paid' } : item));
+                            setCopyNotification('Invoice marked as paid!');
+                            setTimeout(() => setCopyNotification(''), 2500);
+                          } else {
+                            alert(data.error || 'Failed to settle invoice.');
+                          }
+                        } catch {
+                          alert('Error connecting to settlement server.');
+                        }
+                      }}
+                    >
+                      ✓ Mark Invoice as Paid
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ===== COPY NOTIFICATION TOAST ===== */}
         {copyNotification && !showReceiveModal && (
@@ -4193,6 +4446,15 @@ export default function App() {
             userId={currentUser.id || currentUser.userId}
             apiBaseUrl={API_BASE_URL}
             onSuccess={handleKycSuccess}
+          />
+        )}
+
+        {/* ===== SME Business Balance Sheet & Financial Statements Modal ===== */}
+        {showBalanceSheetModal && activeEntity && (
+          <BusinessBalanceSheetModal
+            entityId={activeEntity.id}
+            onClose={() => setShowBalanceSheetModal(false)}
+            token={currentUser?.token}
           />
         )}
       </div>

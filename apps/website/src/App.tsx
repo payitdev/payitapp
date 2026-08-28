@@ -10,8 +10,12 @@ import {
   UserCheck, Loader2, Mail, ArrowUpRight, Lock,
   Wallet, Layers, DollarSign, CheckCircle2, ArrowRight,
   Shield, Repeat, Activity, Server, Cpu, Copy, ExternalLink,
-  Users, PiggyBank, LineChart, Award, CheckCircle, Clock
+  Users, PiggyBank, LineChart, Award, CheckCircle, Clock, Code2
 } from 'lucide-react';
+import { DeveloperDocs } from './components/DeveloperDocs';
+import { DeveloperDashboard } from './components/DeveloperDashboard';
+import { AdminDashboard } from './components/AdminDashboard';
+import { SchoolConsole } from './components/SchoolConsole';
 
 const APP_URL = 'https://app.proximfi.xyz/';
 
@@ -35,7 +39,7 @@ const ProximBrandGuideSky = () => (
     <div
       className="aurora-curtain-anim absolute top-0 right-1/4 w-[280px] sm:w-[420px] h-[900px] blur-[70px] opacity-85"
       style={{
-        background: 'linear-gradient(175deg, rgba(53, 217, 208, 0.75) 0%, rgba(22, 199, 183, 0.60) 40%, rgba(74, 140, 255, 0.35) 75%, transparent 100%)',
+        background: 'linear-gradient(175deg, rgba(53, 217, 208, 0.75) 0%, rgba(16, 199, 183, 0.60) 40%, rgba(74, 140, 255, 0.35) 75%, transparent 100%)',
         transform: 'rotate(-24deg) translateY(-80px)',
       }}
     />
@@ -66,12 +70,7 @@ const ProximBrandGuideSky = () => (
     </div>
 
     {/* Deep Sky Darkness Base Overlay */}
-    <div
-      className="absolute inset-0"
-      style={{
-        background: 'radial-gradient(ellipse at 30% 30%, transparent 20%, rgba(6, 11, 20, 0.70) 80%, #060B14 100%)',
-      }}
-    />
+    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#060B14]/40 to-[#060B14]" />
   </div>
 );
 
@@ -89,6 +88,26 @@ const stagger = { visible: { transition: { staggerChildren: 0.08 } } };
    MAIN APPLICATION
    ══════════════════════════════════════════════════════ */
 export default function App() {
+  const [activePage, setActivePage] = useState<'home' | 'developers' | 'dashboard' | 'admin' | 'school'>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      if (path.startsWith('/admin') || hash === '#admin') {
+        return 'admin';
+      }
+      if (path.startsWith('/schools') || hash === '#schools') {
+        return 'school';
+      }
+      if (path.startsWith('/dashboard') || hash === '#dashboard') {
+        return 'dashboard';
+      }
+      if (path.startsWith('/developers') || path.startsWith('/docs') || hash === '#developers') {
+        return 'developers';
+      }
+    }
+    return 'home';
+  });
+
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
@@ -99,6 +118,70 @@ export default function App() {
   const [sendAmount, setSendAmount] = useState('1000');
   const [sourceCurrency, setSourceCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
   const [targetCurrency, setTargetCurrency] = useState<'NGN' | 'KES' | 'GHS'>('NGN');
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#admin' || window.location.pathname.startsWith('/admin')) {
+        setActivePage('admin');
+      } else if (window.location.hash === '#schools' || window.location.pathname.startsWith('/schools')) {
+        setActivePage('school');
+      } else if (window.location.hash === '#dashboard' || window.location.pathname.startsWith('/dashboard')) {
+        setActivePage('dashboard');
+      } else if (window.location.hash === '#developers' || window.location.pathname.startsWith('/developers')) {
+        setActivePage('developers');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  if (activePage === 'admin') {
+    return (
+      <AdminDashboard
+        onBackToHome={() => {
+          setActivePage('home');
+          if (window.history.pushState) window.history.pushState(null, '', '/');
+        }}
+        onOpenConsole={() => {
+          setActivePage('dashboard');
+          window.location.hash = 'dashboard';
+        }}
+        appUrl={APP_URL}
+      />
+    );
+  }
+
+  if (activePage === 'school') {
+    return <SchoolConsole onBackToHome={() => { setActivePage('home'); window.history.pushState(null, '', '/'); }} />;
+  }
+
+  if (activePage === 'dashboard') {
+    return (
+      <DeveloperDashboard
+        onBackToHome={() => {
+          setActivePage('home');
+          if (window.history.pushState) window.history.pushState(null, '', '/');
+        }}
+        onOpenDocs={() => {
+          setActivePage('developers');
+          window.location.hash = 'developers';
+        }}
+        appUrl={APP_URL}
+      />
+    );
+  }
+
+  if (activePage === 'developers') {
+    return (
+      <DeveloperDocs
+        onBackToHome={() => {
+          setActivePage('home');
+          if (window.history.pushState) window.history.pushState(null, '', '/');
+        }}
+        appUrl={APP_URL}
+      />
+    );
+  }
 
   const rates: Record<string, number> = {
     'USD-NGN': 1550,
@@ -158,7 +241,7 @@ export default function App() {
     },
     {
       q: 'How does Proxim protect my funds and security?',
-      a: 'Proxim uses biometric Passkeys (FaceID/TouchID), multi-party key infrastructure (HSMs), and bank-grade encryption to guarantee enterprise security.',
+      a: 'Proxim uses Privy authentication, multi-party key infrastructure (HSMs), and bank-grade encryption to protect your account and funds.',
     },
   ];
 
@@ -188,10 +271,34 @@ export default function App() {
           </a>
 
           {/* Nav Links */}
-          <div className="hidden md:flex items-center gap-9 text-sm font-500 text-[#F7F8F4]/80">
+          <div className="hidden md:flex items-center gap-8 text-sm font-500 text-[#F7F8F4]/80">
             {[['#features', 'Features'], ['#currencies', 'Currencies'], ['#how-it-works', 'How it works'], ['#business', 'Business'], ['#security', 'Security'], ['#faq', 'FAQ']].map(([h, l]) => (
               <a key={h} href={h} className="hover:text-white transition-colors duration-150">{l}</a>
             ))}
+            <button
+              onClick={() => { setActivePage('developers'); window.location.hash = 'developers'; }}
+              className="text-white/80 hover:text-white transition-colors font-semibold flex items-center gap-1.5"
+            >
+              <Code2 size={15} /> Docs
+            </button>
+            <button
+              onClick={() => { setActivePage('dashboard'); window.location.hash = 'dashboard'; }}
+              className="text-[#35D9D0] hover:text-white transition-colors font-bold flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#35D9D0]/10 border border-[#35D9D0]/30"
+            >
+              <Zap size={14} /> Console
+            </button>
+            <button
+              onClick={() => { setActivePage('school'); window.location.hash = 'schools'; }}
+              className="text-amber-200 hover:text-white transition-colors font-bold flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-300/10 border border-amber-300/30"
+            >
+              <Building2 size={14} /> School Console
+            </button>
+            <button
+              onClick={() => { setActivePage('admin'); window.location.hash = 'admin'; }}
+              className="text-red-400 hover:text-white transition-colors font-bold flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-500/10 border border-red-500/30 text-xs"
+            >
+              <Shield size={13} /> Admin
+            </button>
           </div>
 
           {/* Action CTAs */}
@@ -237,6 +344,18 @@ export default function App() {
                   {l}
                 </a>
               ))}
+              <button
+                onClick={() => { setActivePage('developers'); setMobileMenuOpen(false); window.location.hash = 'developers'; }}
+                className="w-full text-left py-2.5 text-base font-bold text-white/80 border-b border-white/10 flex items-center gap-2"
+              >
+                <Code2 size={18} /> API Documentation
+              </button>
+              <button
+                onClick={() => { setActivePage('dashboard'); setMobileMenuOpen(false); window.location.hash = 'dashboard'; }}
+                className="w-full text-left py-2.5 text-base font-bold text-[#35D9D0] border-b border-white/10 flex items-center gap-2"
+              >
+                <Zap size={18} /> Developer Console
+              </button>
               <div className="pt-2 space-y-3">
                 <a
                   href={APP_URL} target="_blank" rel="noopener noreferrer"
@@ -315,7 +434,7 @@ export default function App() {
               >
                 <div className="flex items-center gap-2">
                   <Lock className="w-4 h-4 text-[#16C7B7] shrink-0" />
-                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">Passkey Biometric Security</span>
+                  <span className="text-[0.72rem] font-600 text-white/80 leading-tight">Privy Account Security</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-[#35D9D0] shrink-0" />
@@ -879,9 +998,9 @@ export default function App() {
               <div className="w-12 h-12 rounded-2xl bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center text-[#35D9D0]">
                 <Lock className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-bold text-white">Biometric Passkey Security</h3>
+              <h3 className="text-xl font-bold text-white">Privy Account Security</h3>
               <p className="text-sm text-[#F7F8F4]/75 leading-relaxed">
-                Sign in securely with FaceID, TouchID, or hardware keys. No passwords to leak or intercept.
+                Sign in securely with Google, Apple, or email through Privy.
               </p>
             </div>
 
@@ -1022,6 +1141,12 @@ export default function App() {
               <a href="#business" className="hover:text-white transition-colors">Business</a>
               <a href="#security" className="hover:text-white transition-colors">Security</a>
               <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
+              <button
+                onClick={() => { setActivePage('developers'); window.location.hash = 'developers'; }}
+                className="text-[#35D9D0] hover:text-white transition-colors font-semibold"
+              >
+                API & Developers
+              </button>
             </nav>
 
             <a

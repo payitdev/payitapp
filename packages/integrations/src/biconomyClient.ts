@@ -29,12 +29,15 @@ export class BiconomyClient {
   private baseUrl: string;
 
   constructor(config?: Partial<BiconomyConfig>) {
-    this.apiKey = config?.apiKey || process.env.BICONOMY_MEE_API_KEY || 'mee_QgNK9G24KkNKeitXwh477b';
-    this.projectId = config?.projectId || process.env.BICONOMY_PROJECT_ID || '02059f83-8000-4ed0-a1e3-71458f2010bd';
+    this.apiKey = config?.apiKey || process.env.BICONOMY_MEE_API_KEY || '';
+    this.projectId = config?.projectId || process.env.BICONOMY_PROJECT_ID || '';
     this.baseUrl = config?.baseUrl || process.env.BICONOMY_MEE_BASE_URL || 'https://mee-node.biconomy.io';
   }
 
   private getHeaders(): Record<string, string> {
+    if (!this.apiKey || !this.projectId) {
+      throw new Error('Biconomy API key and project ID are required.');
+    }
     return {
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
@@ -123,13 +126,8 @@ export class BiconomyClient {
 
       return await response.json();
     } catch (err: any) {
-      console.warn('[BiconomyClient] Live submit fallback to transaction hash receipt:', err.message);
-      return {
-        transactionHash: `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`,
-        status: 'SUBMITTED',
-        quoteId: payload.quoteId,
-        chainId: payload.chainId,
-      };
+      console.error('[BiconomyClient] supertransaction submission failed:', err.message);
+      throw new Error(`Biconomy execution unavailable: ${err.message}`);
     }
   }
 }

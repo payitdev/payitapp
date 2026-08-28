@@ -1,12 +1,38 @@
 import { FastifyInstance } from 'fastify';
-import { createDbClient, eq, and } from '@payit/db';
-import { rwaPositions, rwaOrders } from '@payit/db/schema';
+import { createDbClient, eq, and, sql } from '@payit/db';
+import { entities, rwaPositions, rwaOrders } from '@payit/db/schema';
 import { OndoClient, BiconomyClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
 const ondoClient = new OndoClient();
 const biconomyClient = new BiconomyClient();
+
+  async function syncPosition(entityId: string, wallet: string, symbol: string) {
+    const positions = await ondoClient.getUserStockPositions(wallet);
+    const position = positions.find(candidate => String(candidate.spotPosition?.currentPositionInShares?.symbol || '').toUpperCase() === symbol.toUpperCase());
+    if (!position) return false;
+    const shares = String(position.spotPosition.currentPositionInShares.value);
+    const totalValueUsd = Number(position.spotPosition.underlyingBalanceUSD || 0);
+    const price = Number(shares) > 0 ? totalValueUsd / Number(shares) : 0;
+    await db.insert(rwaPositions).values({
+      id: `rwa_pos_${entityId}_${symbol.toUpperCase()}`,
+      entityId,
+      symbol: symbol.toUpperCase(),
+      name: position.strategy.assetName || symbol.toUpperCase(),
+      shares,
+      averageCostBasisUsd: price.toFixed(4),
+      currentPriceUsd: price.toFixed(4),
+      totalValueUsd: totalValueUsd.toFixed(2),
+      network: 'BSC',
+      reservedShares: '0',
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [rwaPositions.entityId, rwaPositions.symbol],
+      set: { shares, reservedShares: '0', currentPriceUsd: price.toFixed(4), totalValueUsd: totalValueUsd.toFixed(2), updatedAt: new Date() },
+    });
+    return true;
+  }
 
 let stockListCache: { stocks: any[]; timestamp: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
@@ -37,6 +63,7 @@ export async function ondoRoutes(server: FastifyInstance) {
   server.get('/api/ondo/positions/:entityId', async (request, reply) => {
     const { entityId } = request.params as { entityId: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     try {
       const dbPositions = await db.select().from(rwaPositions).where(eq(rwaPositions.entityId, entityId));
@@ -92,17 +119,25 @@ export async function ondoRoutes(server: FastifyInstance) {
 
     try {
       const status = await ondoClient.getActionStatus(actionId);
+      if (!status) return reply.status(502).send({ error: 'Ondo returned no action status', actionId });
+      const order = (await db.select().from(rwaOrders).where(eq(rwaOrders.actionId, actionId)).limit(1))[0];
+      if (order && !request.session?.userEntityIds.includes(order.entityId)) return reply.status(403).send({ error: 'Order is not owned by the authenticated user' });
+      if (order && status.status === 'SUCCESS') {
+        const entity = (await db.select().from(entities).where(and(eq(entities.id, order.entityId), eq(entities.userId, request.session!.userId))).limit(1))[0];
+        if (entity?.evmDepositAddress) await syncPosition(order.entityId, entity.evmDepositAddress, order.symbol);
+        await db.update(rwaOrders).set({ status: 'COMPLETED' }).where(and(eq(rwaOrders.id, order.id), eq(rwaOrders.status, 'SUBMITTED')));
+      } else if (order && ['FAILED', 'REFUNDED', 'EXPIRED', 'CANCELLED'].includes(status.status)) {
+        await db.update(rwaOrders).set({ status: 'FAILED' }).where(and(eq(rwaOrders.id, order.id), eq(rwaOrders.status, 'SUBMITTED')));
+        await db.update(rwaPositions).set({ reservedShares: sql`GREATEST(${rwaPositions.reservedShares} - ${order.shares}, 0)` })
+          .where(and(eq(rwaPositions.entityId, order.entityId), eq(rwaPositions.symbol, order.symbol)));
+      }
       return reply.send({
         success: true,
         actionId,
-        status: status || { status: 'completed', suw: { phase: 'completed' } },
+        status,
       });
     } catch (err: any) {
-      return reply.send({
-        success: true,
-        actionId,
-        status: { status: 'completed', suw: { phase: 'completed' } },
-      });
+      return reply.status(502).send({ error: 'Ondo action status unavailable', actionId, details: err.message });
     }
   };
 
@@ -120,16 +155,19 @@ export async function ondoRoutes(server: FastifyInstance) {
     if (!quoteId || !signature || !userOp || !chainId) {
       return reply.status(400).send({ error: 'quoteId, signature, userOp, and chainId are required' });
     }
+    const sender = String(userOp.sender || '').toLowerCase();
+    const orderRows = orderId ? await db.select().from(rwaOrders).where(eq(rwaOrders.id, orderId)).limit(1) : [];
+    if (orderId && (orderRows.length === 0 || !request.session?.userEntityIds.includes(orderRows[0].entityId))) {
+      return reply.status(403).send({ error: 'Order is not owned by the authenticated user' });
+    }
+    if (!sender || !orderRows[0]) return reply.status(400).send({ error: 'A wallet-bound order is required for submission' });
+    const submitEntity = await db.select().from(entities).where(and(eq(entities.id, orderRows[0].entityId), eq(entities.userId, request.session!.userId))).limit(1);
+    if (submitEntity.length === 0 || submitEntity[0].evmDepositAddress?.toLowerCase() !== sender) return reply.status(403).send({ error: 'Submitted wallet does not match the order entity' });
     try {
       const result = await biconomyClient.submitSupertransaction({ quoteId, signature, userOp, chainId });
 
-      if (orderId) {
-        try {
-          await db.update(rwaOrders)
-            .set({ status: 'SUBMITTED', biconomyTxHash: result?.transactionHash || '' })
-            .where(eq(rwaOrders.id, orderId));
-        } catch {}
-      }
+      await db.update(rwaOrders).set({ status: 'SUBMITTED', biconomyTxHash: result?.transactionHash || '' })
+        .where(and(eq(rwaOrders.id, orderId!), eq(rwaOrders.status, 'PENDING')));
 
       return reply.send({ success: true, result });
     } catch (err: any) {
@@ -176,11 +214,16 @@ export async function ondoRoutes(server: FastifyInstance) {
     if (!entityId || (!symbol && !strategyId) || !finalAmountUsd || finalAmountUsd <= 0) {
       return reply.status(400).send({ error: 'entityId, symbol, and valid amountUsd are required' });
     }
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     try {
       const symbolUpper = (symbol || strategyId || '').toUpperCase();
-      const wallet = userWallet || '0x000000000000000000000000000000000000User';
-      const resolvedStrategyId = strategyId || await ondoClient.resolveStrategyId(symbolUpper) || 'ondo-stock-bsc';
+      const entityRows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, request.session!.userId))).limit(1);
+      const wallet = entityRows[0]?.evmDepositAddress;
+      if (!wallet) return reply.status(409).send({ error: 'Entity EVM wallet is unavailable' });
+      if (userWallet && userWallet.toLowerCase() !== wallet.toLowerCase()) return reply.status(403).send({ error: 'Wallet does not belong to the entity' });
+      const resolvedStrategyId = strategyId || await ondoClient.resolveStrategyId(symbolUpper);
+      if (!resolvedStrategyId) return reply.status(409).send({ error: 'Ondo strategy is unavailable' });
 
       // 1. Fetch Ondo bytecode
       const ondoBytecode = await ondoClient.buyStock({
@@ -200,8 +243,7 @@ export async function ondoRoutes(server: FastifyInstance) {
 
       const orderId = `rwa_${ulid()}`;
       const actionId = ondoBytecode?.id || `action_${ulid()}`;
-      const estimatedPrice = 200; // Estimated share price baseline
-      const estimatedShares = finalAmountUsd / estimatedPrice;
+      const estimatedShares = 0;
 
       // Record in database
       await db.insert(rwaOrders).values({
@@ -215,31 +257,6 @@ export async function ondoRoutes(server: FastifyInstance) {
         biconomyQuoteId: biconomyQuote?.quoteId || ondoBytecode?.id,
         actionId,
       });
-
-      // Upsert position in database
-      const existingPos = await db.select().from(rwaPositions).where(and(eq(rwaPositions.entityId, entityId), eq(rwaPositions.symbol, symbolUpper))).limit(1);
-      if (existingPos.length === 0) {
-        await db.insert(rwaPositions).values({
-          id: `pos_${ulid()}`,
-          entityId,
-          symbol: symbolUpper,
-          name: `${symbolUpper} Stock Token`,
-          shares: String(estimatedShares.toFixed(6)),
-          averageCostBasisUsd: String(estimatedPrice.toFixed(4)),
-          currentPriceUsd: String(estimatedPrice.toFixed(4)),
-          totalValueUsd: String(finalAmountUsd.toFixed(2)),
-          network: 'BSC',
-        });
-      } else {
-        const prevShares = parseFloat(existingPos[0].shares);
-        const newShares = prevShares + estimatedShares;
-        const newTotalValue = parseFloat(existingPos[0].totalValueUsd) + finalAmountUsd;
-        await db.update(rwaPositions).set({
-          shares: String(newShares.toFixed(6)),
-          totalValueUsd: String(newTotalValue.toFixed(2)),
-          updatedAt: new Date(),
-        }).where(eq(rwaPositions.id, existingPos[0].id));
-      }
 
       return reply.send({
         success: true,
@@ -278,11 +295,26 @@ export async function ondoRoutes(server: FastifyInstance) {
     if (!entityId || (!symbol && !strategyId) || !shares || shares <= 0) {
       return reply.status(400).send({ error: 'entityId, symbol, and valid shares are required' });
     }
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     try {
       const symbolUpper = (symbol || strategyId || '').toUpperCase();
-      const wallet = userWallet || '0x000000000000000000000000000000000000User';
-      const resolvedStrategyId = strategyId || await ondoClient.resolveStrategyId(symbolUpper) || 'ondo-stock-bsc';
+      const existingPos = await db.select().from(rwaPositions).where(and(eq(rwaPositions.entityId, entityId), eq(rwaPositions.symbol, symbolUpper))).limit(1);
+      if (existingPos.length === 0 || parseFloat(existingPos[0].shares) - parseFloat(existingPos[0].reservedShares || '0') < shares) {
+        return reply.status(409).send({ error: 'Insufficient confirmed shares available for sale' });
+      }
+
+      const entityRows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, request.session!.userId))).limit(1);
+      const wallet = entityRows[0]?.evmDepositAddress;
+      if (!wallet) return reply.status(409).send({ error: 'Entity EVM wallet is unavailable' });
+      if (userWallet && userWallet.toLowerCase() !== wallet.toLowerCase()) return reply.status(403).send({ error: 'Wallet does not belong to the entity' });
+      const resolvedStrategyId = strategyId || await ondoClient.resolveStrategyId(symbolUpper);
+      if (!resolvedStrategyId) return reply.status(409).send({ error: 'Ondo strategy is unavailable' });
+      const reserved = await db.update(rwaPositions).set({ reservedShares: sql`${rwaPositions.reservedShares} + ${shares}` }).where(and(
+        eq(rwaPositions.id, existingPos[0].id),
+        sql`${rwaPositions.shares} - ${rwaPositions.reservedShares} >= ${shares}`,
+      )).returning({ id: rwaPositions.id });
+      if (reserved.length === 0) return reply.status(409).send({ error: 'Shares are already reserved by another order' });
       const shareAmountWei = String(Math.floor(shares * 1e18));
 
       const ondoBytecode = await ondoClient.sellStock({
@@ -301,8 +333,7 @@ export async function ondoRoutes(server: FastifyInstance) {
 
       const orderId = `rwa_${ulid()}`;
       const actionId = ondoBytecode?.id || `action_${ulid()}`;
-      const estimatedPrice = 200;
-      const estimatedUsd = shares * estimatedPrice;
+      const estimatedUsd = 0;
 
       await db.insert(rwaOrders).values({
         id: orderId,
@@ -315,19 +346,6 @@ export async function ondoRoutes(server: FastifyInstance) {
         biconomyQuoteId: biconomyQuote?.quoteId || ondoBytecode?.id,
         actionId,
       });
-
-      // Update position
-      const existingPos = await db.select().from(rwaPositions).where(and(eq(rwaPositions.entityId, entityId), eq(rwaPositions.symbol, symbolUpper))).limit(1);
-      if (existingPos.length > 0) {
-        const prevShares = parseFloat(existingPos[0].shares);
-        const newShares = Math.max(0, prevShares - shares);
-        const newTotalValue = Math.max(0, parseFloat(existingPos[0].totalValueUsd) - estimatedUsd);
-        await db.update(rwaPositions).set({
-          shares: String(newShares.toFixed(6)),
-          totalValueUsd: String(newTotalValue.toFixed(2)),
-          updatedAt: new Date(),
-        }).where(eq(rwaPositions.id, existingPos[0].id));
-      }
 
       return reply.send({
         success: true,

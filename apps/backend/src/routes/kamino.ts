@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createDbClient, eq, and } from '@payit/db';
 import { entities, termVaults, intentSwaps, feeLedger, trustedDevices, users } from '@payit/db/schema';
-import { kaminoClient, PrivyNEARBridge, NEARIntentsClient, signAndSubmitSolanaTransaction } from '@payit/integrations';
+import { kaminoClient, PrivyNEARBridge, NEARIntentsClient, signAndSubmitSolanaTransaction, signAndSubmitSolanaTokenTransfer, waitForSolanaFinalization, toBaseUnits } from '@payit/integrations';
 import { ulid } from 'ulid';
 import { env } from '../env.js';
 
@@ -24,7 +24,6 @@ async function requirePasscode(request: any, passcode?: string): Promise<string 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as { userId: string };
     const userRows = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
-    if (userRows[0]?.privyUserId && !passcode) return payload.userId;
     if (!passcode) return payload.userId;
     if (!/^\d{6}$/.test(passcode || '')) return null;
     const deviceRows = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, payload.userId)).limit(1);
@@ -111,32 +110,6 @@ export async function kaminoRoutes(server: FastifyInstance) {
         .filter((option: any) => option.userNetApy > 0 && option.userNetApy <= 100)
         .sort((a: any, b: any) => b.userNetApy - a.userNetApy);
 
-      if (options.length === 0) {
-        options = [
-          {
-            id: '75691G4mHqVb61WfB3W157r6Q5e1fXk1KaminoUSDC',
-            provider: 'kamino',
-            name: 'Kamino USDC Yield Reserve',
-            chain: 'solana',
-            asset: 'USDC',
-            grossApy: 11.2,
-            userNetApy: 9.2,
-            apyByDuration: { 30: 0.085, 60: 0.092, 90: 0.092, 365: 0.098 },
-            verified: true,
-          },
-          {
-            id: 'near_intent_usdc_earn',
-            provider: 'near_intent',
-            name: 'NEAR 1Click Multi-Chain USDC Vault',
-            chain: 'multi-chain',
-            asset: 'USDC',
-            grossApy: 10.5,
-            userNetApy: 8.5,
-            apyByDuration: { 30: 0.08, 60: 0.085, 90: 0.085, 365: 0.09 },
-            verified: true,
-          },
-        ];
-      }
       return reply.send({ success: true, options, recommended: options[0]?.id || null });
     } catch (err: any) {
       return reply.status(502).send({ error: 'Yield discovery is currently unavailable', details: err.message });
@@ -200,7 +173,13 @@ export async function kaminoRoutes(server: FastifyInstance) {
         vaultName = vault.name;
         grossApy = normalizeApy(metrics.apy90d) * 100;
         userNetApy = Math.max(0, grossApy - 2);
-        nearIntent = await nearIntentsClient.generateIntentForSigning({ originAsset, destinationAsset: 'solana:usdc', amount: String(amountUsd), recipientAddress: vault.id });
+        nearIntent = await nearIntentsClient.generateIntentForSigning({
+          originAsset,
+          destinationAsset: 'solana:usdc',
+          amount: String(amountUsd),
+          recipientAddress: derivation.solanaAddress,
+          refundAddress: derivation.solanaAddress,
+        });
       }
 
       const startDate = new Date();
@@ -286,8 +265,8 @@ export async function kaminoRoutes(server: FastifyInstance) {
       passcode?: string;
     };
 
-    if (!entityId || !vaultId || !Number.isFinite(amountUsdc) || amountUsdc <= 0) {
-      return reply.status(400).send({ error: 'entityId, vaultId, and a valid amountUsdc are required' });
+    if (!entityId || !vaultId || !termVaultId || !Number.isFinite(amountUsdc) || amountUsdc <= 0) {
+      return reply.status(400).send({ error: 'entityId, vaultId, termVaultId, and a valid amountUsdc are required' });
     }
 
     const userId = await requirePasscode(request, passcode);
@@ -301,6 +280,28 @@ export async function kaminoRoutes(server: FastifyInstance) {
       const entity = ownedEntity[0];
       const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
       if (!user?.privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+
+      const vaultRows = await db.select().from(termVaults).where(and(
+        eq(termVaults.id, termVaultId),
+        eq(termVaults.entityId, entityId),
+      )).limit(1);
+      const vault = vaultRows[0];
+      if (!vault || vault.status !== 'PENDING_DEPOSIT') {
+        return reply.status(409).send({ error: 'This savings position is not awaiting its first deposit confirmation.' });
+      }
+      const expectedAmount = Number(vault.principalAmountUsd);
+      if (!Number.isFinite(expectedAmount) || Math.abs(expectedAmount - amountUsdc) > 0.000001) {
+        return reply.status(409).send({ error: 'Deposit amount does not match the recorded savings position.' });
+      }
+      if (vault.nearIntentId) {
+        const intentStatus = await nearIntentsClient.checkSwapExecutionStatus(vault.nearIntentId);
+        const executionStatus = String(intentStatus?.status || intentStatus?.data?.status || '').toUpperCase();
+        if (!['COMPLETED', 'SUCCESS', 'EXECUTED'].includes(executionStatus)) {
+          return reply.status(409).send({ error: 'The cross-chain deposit has not settled to the Solana wallet.' });
+        }
+        const destinationTxHash = intentStatus?.destinationTxHash || intentStatus?.data?.destinationTxHash;
+        if (!destinationTxHash) return reply.status(409).send({ error: 'The cross-chain deposit has no confirmed destination transaction.' });
+      }
 
       const context = entity.kind === 'BUSINESS' ? 'business' : 'personal';
       const derivation = await PrivyNEARBridge.deriveAddress(user.privyUserId, context, user.email);
@@ -321,9 +322,8 @@ export async function kaminoRoutes(server: FastifyInstance) {
         instructions: instructions as any,
       });
 
-      if (termVaultId) {
-        await db.update(termVaults).set({ status: 'LOCKED' }).where(eq(termVaults.id, termVaultId));
-      }
+      await db.update(termVaults).set({ status: 'SOLVING', solanaTxHash: result.txHash, onChainSyncTimestamp: new Date() })
+        .where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId), eq(termVaults.status, 'PENDING_DEPOSIT')));
 
       return reply.send({
         success: true,
@@ -332,7 +332,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
         termVaultId,
         solanaAddress: derivation.solanaAddress,
         txHash: result.txHash,
-        status: 'LOCKED',
+        status: 'PENDING_CONFIRMATION',
       });
     } catch (err: any) {
       console.error('[Kamino MPC Deposit Error]:', err.message);
@@ -349,6 +349,7 @@ export async function kaminoRoutes(server: FastifyInstance) {
       termVaultId: string;
       entityId: string;
       penaltyChoice: 'FORFEIT_INTEREST' | 'PENALTY_FEE';
+      passcode?: string;
     };
 
     if (!termVaultId || !entityId || !penaltyChoice) {
@@ -356,10 +357,20 @@ export async function kaminoRoutes(server: FastifyInstance) {
     }
 
     try {
+      const userId = await requirePasscode(request, (request.body as any).passcode);
+      if (!userId) return reply.status(401).send({ error: 'A valid 6-digit transaction PIN is required' });
       const rows = await db.select().from(termVaults).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId))).limit(1);
       if (rows.length === 0) return reply.status(404).send({ error: 'Term vault not found' });
 
       const vault = rows[0];
+      const ownedEntity = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1);
+      if (ownedEntity.length === 0) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+      if (vault.status !== 'LOCKED' || new Date(vault.unlockDate) <= new Date()) {
+        return reply.status(409).send({ error: 'This vault is not eligible for early unlock.' });
+      }
+      if (!vault.sharesMinted || !vault.vaultName) {
+        return reply.status(409).send({ error: 'The vault has no confirmed on-chain shares available to withdraw.' });
+      }
       const principal = parseFloat(vault.principalAmountUsd);
       const accrued = parseFloat(vault.accruedInterestUsd || '0');
 
@@ -368,11 +379,30 @@ export async function kaminoRoutes(server: FastifyInstance) {
         ? penaltyCalculations.choiceA
         : penaltyCalculations.choiceB;
 
-      // Update database status
-      await db.update(termVaults).set({
+      const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+      if (!user?.privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+      const context = ownedEntity[0].kind === 'BUSINESS' ? 'business' : 'personal';
+      const derivation = await PrivyNEARBridge.deriveAddress(user.privyUserId, context, user.email);
+      if (!derivation.solanaAddress) return reply.status(409).send({ error: 'No Solana MPC address is available for this entity' });
+      const withdrawInstructions = await kaminoClient.getWithdrawInstructions(
+        derivation.solanaAddress,
+        vault.vaultName.match(/\(([^)]+)\)$/)?.[1] || vault.vaultName,
+        String(vault.sharesMinted),
+      );
+      const withdrawal = await signAndSubmitSolanaTransaction({
+        userIdentifier: `privy-${user.privyUserId}`,
+        context,
+        to: vault.vaultName.match(/\(([^)]+)\)$/)?.[1] || vault.vaultName,
+        amount: 0n,
+        instructions: withdrawInstructions.instructions as any,
+      });
+
+      const updated = await db.update(termVaults).set({
         status: 'EARLY_UNLOCKED',
         earlyExitChoice: penaltyChoice,
-      }).where(eq(termVaults.id, termVaultId));
+        withdrawalTxHash: withdrawal.txHash,
+      }).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId), eq(termVaults.status, 'LOCKED'))).returning({ id: termVaults.id });
+      if (updated.length === 0) return reply.status(409).send({ error: 'This savings position has already started unlocking.' });
 
       // Record Proxim fee if choice B was selected
       if (penaltyChoice === 'PENALTY_FEE' && chosenResult.proximPenaltyFeeUsd > 0) {
@@ -395,11 +425,91 @@ export async function kaminoRoutes(server: FastifyInstance) {
         entityId,
         penaltyChoice,
         executionSummary: chosenResult,
+        withdrawalTxHash: withdrawal.txHash,
         status: 'EARLY_UNLOCKED',
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
       return reply.status(500).send({ error: 'Early unlock failed', details: err.message });
+    }
+  });
+
+  server.post('/api/kamino/harvest', async (request, reply) => {
+    const { termVaultId, entityId, passcode } = request.body as { termVaultId: string; entityId: string; passcode?: string };
+    if (!termVaultId || !entityId) return reply.status(400).send({ error: 'termVaultId and entityId are required' });
+    const userId = await requirePasscode(request, passcode);
+    if (!userId) return reply.status(401).send({ error: 'A valid 6-digit transaction PIN is required' });
+    const entityRows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1);
+    const vaultRows = await db.select().from(termVaults).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId))).limit(1);
+    const vault = vaultRows[0];
+    if (!entityRows[0] || !vault) return reply.status(404).send({ error: 'Savings position not found' });
+    if (vault.status !== 'LOCKED' || vault.harvestStatus !== 'NOT_STARTED' || !vault.sharesMinted) {
+      return reply.status(409).send({ error: 'This position is not eligible for a new harvest.' });
+    }
+    const treasury = String(process.env.PROXIM_TREASURY_WALLET || '').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(treasury)) return reply.status(503).send({ error: 'Base treasury wallet is not configured.' });
+    try {
+      const entity = entityRows[0];
+      const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+      if (!user?.privyUserId || !entity.solanaDepositAddress) throw new Error('Entity Solana MPC wallet is unavailable');
+      const vaultAddress = vault.vaultName.match(/\(([^)]+)\)$/)?.[1] || vault.vaultName;
+      const livePositions = await kaminoClient.getUserPositions(entity.solanaDepositAddress);
+      const position = livePositions.find((candidate: any) => String(candidate.vaultId || candidate.vaultAddress) === vaultAddress);
+      if (!position || position.onChainVerified === false || Number(position.actualShares || 0) <= 0) {
+        return reply.status(409).send({ error: 'No verified on-chain Kamino position is available for harvest.' });
+      }
+      const kaminoVault = (await kaminoClient.getKaminoVaults()).find(candidate => candidate.id === vaultAddress);
+      if (!kaminoVault?.assetMint || kaminoVault.assetSymbol.toUpperCase() !== 'USDC') return reply.status(409).send({ error: 'Harvest is enabled only for verified Kamino USDC vaults.' });
+      const context = entity.kind === 'BUSINESS' ? 'business' : 'personal';
+      const claimed = await db.update(termVaults).set({ harvestStatus: 'REDEMPTION_SUBMITTED', onChainSyncTimestamp: new Date() })
+        .where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId), eq(termVaults.harvestStatus, 'NOT_STARTED'))).returning({ id: termVaults.id });
+      if (claimed.length === 0) return reply.status(409).send({ error: 'This position is already being harvested.' });
+      const withdraw = await kaminoClient.getWithdrawInstructions(entity.solanaDepositAddress, vaultAddress, String(position.actualShares));
+      const redemption = await signAndSubmitSolanaTransaction({ userIdentifier: `privy-${user.privyUserId}`, context, to: vaultAddress, amount: 0n, instructions: withdraw.instructions as any });
+      await waitForSolanaFinalization(redemption.txHash);
+      await db.update(termVaults).set({ harvestTxHash: redemption.txHash }).where(eq(termVaults.id, termVaultId));
+
+      const accrued = Math.max(0, Number(position.accruedInterestUsd || 0));
+      const grossApy = Math.max(0.01, Number(vault.grossApy || 0));
+      const feeUsd = Math.min(accrued, accrued * Math.min(1, 2 / grossApy));
+      if (feeUsd <= 0) {
+        await db.update(termVaults).set({ harvestStatus: 'COMPLETED', status: 'WITHDRAWN_EXTERNAL' }).where(eq(termVaults.id, termVaultId));
+        return reply.send({ success: true, termVaultId, redemptionTxHash: redemption.txHash, feeAmountUsdc: '0.000000', status: 'COMPLETED' });
+      }
+      const feeUnits = toBaseUnits(feeUsd.toFixed(6), 6);
+      const feeIntent = await nearIntentsClient.generateIntentForSigning({ originAsset: 'solana:usdc', destinationAsset: 'base:usdc', amount: feeUsd.toFixed(6), recipientAddress: treasury, refundAddress: entity.solanaDepositAddress });
+      const intentId = feeIntent.depositAddress || feeIntent.intentId;
+      if (!intentId) throw new Error('NEAR Intent returned no treasury fee deposit address');
+      const feeTransfer = await signAndSubmitSolanaTokenTransfer({ userIdentifier: `privy-${user.privyUserId}`, context, sourceOwner: entity.solanaDepositAddress, destinationOwner: intentId, mint: kaminoVault.assetMint, amount: feeUnits, decimals: 6 });
+      await nearIntentsClient.submitDepositTxHash({ intentId, txHash: feeTransfer.txHash, chain: 'solana' });
+      await db.update(termVaults).set({ harvestIntentId: intentId, harvestFeeAmount: feeUsd.toFixed(6), harvestStatus: 'FEE_SUBMITTED', status: 'WITHDRAWN_EXTERNAL' }).where(eq(termVaults.id, termVaultId));
+      return reply.send({ success: true, termVaultId, redemptionTxHash: redemption.txHash, feeIntentId: intentId, feeFundingTxHash: feeTransfer.txHash, feeAmountUsdc: feeUsd.toFixed(6), treasury, status: 'FEE_SUBMITTED' });
+    } catch (err: any) {
+      await db.update(termVaults).set({ harvestStatus: 'FAILED' }).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId), eq(termVaults.harvestStatus, 'REDEMPTION_SUBMITTED')));
+      return reply.status(502).send({ error: 'Kamino harvest failed', details: err.message });
+    }
+  });
+
+  server.get('/api/kamino/harvest/:termVaultId', async (request, reply) => {
+    const { termVaultId } = request.params as { termVaultId: string };
+    const vaultRows = await db.select().from(termVaults).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, request.session!.activeEntityId))).limit(1);
+    const vault = vaultRows[0];
+    if (!vault) return reply.status(404).send({ error: 'Savings position not found' });
+    if (!vault.harvestIntentId || ['COMPLETED', 'FAILED'].includes(vault.harvestStatus)) return reply.send({ success: true, status: vault.harvestStatus, vault });
+    try {
+      const status = await nearIntentsClient.checkSwapExecutionStatus(vault.harvestIntentId);
+      const executionStatus = String(status?.status || status?.data?.status || '').toUpperCase();
+      if (['COMPLETED', 'SUCCESS', 'EXECUTED'].includes(executionStatus)) {
+        const destinationTxHash = status?.destinationTxHash || status?.data?.destinationTxHash;
+        if (!destinationTxHash) return reply.send({ success: true, status: 'FEE_SUBMITTED', vault });
+        await db.update(termVaults).set({ harvestStatus: 'COMPLETED' }).where(and(eq(termVaults.id, termVaultId), eq(termVaults.harvestStatus, 'FEE_SUBMITTED')));
+        await db.insert(feeLedger).values({ id: ulid(), entityId: vault.entityId, transactionType: 'YIELD', referenceId: termVaultId, grossAmount: vault.principalAmountUsd, feeAmount: vault.harvestFeeAmount || '0', netAmount: vault.principalAmountUsd, currency: 'USDC', description: `Realized Kamino yield fee settled to Base treasury (${destinationTxHash})` }).onConflictDoNothing({ target: [feeLedger.transactionType, feeLedger.referenceId] });
+        return reply.send({ success: true, status: 'COMPLETED', destinationTxHash });
+      }
+      if (['FAILED', 'REFUNDED', 'EXPIRED'].includes(executionStatus)) await db.update(termVaults).set({ harvestStatus: 'FAILED' }).where(eq(termVaults.id, termVaultId));
+      return reply.send({ success: true, status: executionStatus || vault.harvestStatus });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Harvest status unavailable', details: err.message });
     }
   });
 
@@ -410,28 +520,32 @@ export async function kaminoRoutes(server: FastifyInstance) {
   server.get('/api/kamino/positions/:entityId', async (request, reply) => {
     const { entityId } = request.params as { entityId: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     try {
       const dbVaults = await db.select().from(termVaults).where(eq(termVaults.entityId, entityId));
 
-      const enrichedVaults = dbVaults.map(v => {
+      const enrichedVaults = await Promise.all(dbVaults.map(async v => {
         const principal = parseFloat(v.principalAmountUsd || '0');
         const apy = parseFloat(v.userNetApy || '0.09');
         const startMs = new Date(v.startDate).getTime();
         const nowMs = Date.now();
         const elapsedDays = Math.max(0, (nowMs - startMs) / (1000 * 60 * 60 * 24));
         const accrued = principal * apy * (elapsedDays / 365);
+        const positions = v.solanaRecipientAddress ? await kaminoClient.getUserPositions(v.solanaRecipientAddress).catch(() => []) : [];
+        const onChainPosition = positions.find((position: any) => String(position.vaultId || position.vaultAddress) === String(v.vaultName.match(/\(([^)]+)\)$/)?.[1] || v.vaultName));
         return {
           ...v,
-          accruedInterestUsd: accrued.toFixed(4),
-          currentTotalValueUsd: (principal + accrued).toFixed(2),
+          accruedInterestUsd: onChainPosition?.accruedInterestUsd != null ? Number(onChainPosition.accruedInterestUsd).toFixed(4) : '0.0000',
+          currentTotalValueUsd: onChainPosition?.principalUsd != null ? Number(onChainPosition.principalUsd + (onChainPosition.accruedInterestUsd || 0)).toFixed(2) : principal.toFixed(2),
+          onChainSynced: Boolean(onChainPosition),
         };
-      });
+      }));
 
       return reply.send({
         success: true,
         entityId,
-        onChainSynced: true,
+        onChainSynced: enrichedVaults.every(v => v.onChainSynced),
         termVaults: enrichedVaults,
         positions: enrichedVaults,
       });

@@ -17,3 +17,12 @@ test('EaseIDClient derivePublicFingerprint works for a valid PKCS#8 private key'
   assert.equal(typeof fingerprint, 'string');
   assert.match(fingerprint, /^[a-f0-9]{32}$/);
 });
+
+test('EaseIDClient.lookupIdentity fails gracefully when credentials or provider routes are unavailable', async () => {
+  const client = new EaseIDClient('', 'https://api.easeid.ai', '');
+
+  await assert.rejects(
+    () => client.lookupIdentity('nin', '12345678901', 'demo-entity', '0x0000000000000000000000000000000000000000'),
+    /EASEID_API_KEY|EASEID_APP_ID|No supported EaseID identity lookup endpoint|EaseID.*unavailable/i,
+  );
+});

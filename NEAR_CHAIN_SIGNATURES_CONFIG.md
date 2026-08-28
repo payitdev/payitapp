@@ -15,7 +15,7 @@ NEAR_RELAYER_ACCOUNT_ID=your-near-relayer-account-id
 NEAR_RELAYER_PRIVATE_KEY=your-near-relayer-private-key
 
 # NEAR Network (testnet or mainnet)
-NEAR_NETWORK_ID=testnet  # or mainnet
+NEAR_NETWORK_ID=mainnet  # use testnet only for isolated development
 ```
 
 ### Network-Specific Contract IDs
@@ -26,7 +26,7 @@ The system automatically selects the correct contract ID based on `NEAR_NETWORK_
 | testnet | `v1.signer-prod.testnet` | Development and testing |
 | mainnet | `v1.signer` | Production transactions |
 
-## Testnet Configuration (Current)
+## Testnet Configuration (Development Only)
 
 ```bash
 NEAR_NETWORK_ID=testnet
@@ -38,7 +38,7 @@ NEAR_RELAYER_PRIVATE_KEY=ed25519:your-testnet-private-key
 
 ```bash
 NEAR_NETWORK_ID=mainnet
-NEAR_RELAYER_ACCOUNT_ID=your-mainnet-relayer-account.near
+NEAR_RELAYER_ACCOUNT_ID=proximfi.near
 NEAR_RELAYER_PRIVATE_KEY=ed25519:your-mainnet-private-key
 ```
 
@@ -89,7 +89,7 @@ validatePodsEnv() // Returns true if properly configured
 Logs warnings if:
 - PODS_API_KEY not set
 - NEAR relayer credentials not set
-- Currently on testnet (informational)
+- Mainnet is the default operational network; use testnet only for isolated development.
 
 ## Testing
 
@@ -152,7 +152,7 @@ NEAR_NETWORK_ID=mainnet
 
 ## Current Status
 
-✅ **Testnet Configuration**: Currently configured and ready for testing
+✅ **Mainnet Configuration**: Configure the relayer secrets and verify each generated account onchain before issuance.
 ⏳ **Mainnet Access**: Pending FastAuth team approval
 🔄 **Transition Plan**: Ready to switch to mainnet once access is granted
 

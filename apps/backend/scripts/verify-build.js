@@ -32,12 +32,15 @@ if (missingInDist.length > 0) {
 
 // Critical endpoint assertions
 const criticalEndpointChecks = [
-  { file: 'dist/routes/auth.js', text: '/api/auth/passkey/register', name: 'Turnkey Passkey Register Endpoint' },
+  { file: 'dist/routes/auth.js', text: '/api/auth/privy/login', name: 'Privy Login Endpoint' },
   { file: 'dist/routes/auth.js', text: '/api/auth/session', name: 'Session Restore Endpoint' },
   { file: 'dist/routes/cards.js', text: '/api/cards/freeze', name: 'Card Freeze Endpoint' },
   { file: 'dist/routes/social.js', text: '/api/friends/request', name: 'Social Friends Request Endpoint' },
   { file: 'dist/routes/savings.js', text: '/api/savings/summary', name: 'Savings Summary Endpoint' },
   { file: 'dist/routes/waitlist.js', text: '/api/waitlist', name: 'Waitlist Endpoint' },
+  { file: 'dist/routes/developer.js', text: '/api/developer/keys', name: 'Developer API Keys Endpoint' },
+  { file: 'dist/routes/v1Routes.js', text: '/v1/invoices', name: 'Public V1 BaaS Invoices Endpoint' },
+  { file: 'dist/routes/v1Routes.js', text: '/v1/wallets/derive', name: 'Public V1 BaaS 10-Chain Wallet Endpoint' },
 ];
 
 let hasErrors = false;

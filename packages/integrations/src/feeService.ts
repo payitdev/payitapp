@@ -9,19 +9,25 @@ export interface FeeSchedule {
   payrollFixedPerRecipientNgn: number; // e.g. ₦150
   payrollBatchPercent: number; // e.g. 0.3%
   offRampPercent: number; // e.g. 1.0%
+  virtualCardIssuancePercent: number; // Proxim virtual card issuance fee (0.75%)
+  virtualCardFundingPercent: number; // Proxim virtual card funding fee (0.25%)
+  virtualCardWithdrawalPercent: number; // Proxim virtual card withdrawal fee (1.0%)
 }
 
 export const DEFAULT_FEE_SCHEDULE: FeeSchedule = {
-  payInRatePercent: 0.005, // 0.5%
-  payInFixedFeeUsd: 0.20,
-  payInNgnRatePercent: 0.008, // 0.8%
-  payInNgnCap: 1500, // ₦1,500 max cap on NGN pay-in
-  merchantInvoicePercent: 0.012, // 1.2%
+  payInRatePercent: 0.0075, // 0.75%
+  payInFixedFeeUsd: 0.30, // $0.30
+  payInNgnRatePercent: 0.010, // 1.0%
+  payInNgnCap: 2000, // ₦2,000 max cap on NGN pay-in
+  merchantInvoicePercent: 0.010, // 1.0%
   altcoinSwapPercent: 0.006, // 0.6%
-  payrollFixedPerRecipientUsd: 0.50, // $0.50 per employee
-  payrollFixedPerRecipientNgn: 150, // ₦150 per employee
-  payrollBatchPercent: 0.003, // 0.3%
+  payrollFixedPerRecipientUsd: 0.50, // $0.50 per recipient
+  payrollFixedPerRecipientNgn: 50, // ₦50 per recipient
+  payrollBatchPercent: 0.000, // 0.0%
   offRampPercent: 0.010, // 1.0%
+  virtualCardIssuancePercent: 0.0075, // 0.75%
+  virtualCardFundingPercent: 0.0025, // 0.25%
+  virtualCardWithdrawalPercent: 0.010, // 1.0%
 };
 
 export const PROXIM_TREASURY_ADDRESS = process.env.PROXIM_TREASURY_ADDRESS || '0x71C565F348C3d5e2eF080F17676d1F2C5C1bC593';
@@ -119,6 +125,63 @@ export class FeeService {
     };
   }
 
+  calculateVirtualCardIssuanceFee(amount: number, currency: string): FeeCalculationResult {
+    const curr = (currency || 'USD').toUpperCase();
+    const percentageFee = amount * this.schedule.virtualCardIssuancePercent;
+    const feeAmount = Math.min(Number((percentageFee).toFixed(2)), Math.max(0, amount * 0.10));
+    const netAmount = Math.max(0, amount - feeAmount);
+
+    return {
+      grossAmount: Number(amount.toFixed(2)),
+      feeAmount: Number(feeAmount.toFixed(2)),
+      netAmount: Number(netAmount.toFixed(2)),
+      feeBreakdown: {
+        percentageFee: Number(percentageFee.toFixed(2)),
+        fixedFee: 0,
+        description: `Proxim Virtual Card Issuance Fee (${(this.schedule.virtualCardIssuancePercent * 100).toFixed(2)}%)`,
+      },
+      currency: curr,
+    };
+  }
+
+  calculateVirtualCardFundingFee(amount: number, currency: string): FeeCalculationResult {
+    const curr = (currency || 'USD').toUpperCase();
+    const percentageFee = amount * this.schedule.virtualCardFundingPercent;
+    const feeAmount = Number(percentageFee.toFixed(2));
+    const netAmount = Math.max(0, amount - feeAmount);
+
+    return {
+      grossAmount: Number(amount.toFixed(2)),
+      feeAmount,
+      netAmount: Number(netAmount.toFixed(2)),
+      feeBreakdown: {
+        percentageFee: Number(percentageFee.toFixed(2)),
+        fixedFee: 0,
+        description: `Proxim Virtual Card Funding Fee (${(this.schedule.virtualCardFundingPercent * 100).toFixed(2)}%)`,
+      },
+      currency: curr,
+    };
+  }
+
+  calculateVirtualCardWithdrawalFee(amount: number, currency: string): FeeCalculationResult {
+    const curr = (currency || 'USD').toUpperCase();
+    const percentageFee = amount * this.schedule.virtualCardWithdrawalPercent;
+    const feeAmount = Number(percentageFee.toFixed(2));
+    const netAmount = Math.max(0, amount - feeAmount);
+
+    return {
+      grossAmount: Number(amount.toFixed(2)),
+      feeAmount,
+      netAmount: Number(netAmount.toFixed(2)),
+      feeBreakdown: {
+        percentageFee: Number(percentageFee.toFixed(2)),
+        fixedFee: 0,
+        description: `Proxim Virtual Card Withdrawal Fee (${(this.schedule.virtualCardWithdrawalPercent * 100).toFixed(2)}%)`,
+      },
+      currency: curr,
+    };
+  }
+
   /**
    * Calculate Real-Time FX Quote for Invoicing (with Proxim fee incorporated)
    */
@@ -195,6 +258,24 @@ export class FeeService {
         percentageFee: Number(feeAmount.toFixed(4)),
         fixedFee: 0,
         description: `Proxim Altcoin Liquidity Swap Fee (${(this.schedule.altcoinSwapPercent * 100).toFixed(1)}%)`,
+      },
+      currency: 'USDC',
+    };
+  }
+
+  calculateCryptoWithdrawalFee(amountUsdc: number): FeeCalculationResult {
+    const grossAmount = Math.max(0, amountUsdc);
+    const percentageFee = grossAmount * 0.01;
+    const feeAmount = grossAmount === 0 ? 0 : Math.min(50, Math.max(0.5, percentageFee));
+    const netAmount = Math.max(0, grossAmount - feeAmount);
+    return {
+      grossAmount,
+      feeAmount,
+      netAmount,
+      feeBreakdown: {
+        percentageFee,
+        fixedFee: 0,
+        description: 'Proxim Crypto Withdrawal Fee (1%, minimum $0.50, maximum $50.00)',
       },
       currency: 'USDC',
     };

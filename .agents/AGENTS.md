@@ -1,7 +1,7 @@
-# PayIT Project Rules & Style Guide
+# Proxim Project Rules & Style Guide
 
 ## Product Positioning & Invisible Crypto Principle
-- PayIT is a modern, premium payments app for sending, receiving, holding, converting, and managing money across currencies.
+- Proxim is a modern, premium payments app for sending, receiving, holding, converting, and managing money across currencies.
 - Infrastructure (crypto, Web3, blockchain, KMS, settlement layers) MUST remain invisible to standard users.
 - NEVER expose technical jargon in default flows: `Blockchain`, `Wallet Address`, `Gas Fee`, `Network`, `Token`, `Bridge`, `RPC`, `Smart Contract`, `Layer 2`, `Private Key`, `Seed Phrase`, `Chain`, `Mainnet`.
 - Standard terms:

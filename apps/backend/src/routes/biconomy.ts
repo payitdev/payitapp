@@ -1,6 +1,9 @@
 import { FastifyInstance } from 'fastify';
+import { and, createDbClient, eq } from '@payit/db';
+import { entities } from '@payit/db/schema';
 import { BiconomyClient } from '@payit/integrations';
 
+const db = createDbClient();
 const biconomyClient = new BiconomyClient();
 
 export async function biconomyRoutes(server: FastifyInstance) {
@@ -35,6 +38,14 @@ export async function biconomyRoutes(server: FastifyInstance) {
       if (!chainId) {
         return reply.status(400).send({ error: 'chainId is required' });
       }
+      if (![56, 100, 8453].includes(Number(chainId))) return reply.status(400).send({ error: 'Unsupported execution chain' });
+      const sender = String(userOp?.sender || '').toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(sender)) return reply.status(400).send({ error: 'A valid wallet-bound user operation is required' });
+      const owned = await db.select().from(entities).where(and(
+        eq(entities.userId, request.session!.userId),
+        eq(entities.evmDepositAddress, sender),
+      )).limit(1);
+      if (owned.length === 0) return reply.status(403).send({ error: 'Wallet is not owned by the authenticated user' });
 
       const quote = await biconomyClient.composeInstructionsAndGenerateQuote({
         userOp: userOp || {},
@@ -67,6 +78,13 @@ export async function biconomyRoutes(server: FastifyInstance) {
       if (!signature || !chainId) {
         return reply.status(400).send({ error: 'signature and chainId are required' });
       }
+      const sender = String(userOp?.sender || '').toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(sender)) return reply.status(400).send({ error: 'A valid wallet-bound user operation is required' });
+      const owned = await db.select().from(entities).where(and(
+        eq(entities.userId, request.session!.userId),
+        eq(entities.evmDepositAddress, sender),
+      )).limit(1);
+      if (owned.length === 0) return reply.status(403).send({ error: 'Wallet is not owned by the authenticated user' });
 
       const result = await biconomyClient.submitSupertransaction({
         quoteId,

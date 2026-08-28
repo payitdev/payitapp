@@ -1,7 +1,6 @@
-import { BrailsClient, BrailsCustomerPayload, BrailsVirtualAccountPayload } from './brailsClient.js';
-import { NuvionClient, NuvionTier1Payload, NuvionTier2Payload } from './nuvionClient.js';
+import { BrailsClient, BrailsCustomerPayload } from './brailsClient.js';
 
-export type PaymentProviderType = 'brails' | 'nuvion';
+export type PaymentProviderType = 'brails';
 
 export interface ProviderVerificationResult {
   provider: PaymentProviderType;
@@ -18,47 +17,28 @@ export interface ProviderVerificationResult {
 
 export class PaymentProviderFactory {
   private brails: BrailsClient;
-  private nuvion: NuvionClient;
-  private activeProvider: PaymentProviderType;
+  private activeProvider: PaymentProviderType = 'brails';
 
-  constructor(activeProvider?: PaymentProviderType) {
+  constructor(_activeProvider?: PaymentProviderType) {
     this.brails = new BrailsClient();
-    this.nuvion = new NuvionClient();
-    this.activeProvider = activeProvider || (process.env.PAYMENT_PROVIDER as PaymentProviderType) || 'brails';
   }
 
   getActiveProvider(): PaymentProviderType {
     return this.activeProvider;
   }
 
-  setActiveProvider(provider: PaymentProviderType) {
-    this.activeProvider = provider;
+  setActiveProvider(_provider: PaymentProviderType) {
+    this.activeProvider = 'brails';
   }
 
   /**
-   * Submit Tier 1 KYC with automatic provider fallback if primary fails.
+  * Submit Tier 1 KYC through Brails.
    */
-  async submitTier1Kyc(payload: NuvionTier1Payload & BrailsCustomerPayload): Promise<ProviderVerificationResult> {
-    const primary = this.activeProvider;
-    const secondary: PaymentProviderType = primary === 'brails' ? 'nuvion' : 'brails';
-
-    try {
-      if (primary === 'brails') {
-        return await this.submitBrailsTier1(payload);
-      } else {
-        return await this.submitNuvionTier1(payload);
-      }
-    } catch (err: any) {
-      console.warn(`⚠️ Primary payment provider (${primary}) failed: ${err.message}. Attempting fallback to secondary provider (${secondary})...`);
-      if (secondary === 'brails') {
-        return await this.submitBrailsTier1(payload);
-      } else {
-        return await this.submitNuvionTier1(payload);
-      }
-    }
+  async submitTier1Kyc(payload: BrailsCustomerPayload & { legalName?: string }): Promise<ProviderVerificationResult> {
+    return this.submitBrailsTier1(payload);
   }
 
-  private async submitBrailsTier1(payload: NuvionTier1Payload & BrailsCustomerPayload): Promise<ProviderVerificationResult> {
+  private async submitBrailsTier1(payload: BrailsCustomerPayload & { legalName?: string }): Promise<ProviderVerificationResult> {
     const nameParts = (payload.legalName || `${payload.firstName || ''} ${payload.lastName || ''}`).trim().split(' ');
     const firstName = payload.firstName || nameParts[0] || 'Valued';
     const lastName = payload.lastName || nameParts.slice(1).join(' ') || 'User';
@@ -74,10 +54,12 @@ export class PaymentProviderFactory {
     });
 
     const customerId = customerRes.data?.id || customerRes.id;
+    const bank = (process.env.BRAILS_VIRTUAL_ACCOUNT_BANK || 'providus') as 'safehaven' | 'providus';
 
     const ngnAccRes = await this.brails.createVirtualAccount({
       customerId,
       currency: 'NGN',
+      bank,
       type: 'INDIVIDUAL',
       firstName,
       lastName,
@@ -88,6 +70,7 @@ export class PaymentProviderFactory {
     const usdAccRes = await this.brails.createVirtualAccount({
       customerId,
       currency: 'USD',
+      bank,
       type: 'INDIVIDUAL',
       firstName,
       lastName,
@@ -122,15 +105,6 @@ export class PaymentProviderFactory {
     };
   }
 
-  private async submitNuvionTier1(payload: NuvionTier1Payload): Promise<ProviderVerificationResult> {
-    const res = await this.nuvion.submitTier1Kyc(payload);
-    return {
-      provider: 'nuvion',
-      entityId: res.nuvionEntityId,
-      status: 'pending',
-      fiatAccounts: [],
-    };
-  }
 }
 
 function usdAccDataAccountNumber(usdAccRes: any): string {

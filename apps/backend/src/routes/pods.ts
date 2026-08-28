@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { createDbClient, eq } from '@payit/db';
-import { entities } from '@payit/db/schema';
+import { createDbClient, eq, and } from '@payit/db';
+import { automationPolicies, entities } from '@payit/db/schema';
+import { ulid } from 'ulid';
 import { PodsClient, BiconomyClient } from '@payit/integrations';
 import { getEntityBalance } from '../utils/balance.js';
 
@@ -9,6 +10,70 @@ const podsClient = new PodsClient();
 const biconomyClient = new BiconomyClient();
 
 export async function podsRoutes(server: FastifyInstance) {
+  server.get('/api/pods/auto-save', async (request, reply) => {
+    const entityId = (request.query as { entityId?: string }).entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) {
+      return reply.status(403).send({ error: 'Authenticated entity is required' });
+    }
+    const rows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, request.session.userId))).limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: 'Entity not found' });
+    return reply.send({
+      enabled: rows[0].autoSaveEnabled === 1,
+      liquidBufferUsd: Number(rows[0].autoSaveLiquidBufferUsd),
+      strategyId: rows[0].autoSaveStrategyId,
+    });
+  });
+
+  server.post('/api/pods/auto-save', async (request, reply) => {
+    const body = request.body as { entityId?: string; enabled?: boolean; liquidBufferUsd?: number; strategyId?: string };
+    const entityId = body.entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) {
+      return reply.status(403).send({ error: 'Authenticated entity is required' });
+    }
+    if (typeof body.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled must be boolean' });
+    const liquidBufferUsd = body.liquidBufferUsd ?? 50;
+    if (!Number.isFinite(liquidBufferUsd) || liquidBufferUsd < 0) return reply.status(400).send({ error: 'liquidBufferUsd must be non-negative' });
+    await db.update(entities).set({
+      autoSaveEnabled: body.enabled ? 1 : 0,
+      autoSaveLiquidBufferUsd: liquidBufferUsd.toFixed(2),
+      autoSaveIdleSince: body.enabled ? new Date() : null,
+      autoSaveStrategyId: body.strategyId || null,
+    }).where(and(eq(entities.id, entityId), eq(entities.userId, request.session.userId)));
+    const expiresAt = new Date(Date.now() + 365 * 86400000);
+    if (body.enabled) {
+      await db.insert(automationPolicies).values({
+        id: `policy_${ulid()}`,
+        entityId,
+        maxPerTransactionUsd: '1000.00',
+        maxDailyUsd: '2500.00',
+        maxMonthlyUsd: '10000.00',
+        expiresAt,
+      }).onConflictDoUpdate({
+        target: automationPolicies.entityId,
+        set: { status: 'PENDING_SIGNATURE', expiresAt, updatedAt: new Date(), revokedAt: null },
+      });
+    } else {
+      await db.update(automationPolicies).set({ status: 'REVOKED', revokedAt: new Date(), updatedAt: new Date() })
+        .where(eq(automationPolicies.entityId, entityId));
+    }
+    return reply.send({ success: true, enabled: body.enabled, liquidBufferUsd, strategyId: body.strategyId || null, authorizationStatus: body.enabled ? 'PENDING_SIGNATURE' : 'REVOKED' });
+  });
+
+  server.get('/api/pods/auto-save/authorization', async (request, reply) => {
+    const entityId = (request.query as { entityId?: string }).entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Authenticated entity is required' });
+    const rows = await db.select().from(automationPolicies).where(eq(automationPolicies.entityId, entityId)).limit(1);
+    return reply.send({ success: true, policy: rows[0] || null });
+  });
+
+  server.post('/api/pods/auto-save/authorization/revoke', async (request, reply) => {
+    const entityId = (request.body as { entityId?: string }).entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Authenticated entity is required' });
+    await db.update(automationPolicies).set({ status: 'REVOKED', revokedAt: new Date(), updatedAt: new Date() }).where(eq(automationPolicies.entityId, entityId));
+    await db.update(entities).set({ autoSaveEnabled: 0, autoSaveIdleSince: null }).where(eq(entities.id, entityId));
+    return reply.send({ success: true, authorizationStatus: 'REVOKED' });
+  });
+
   /**
    * GET /api/pods/strategies
    * List all available savings strategies (Base & OpenCover Gnosis)
@@ -46,8 +111,20 @@ export async function podsRoutes(server: FastifyInstance) {
       userWallet: string;
     };
 
-    if (!strategyId || !amount || !userWallet) {
+    if (!request.session || !strategyId || !amount || !userWallet) {
       return reply.status(400).send({ error: 'strategyId, amount, and userWallet are required' });
+    }
+
+    const ownedEntity = await db.select().from(entities).where(and(
+      eq(entities.evmDepositAddress, userWallet),
+      eq(entities.userId, request.session.userId),
+    )).limit(1);
+    if (ownedEntity.length === 0) {
+      return reply.status(403).send({ error: 'The savings wallet must belong to the authenticated entity' });
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0 || numericAmount > 1_000_000_000_000) {
+      return reply.status(400).send({ error: 'amount must be a positive base-unit integer within the transaction limit' });
     }
 
     try {
@@ -88,8 +165,19 @@ export async function podsRoutes(server: FastifyInstance) {
       userOp: Record<string, any>;
       chainId: number;
     };
-    if (!quoteId || !signature || !userOp || !chainId) {
+    if (!request.session || !quoteId || !signature || !userOp || !chainId) {
       return reply.status(400).send({ error: 'quoteId, signature, userOp, and chainId are required' });
+    }
+    const sender = String(userOp.sender || '').toLowerCase();
+    const ownedEntity = await db.select().from(entities).where(and(
+      eq(entities.userId, request.session.userId),
+      eq(entities.evmDepositAddress, sender),
+    )).limit(1);
+    if (ownedEntity.length === 0) {
+      return reply.status(403).send({ error: 'The submitted user operation is not owned by the authenticated entity' });
+    }
+    if (chainId !== 8453 && chainId !== 100) {
+      return reply.status(400).send({ error: 'Pods execution is restricted to supported strategy chains' });
     }
     try {
       const result = await biconomyClient.submitSupertransaction({ quoteId, signature, userOp, chainId });
@@ -120,17 +208,21 @@ export async function podsRoutes(server: FastifyInstance) {
     if (!entityId) {
       return reply.status(400).send({ error: 'entityId is required' });
     }
+    if (!request.session?.userEntityIds.includes(entityId)) {
+      return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+    }
 
     try {
       let resolvedWallet = userWallet;
       if (!resolvedWallet) {
         try {
-          const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
-          resolvedWallet = entityRows[0]?.evmDepositAddress || '0x09648d98196460D63B3dB1B90c60100756dECb77';
+          const entityRows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, request.session.userId))).limit(1);
+          resolvedWallet = entityRows[0]?.evmDepositAddress || '';
         } catch {
-          resolvedWallet = '0x09648d98196460D63B3dB1B90c60100756dECb77';
+          resolvedWallet = '';
         }
       }
+      if (!resolvedWallet) return reply.status(409).send({ error: 'Live MPC Base wallet is unavailable.' });
 
       let totalUsdCash = amountUsd;
       if (totalUsdCash === undefined || totalUsdCash === null) {
@@ -194,6 +286,8 @@ export async function podsRoutes(server: FastifyInstance) {
   server.get('/api/pods/yield-summary', async (request, reply) => {
     const { userWallet } = request.query as { userWallet: string };
     if (!userWallet) return reply.status(400).send({ error: 'userWallet is required' });
+    const ownedWallet = await db.select().from(entities).where(and(eq(entities.evmDepositAddress, userWallet), eq(entities.userId, request.session!.userId))).limit(1);
+    if (ownedWallet.length === 0) return reply.status(403).send({ error: 'The savings wallet must belong to the authenticated entity' });
 
     try {
       const positionData = await podsClient.getUserSavingsPosition(userWallet);

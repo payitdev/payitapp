@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS entities (
   CONSTRAINT idx_entities_user_kind UNIQUE (user_id, kind)
 );
 
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS registration_number TEXT;
+
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   entity_id TEXT NOT NULL REFERENCES entities(id),
@@ -212,7 +214,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 
 CREATE TABLE IF NOT EXISTS raw_webhooks (
   id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL CHECK (provider IN ('NUVION', 'PARTICLE', 'DUE', 'TURNKEY')),
+  provider TEXT NOT NULL CHECK (provider IN ('DUE')),
   event_id TEXT NOT NULL UNIQUE,
   payload TEXT NOT NULL,
   status TEXT DEFAULT 'RECEIVED' NOT NULL CHECK (status IN ('RECEIVED', 'PROCESSED', 'FAILED')),
@@ -221,8 +223,6 @@ CREATE TABLE IF NOT EXISTS raw_webhooks (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS privy_user_id TEXT;
 
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS turnkey_sub_org_id TEXT;
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS turnkey_user_id TEXT;
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_customer_id TEXT;
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_status TEXT DEFAULT 'none';
 
@@ -240,6 +240,10 @@ ALTER TABLE entities ADD COLUMN IF NOT EXISTS cosmos_deposit_address TEXT;
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS sui_deposit_address TEXT;
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS aptos_deposit_address TEXT;
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS xrp_deposit_address TEXT;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS auto_save_enabled INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS auto_save_liquid_buffer_usd NUMERIC(18,2) DEFAULT 50.00 NOT NULL;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS auto_save_idle_since TIMESTAMP;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS auto_save_strategy_id TEXT;
 
 CREATE TABLE IF NOT EXISTS transfers (
   id TEXT PRIMARY KEY,
@@ -258,6 +262,17 @@ CREATE TABLE IF NOT EXISTS transfers (
 );
 
 ALTER TABLE transfers ADD COLUMN IF NOT EXISTS direction TEXT DEFAULT 'CREDIT' NOT NULL;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS settlement_status TEXT DEFAULT 'RECEIVED' NOT NULL;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS intent_swap_id TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS source_tx_hash TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS intent_funding_tx_hash TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS destination_tx_hash TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS settled_asset TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS settled_amount NUMERIC(28,8);
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS settlement_error TEXT;
+ALTER TABLE transfers ALTER COLUMN source_amount TYPE NUMERIC(28,18);
+ALTER TABLE transfers ALTER COLUMN target_amount TYPE NUMERIC(28,18);
+ALTER TABLE transfers ALTER COLUMN fee_amount TYPE NUMERIC(28,18);
 
 
 CREATE TABLE IF NOT EXISTS fee_ledger (
@@ -328,6 +343,7 @@ ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS near_intent_id TEXT;
 ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS deposit_address TEXT;
 ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS source_tx_hash TEXT;
 ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS solana_tx_hash TEXT;
+ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS withdrawal_tx_hash TEXT;
 ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS solana_recipient_address TEXT;
 ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS shares_minted NUMERIC(28,8);
 
@@ -375,8 +391,131 @@ CREATE TABLE IF NOT EXISTS intent_swaps (
   completed_at TIMESTAMP
 );
 
+ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS quote_id TEXT;
+ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS source_chain TEXT;
+ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS destination_chain TEXT;
+ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+
 ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(18,2) DEFAULT 0.00 NOT NULL;
 ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USDC' NOT NULL;
+
+CREATE TABLE IF NOT EXISTS automation_policies (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  status TEXT DEFAULT 'PENDING_SIGNATURE' NOT NULL,
+  allowed_assets TEXT DEFAULT 'USDC,USDT' NOT NULL,
+  allowed_protocols TEXT DEFAULT 'pods,kamino,near_intent' NOT NULL,
+  max_per_transaction_usd NUMERIC(18,2) NOT NULL,
+  max_daily_usd NUMERIC(18,2) NOT NULL,
+  max_monthly_usd NUMERIC(18,2) NOT NULL,
+  approval_reference TEXT,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  CONSTRAINT automation_policies_entity_unique UNIQUE (entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS gas_sponsorships (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  related_transaction_id TEXT,
+  chain TEXT NOT NULL,
+  native_asset TEXT NOT NULL,
+  user_wallet TEXT NOT NULL,
+  treasury_wallet TEXT NOT NULL,
+  intent_swap_id TEXT,
+  estimated_gas_native NUMERIC(28,18),
+  requested_amount_native NUMERIC(28,18) NOT NULL,
+  actual_gas_native NUMERIC(28,18),
+  native_usd_price NUMERIC(28,8),
+  price_timestamp TIMESTAMP,
+  reserved_stablecoin NUMERIC(28,8),
+  charged_stablecoin TEXT DEFAULT 'USDC' NOT NULL,
+  charged_amount NUMERIC(28,8),
+  released_amount NUMERIC(28,8),
+  funding_tx_hash TEXT,
+  user_tx_hash TEXT,
+  status TEXT DEFAULT 'REQUESTED' NOT NULL,
+  failure_reason TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payment_requests (
+  id TEXT PRIMARY KEY,
+  requester_entity_id TEXT NOT NULL REFERENCES entities(id),
+  payer_entity_id TEXT REFERENCES entities(id),
+  payer_username TEXT,
+  amount NUMERIC(18,4) NOT NULL,
+  currency TEXT NOT NULL,
+  narration TEXT,
+  status TEXT DEFAULT 'PENDING' NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  paid_at TIMESTAMP
+);
+
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS intent_swap_id TEXT;
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS related_transaction_id TEXT;
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS estimated_gas_native NUMERIC(28,18);
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS native_usd_price NUMERIC(28,8);
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS price_timestamp TIMESTAMP;
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS reserved_stablecoin NUMERIC(28,8);
+ALTER TABLE gas_sponsorships ADD COLUMN IF NOT EXISTS released_amount NUMERIC(28,8);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gas_sponsorships_related_transaction
+  ON gas_sponsorships (related_transaction_id)
+  WHERE related_transaction_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS school_campuses (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), name TEXT NOT NULL,
+  address TEXT, status TEXT DEFAULT 'ACTIVE' NOT NULL, created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS school_classes (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), campus_id TEXT REFERENCES school_campuses(id),
+  name TEXT NOT NULL, academic_session TEXT, term TEXT, created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS school_students (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), class_id TEXT NOT NULL REFERENCES school_classes(id),
+  student_number TEXT NOT NULL, full_name TEXT NOT NULL, parent_name TEXT, parent_email TEXT, parent_phone TEXT,
+  status TEXT DEFAULT 'ACTIVE' NOT NULL, created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  CONSTRAINT idx_school_students_entity_number UNIQUE (entity_id, student_number)
+);
+CREATE TABLE IF NOT EXISTS student_payment_accounts (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), student_id TEXT NOT NULL REFERENCES school_students(id),
+  currency TEXT NOT NULL, mode TEXT NOT NULL CHECK (mode IN ('SCHOOL_MASTER_REFERENCE')),
+  master_account_id TEXT NOT NULL REFERENCES accounts(id), payment_reference TEXT NOT NULL UNIQUE,
+  status TEXT DEFAULT 'ACTIVE' NOT NULL CHECK (status IN ('ACTIVE', 'DISABLED')), created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  CONSTRAINT idx_student_payment_accounts_student_currency UNIQUE (student_id, currency)
+);
+CREATE TABLE IF NOT EXISTS school_fee_schedules (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), class_id TEXT NOT NULL REFERENCES school_classes(id),
+  name TEXT NOT NULL, amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, due_date TEXT,
+  academic_session TEXT, term TEXT, status TEXT DEFAULT 'ACTIVE' NOT NULL, created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS school_staff (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), staff_number TEXT NOT NULL, full_name TEXT NOT NULL,
+  role TEXT, department TEXT, employment_type TEXT DEFAULT 'EMPLOYEE' NOT NULL, status TEXT DEFAULT 'ACTIVE' NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  CONSTRAINT idx_school_staff_entity_number UNIQUE (entity_id, staff_number)
+);
+CREATE TABLE IF NOT EXISTS staff_bank_accounts (
+  id TEXT PRIMARY KEY, staff_id TEXT NOT NULL REFERENCES school_staff(id), bank_name TEXT NOT NULL,
+  account_number TEXT NOT NULL, account_name TEXT NOT NULL, bank_code TEXT, is_default BOOLEAN DEFAULT FALSE NOT NULL,
+  status TEXT DEFAULT 'PENDING_VERIFICATION' NOT NULL, created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS school_savings_policies (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), name TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('PERCENTAGE_OF_PAYMENT', 'MANUAL')), percentage NUMERIC(5,2) DEFAULT 0 NOT NULL,
+  fixed_amount NUMERIC(18,2), target_amount NUMERIC(18,2), currency TEXT NOT NULL,
+  status TEXT DEFAULT 'ACTIVE' NOT NULL CHECK (status IN ('ACTIVE', 'DISABLED')), created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS school_applications (
+  id TEXT PRIMARY KEY, school_legal_name TEXT NOT NULL, registration_number TEXT NOT NULL,
+  admin_name TEXT NOT NULL, admin_email TEXT NOT NULL, admin_phone TEXT NOT NULL, country TEXT NOT NULL,
+  status TEXT DEFAULT 'SUBMITTED' NOT NULL CHECK (status IN ('SUBMITTED', 'KYB_REVIEW', 'APPROVED', 'REJECTED')),
+  brails_customer_id TEXT, brails_status TEXT, brails_payload JSONB, application_data JSONB,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
 `;
 
 async function migrate() {
