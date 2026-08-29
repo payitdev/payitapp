@@ -256,12 +256,9 @@ export async function authRoutes(server: FastifyInstance) {
           privyUserId,
         });
       } else {
-        // Update existing user with Privy ID if not set
+        // Update existing user with Privy ID if not set or if user was re-authenticated with new Privy user ID
         userId = userRows[0].id;
-        if (userRows[0].privyUserId && userRows[0].privyUserId !== privyUserId) {
-          return reply.status(409).send({ error: 'This email is already linked to a different Privy account' });
-        }
-        if (!userRows[0].privyUserId) {
+        if (userRows[0].privyUserId !== privyUserId) {
           await db.update(users)
             .set({ privyUserId })
             .where(eq(users.id, userId));
