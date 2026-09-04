@@ -10,6 +10,7 @@ import { cardRoutes } from './routes/cards.js';
 import { invoiceRoutes } from './routes/invoices.js';
 import { payrollRoutes } from './routes/payroll.js';
 import { kycRoutes } from './routes/kyc.js';
+import { registerDynamicKycRoutes } from './routes/dynamicKyc.js';
 import { socialRoutes } from './routes/social.js';
 import { savingsRoutes } from './routes/savings.js';
 import { waitlistRoutes } from './routes/waitlist.js';
@@ -18,7 +19,6 @@ import { podsRoutes } from './routes/pods.js';
 import { ondoRoutes } from './routes/ondo.js';
 import { intentRoutes } from './routes/intents.js';
 import { kaminoRoutes } from './routes/kamino.js';
-import { biconomyRoutes } from './routes/biconomy.js';
 import { financialReportsRoutes } from './routes/financialReports.js';
 import { developerRoutes } from './routes/developer.js';
 import { adminRoutes } from './routes/adminRoutes.js';
@@ -27,6 +27,7 @@ import { v1Routes } from './routes/v1Routes.js';
 import { brailsRoutes } from './routes/brails.js';
 import { schoolRoutes } from './routes/schools.js';
 import { nuvionRoutes } from './routes/nuvion.js';
+import { mpcRoutes } from './routes/mpc.js';
 import { easeIdClient } from '@payit/integrations';
 import rawBody from 'fastify-raw-body';
 
@@ -41,11 +42,16 @@ export function buildServer() {
   server.register(rawBody, { field: 'rawBody', global: false, encoding: 'utf8', runFirst: true });
 
   server.register(cors, {
-    origin: '*',
+    origin: process.env.CORS_ORIGIN || ['http://localhost:3000', 'http://localhost:5173'],
   });
 
-  // Debug endpoint for EaseID testing (must be before auth hook)
-  server.get('/api/kyc/debug/test-easeid', async () => {
+  // Debug endpoint for EaseID testing (admin-gated)
+  server.get('/api/kyc/debug/test-easeid', async (request, reply) => {
+    const adminSecret = request.headers['x-admin-secret'];
+    const expectedSecret = process.env.ADMIN_SEED_SECRET;
+    if (!expectedSecret || !adminSecret || adminSecret !== expectedSecret) {
+      return reply.status(403).send({ error: 'UNAUTHORIZED_ADMIN_REQUEST', message: 'Valid x-admin-secret header required' });
+    }
     try {
       const testConfig = {
         appId: process.env.EASEID_APP_ID,
@@ -58,7 +64,7 @@ export function buildServer() {
         'nin',
         '12345678901',
         'test-entity-id',
-        '0x0000000000000000000000000000000000000',
+        '0x00000000000000000000000000000000000',
       );
 
       return {
@@ -109,16 +115,31 @@ export function buildServer() {
   server.register(authRoutes);
   server.register(entityRoutes);
   server.register(kycRoutes);
+  server.register(registerDynamicKycRoutes);
   server.register(socialRoutes);
   server.register(savingsRoutes);
   server.register(waitlistRoutes);
   server.register(transferRoutes);
-  server.register(podsRoutes);
-  server.register(ondoRoutes);
+
+  const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE || env.ENABLE_ONDO_FINANCE || env.ENABLE_NEAR_MPC;
+  if (liveFinanceEnabled) {
+    server.register(podsRoutes);
+    server.register(ondoRoutes);
+  } else {
+    server.get('/api/pods/status', async () => ({
+      success: false,
+      mode: 'demo',
+      message: 'Pods flow is disabled. Set ENABLE_PODS_FINANCE=true and provide live credentials to enable it.',
+    }));
+    server.get('/api/ondo/status', async () => ({
+      success: false,
+      mode: 'demo',
+      message: 'Ondo flow is disabled. Set ENABLE_ONDO_FINANCE=true and provide live credentials to enable it.',
+    }));
+  }
+
   server.register(intentRoutes);
   server.register(kaminoRoutes);
-  server.register(biconomyRoutes);
-
   server.register(cardRoutes);
   server.register(invoiceRoutes);
   server.register(payrollRoutes);
@@ -130,6 +151,7 @@ export function buildServer() {
   server.register(brailsRoutes);
   server.register(schoolRoutes);
   server.register(nuvionRoutes);
+  server.register(mpcRoutes);
 
   // Dev/Staging only — seed routes for local testing
   if (env.NODE_ENV !== 'production') {

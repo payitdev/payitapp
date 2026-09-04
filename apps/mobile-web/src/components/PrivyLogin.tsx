@@ -71,7 +71,7 @@ export function PrivyLogin({ onLoginSuccess, onLoginError }: PrivyLoginProps) {
         }}
       >
         <Lock className="w-4 h-4" />
-        {isLoggingIn ? 'Connecting...' : 'Sign in with Privy'}
+        {isLoggingIn ? 'Connecting securely...' : 'Sign in to Proxim'}
         <ArrowRight className="w-4 h-4" />
       </button>
       
@@ -96,7 +96,7 @@ export function PrivyLogin({ onLoginSuccess, onLoginError }: PrivyLoginProps) {
           transition: 'all 0.15s ease-out',
         }}
       >
-        {isLoggingIn ? 'Connecting...' : 'Sign in with Google or Apple'}
+        {isLoggingIn ? 'Connecting...' : 'Continue with Google, Apple, or Email'}
       </button>
 
       {loginError && (

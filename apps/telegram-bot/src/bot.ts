@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,11 +15,42 @@ import { telegramUi } from './telegramUi.js';
 import { groqEngine } from './groqEngine.js';
 import { liveDataService } from './liveDataService.js';
 
+const BACKEND_BASE_URL = process.env.PAYIT_BACKEND_URL || process.env.BACKEND_PUBLIC_URL;
+if (!BACKEND_BASE_URL) throw new Error('PAYIT_BACKEND_URL or BACKEND_PUBLIC_URL is required to start the Telegram bot');
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+if (process.env.NODE_ENV === 'production' && !WEBHOOK_SECRET) throw new Error('TELEGRAM_WEBHOOK_SECRET is required in production');
+
+function hasValidWebhookSecret(request: { headers: Record<string, any> }) {
+  if (!WEBHOOK_SECRET) return process.env.NODE_ENV !== 'production';
+  const received = String(request.headers['x-telegram-bot-api-secret-token'] || '');
+  const expected = Buffer.from(WEBHOOK_SECRET);
+  const actual = Buffer.from(received);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+async function confirmTelegramLink(nonce: string, telegramUserId: number, telegramUsername?: string) {
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/telegram/link/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce, telegramUserId, telegramUsername }),
+    });
+    const data = await response.json().catch(() => ({}));
+    return { ok: response.ok, data };
+  } catch (error: any) {
+    return {
+      ok: false,
+      data: { error: error.message || 'Unable to reach the backend to confirm the link.' },
+    };
+  }
+}
+
 export const server = Fastify({ logger: true });
 
 
 // Webhook endpoint for Telegram updates
 server.post('/telegram/webhook', async (request, reply) => {
+  if (!hasValidWebhookSecret(request)) return reply.status(401).send({ error: 'Invalid Telegram webhook secret' });
   const update = request.body as any;
   if (!update) return reply.send({ ok: true });
 
@@ -28,7 +60,16 @@ server.post('/telegram/webhook', async (request, reply) => {
     const chatId = cq.message?.chat?.id;
     const userId = cq.from?.id;
     const data = cq.data || '';
-    const session = await sessionManager.getSessionAsync(chatId, userId, cq.from?.username);
+    let session;
+    try {
+      session = await sessionManager.getSessionAsync(chatId, userId, cq.from?.username);
+    } catch (error: any) {
+      return reply.send({
+        method: 'sendMessage',
+        chat_id: chatId,
+        text: `🔒 This Telegram account is not linked to a Proxim account yet. Open the web app, sign in, link Telegram, then try again.\n\n${error.message || 'Account provisioning is unavailable.'}`,
+      });
+    }
 
     // 1. PIN Keypad Interaction
     if (data.startsWith('pin:')) {
@@ -151,13 +192,29 @@ server.post('/telegram/webhook', async (request, reply) => {
       });
     }
 
+    if (data === 'save_kamino' || data === 'save_ondo' || data === 'save_goal' || data === 'withdraw_savings') {
+      const isWithdraw = data === 'withdraw_savings';
+      const routeLabel = data === 'save_ondo' ? 'Ondo Institutional Yield' : data === 'save_goal' ? 'Custom Savings Goal' : 'Kamino Liquidity Vaults';
+      const caption = isWithdraw
+        ? `📤 **Withdraw from Savings**\n────────────────────────\nThis bot does not execute real on-chain withdrawals, and this action is not executed from Telegram.\n\nTelegram PIN/session system is separate from the app auth: the Kamino backend route requires a web JWT or backend trusted-device passcode. Because of that auth gap, a Telegram action here is not a real withdrawal and no Solana transaction is signed or submitted from this bot.\n\nUse the main app / Savings Hub to verify your position, review fees, and complete the actual withdrawal flow with the proper authenticated session.`
+        : `📈 **${routeLabel}**\n────────────────────────\n${data === 'save_kamino' ? 'Earn up to 7.80% APY on Base USDC through the live Kamino savings pool.' : data === 'save_ondo' ? 'Access USDY/OUSG yield with institutional treasury-backed returns.' : 'Set a custom target amount and automate recurring transfers into your savings reserve.'}\n\nUse the app’s Savings Hub to complete the live deposit, or type a message like: *"Save $250 for 90 days"* or *"Set a $2,000 savings goal"*.`;
+
+      return reply.send({
+        method: 'sendMessage',
+        chat_id: chatId,
+        text: caption,
+        parse_mode: 'Markdown',
+        reply_markup: telegramUi.getSavingsActionKeyboard(),
+      });
+    }
 
     if (data === 'kyc_prompt' || data === 'kyc_start') {
       session.step = 'AWAITING_KYC_INPUT';
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
-        text: `🪪 **Tier 2 Banking Verification (2 Mins)**\n────────────────────────\nTo unlock Nigerian NUBAN accounts, US ACH, European IBANs, and Virtual Cards, please reply with your:\n\n1. **Full Legal Name**\n2. **ID Number (NIN, BVN, or National ID)**\n3. **Country of Residence**\n\n_Or simply send a clear photo of your ID card directly into this chat._`,
+        text: `🪪 **Tier 2 Banking Verification (2 Mins)**\n────────────────────────\nUse the secure verification button below to submit your details and documents inside Telegram. Documents sent as ordinary chat messages are not processed.`,
+        reply_markup: telegramUi.getKycPromptKeyboard(),
       });
     }
 
@@ -170,24 +227,57 @@ server.post('/telegram/webhook', async (request, reply) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const username = msg.from.username;
-    const session = await sessionManager.getSessionAsync(chatId, userId, username);
+    let session;
+    try {
+      session = await sessionManager.getSessionAsync(chatId, userId, username);
+    } catch (error: any) {
+      return reply.send({
+        method: 'sendMessage',
+        chat_id: chatId,
+        text: `🔒 This Telegram account is not linked to a Proxim account yet. Open the web app, sign in, link Telegram, then try again.\n\n${error.message || 'Account provisioning is unavailable.'}`,
+      });
+    }
 
     const rawText = (msg.text || '').trim();
 
     // Check for KYC Document Upload (Photos / Documents)
     if (msg.photo || msg.document || session.step === 'AWAITING_KYC_INPUT') {
-      session.kycStatus = 'APPROVED';
       session.step = 'IDLE';
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
-        text: `✅ **Identity Verified Successfully!**\n────────────────────────\nYou have been upgraded to **Tier 2 (Full Banking Access)**.\n\n🏦 **Your Virtual Accounts are now active:**\n• Virtual Bank Accounts are now enabled.\n• 💳 Virtual & Debit Card issuing is now enabled.`,
-        reply_markup: telegramUi.getMainReplyMenu(session.activeEntity),
+        text: `🪪 **KYC must be completed in the authenticated web app**\n────────────────────────\nTelegram does not have the same backend session or wallet-auth context as the web app, so uploaded documents are not treated as a real verification event.\n\nPlease complete the secure verification flow in the main app to unlock local bank accounts and virtual cards.`,
+        reply_markup: telegramUi.getKycPromptKeyboard(),
       });
     }
 
-    // 1. Initial /start Command
-    if (rawText === '/start') {
+    if (rawText === '/start' || rawText.startsWith('/link')) {
+      if (rawText.startsWith('/link')) {
+        const nonce = rawText.replace(/^\/link\s*/i, '').trim();
+        if (!nonce) {
+          return reply.send({
+            method: 'sendMessage',
+            chat_id: chatId,
+            text: '🔗 Link your Telegram to the web app by starting the flow in the app, then send this command with the nonce:\n\n/link <nonce>\n\nExample: /link 4bc2c6a2f0d7a1e4f7c9d2b6a7f1229a',
+          });
+        }
+
+        const result = await confirmTelegramLink(nonce, userId, username);
+        if (result.ok && result.data?.success) {
+          return reply.send({
+            method: 'sendMessage',
+            chat_id: chatId,
+            text: `✅ Linked successfully! Your Telegram account (${username || userId}) is now connected to your web app identity.`,
+          });
+        }
+
+        return reply.send({
+          method: 'sendMessage',
+          chat_id: chatId,
+          text: `⚠️ Unable to link Telegram right now: ${result.data?.error || 'The link nonce is invalid or expired.'}`,
+        });
+      }
+
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,

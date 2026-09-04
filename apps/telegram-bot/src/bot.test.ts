@@ -122,6 +122,35 @@ describe('Telegram Conversational Financial OS Tests', () => {
     assert.ok(body.reply_markup.keyboard.length > 0);
   });
 
+  it('accepts a Telegram link nonce and confirms it with the backend', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => ({ success: true, linked: true, userId: 'user-123' }),
+    } as any);
+
+    try {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/telegram/webhook',
+        payload: {
+          message: {
+            chat: { id: 99994 },
+            from: { id: 1004, username: 'telegram_tester' },
+            text: '/link nonce_abc123',
+          },
+        },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.method, 'sendMessage');
+      assert.ok(body.text.includes('Linked successfully'));
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('formats multi-chain crypto receiving card with automatic NEAR Intent swap note', async () => {
     const { telegramUi } = await import('./telegramUi.js');
     const session = sessionManager.getSession(99996, 1006, 'crypto_receiver');
@@ -134,6 +163,69 @@ describe('Telegram Conversational Financial OS Tests', () => {
     assert.ok(card.includes('NEAR Protocol'));
     assert.ok(card.includes('Zero-Action Auto-Swap'));
     assert.ok(card.includes('Base USDC'));
+  });
+
+  it('handles the Kamino savings callback and surfaces the live yield flow', async () => {
+    const res = await server.inject({
+      method: 'POST',
+      url: '/telegram/webhook',
+      payload: {
+        callback_query: {
+          message: { chat: { id: 99997 }, message_id: 555 },
+          from: { id: 1007, username: 'yield_user' },
+          data: 'save_kamino',
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.method, 'sendMessage');
+    assert.ok(body.text.includes('Kamino'));
+    assert.ok(body.text.includes('7.80% APY') || body.text.includes('yield'));
+  });
+
+  it('explicitly refuses real withdrawal execution from Telegram because the bot lacks backend auth', async () => {
+    const res = await server.inject({
+      method: 'POST',
+      url: '/telegram/webhook',
+      payload: {
+        callback_query: {
+          message: { chat: { id: 99998 }, message_id: 556 },
+          from: { id: 1008, username: 'withdraw_guard' },
+          data: 'withdraw_savings',
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.method, 'sendMessage');
+    assert.ok(body.text.includes('not executed'));
+    assert.ok(body.text.includes('Telegram PIN'));
+    assert.ok(body.text.includes('web JWT'));
+    assert.ok(body.text.includes('real on-chain withdrawal'));
+  });
+
+  it('does not auto-approve KYC from Telegram uploads and requires the authenticated web flow', async () => {
+    const res = await server.inject({
+      method: 'POST',
+      url: '/telegram/webhook',
+      payload: {
+        message: {
+          chat: { id: 99999 },
+          from: { id: 1009, username: 'kyc_guard' },
+          document: { file_id: 'doc-123', file_name: 'id.pdf' },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.method, 'sendMessage');
+    assert.ok(!body.text.includes('Identity Verified Successfully'));
+    assert.ok(body.text.includes('authenticated web app') || body.text.includes('verification flow'));
+    assert.ok(body.text.includes('KYC') || body.text.includes('verification'));
   });
 
   it('derives real NEAR named accounts from username and retrieves live database balances', async () => {

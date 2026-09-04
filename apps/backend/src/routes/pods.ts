@@ -3,13 +3,30 @@ import { createDbClient, eq, and } from '@payit/db';
 import { automationPolicies, entities } from '@payit/db/schema';
 import { ulid } from 'ulid';
 import { PodsClient, BiconomyClient } from '@payit/integrations';
+import { env } from '../env.js';
 import { getEntityBalance } from '../utils/balance.js';
 
-const db = createDbClient();
-const podsClient = new PodsClient();
-const biconomyClient = new BiconomyClient();
+const db = createDbClient(env.DATABASE_URL);
+const podsClient = new PodsClient(env.PODS_API_KEY);
+const biconomyClient = new BiconomyClient({ apiKey: env.BICONOMY_MEE_API_KEY, projectId: env.BICONOMY_PROJECT_ID });
 
 export async function podsRoutes(server: FastifyInstance) {
+  const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE;
+
+  const denyLiveFinance = async (_request: any, reply: any) => {
+    return reply.status(503).send({
+      success: false,
+      mode: 'demo',
+      error: 'Pods live finance is disabled.',
+      message: 'Set ENABLE_LIVE_FINANCE=true or ENABLE_PODS_FINANCE=true with valid relayer credentials to enable this flow.',
+    });
+  };
+
+  if (!liveFinanceEnabled) {
+    server.get('/api/pods/*', denyLiveFinance);
+    server.post('/api/pods/*', denyLiveFinance);
+  }
+
   server.get('/api/pods/auto-save', async (request, reply) => {
     const entityId = (request.query as { entityId?: string }).entityId || request.session?.activeEntityId;
     if (!entityId || !request.session?.userEntityIds.includes(entityId)) {

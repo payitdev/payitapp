@@ -168,9 +168,10 @@ export class TelegramUi {
    * KYC Upgrade & Verification Prompt Inline Keyboard
    */
   public getKycPromptKeyboard() {
+    const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL;
     return {
       inline_keyboard: [
-        [{ text: '🪪 Start Quick Verification (2 mins)', callback_data: 'kyc_start' }],
+        ...(miniAppUrl ? [[{ text: '🪪 Start Verification in Telegram (2 mins)', web_app: { url: miniAppUrl } }]] : []),
         [{ text: '⚡ Continue with Multi-Chain Assets (No ID Required)', callback_data: 'fund_crypto' }],
       ],
     };
@@ -203,6 +204,14 @@ export class TelegramUi {
         [{ text: '🌾 Kamino Liquidity Vaults (Up to 7.8% APY)', callback_data: 'save_kamino' }],
         [{ text: '🏛️ Ondo Institutional Yield (USDY/OUSG)', callback_data: 'save_ondo' }],
         [{ text: '🎯 Set Custom Savings Goal', callback_data: 'save_goal' }],
+      ],
+    };
+  }
+
+  public getSavingsActionKeyboard() {
+    return {
+      inline_keyboard: [
+        [{ text: '💰 Save Money', callback_data: 'save_kamino' }, { text: '📤 Withdraw Savings', callback_data: 'withdraw_savings' }],
       ],
     };
   }

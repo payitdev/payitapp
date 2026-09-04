@@ -33,6 +33,25 @@ async function runMigrations() {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
 
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS privy_user_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_privy_user_id ON users (privy_user_id) WHERE privy_user_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS telegram_user_links (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        privy_user_id TEXT,
+        telegram_user_id INTEGER,
+        telegram_username TEXT,
+        nonce TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'linked', 'revoked')),
+        expires_at TIMESTAMP NOT NULL,
+        linked_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_user_links_user ON telegram_user_links (user_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_user_links_telegram_user ON telegram_user_links (telegram_user_id) WHERE telegram_user_id IS NOT NULL;
+
       CREATE TABLE IF NOT EXISTS entities (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id),

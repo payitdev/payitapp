@@ -648,3 +648,365 @@ export function assertEntityApproved(entity: { id: string; dueStatus: string }) 
     throw new Error(`Entity ${entity.id} is in status '${entity.dueStatus}'. Feature requires 'approved' verification status.`);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NEW KYC SCHEMA & VERIFICATION ENDPOINTS (Brails + Nuvion)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// These endpoints support dynamic KYC form rendering for:
+// - Personal Accounts (Brails NGN): 7-field simple flow
+// - Business Accounts (Nuvion): 20+ field comprehensive flow
+//
+// Architecture:
+// 1. GET /api/kyc/schema?accountType=personal|business
+//    → Returns provider-agnostic schema (sections, fields, validation rules)
+// 2. POST /api/kyc/verify
+//    → Accepts normalized form data, routes to correct provider
+//    → Async: returns verificationId for polling
+// 3. GET /api/kyc/verification-status?verificationId=...
+//    → Poll status of KYC verification
+//    → Returns account details when approved
+
+export async function registerNewKycRoutes(server: FastifyInstance) {
+  const { 
+    getKycSchema, 
+    getProviderForAccountType
+  } = require('@payit/integrations');
+  const { NuvionClient } = require('@payit/integrations');
+
+  const brailsClient = new BrailsClient();
+  const nuvionClient = new NuvionClient();
+
+  /**
+   * GET /api/kyc/schema?accountType=personal|business
+   * Returns the complete KYC schema (sections, fields, validation) for the account type.
+   * No hardcoded values — all driven from schema registry.
+   */
+  server.get<{ Querystring: { accountType: string } }>('/api/kyc/schema', async (request, reply) => {
+    const { accountType } = request.query;
+    
+    if (!accountType || !['personal', 'business'].includes(accountType)) {
+      return reply.status(400).send({
+        error: 'accountType is required and must be personal or business',
+      });
+    }
+
+    try {
+      const schema = getKycSchema(accountType);
+      return reply.send({
+        success: true,
+        accountType,
+        provider: schema.provider,
+        schema: {
+          title: schema.title,
+          description: schema.description,
+          estimatedTimeMinutes: schema.estimatedTimeMinutes,
+          currenciesSupported: schema.currenciesSupported,
+          sections: schema.sections.map((section: any) => ({
+            id: section.id,
+            title: section.title,
+            description: section.description,
+            fields: section.fields.map((field: any) => ({
+              name: field.name,
+              type: field.type,
+              label: field.label,
+              required: field.required,
+              placeholder: field.placeholder,
+              pattern: field.pattern,
+              help: field.help,
+              options: field.options,
+              maxLength: field.maxLength,
+              accept: field.accept,
+            })),
+          })),
+        },
+      });
+    } catch (err: any) {
+      console.error('[KYC Schema] Error:', err.message);
+      return reply.status(400).send({
+        error: err.message,
+      });
+    }
+  });
+
+  /**
+   * POST /api/kyc/verify
+   * Submit normalized KYC form data for verification.
+   */
+  server.post<{ Body: any }>('/api/kyc/verify', async (request, reply) => {
+    const body = request.body as { entityId?: string; accountType?: string; formData?: Record<string, any> };
+    const { entityId, accountType, formData } = body;
+    const userId = request.session!.userId;
+
+    if (!entityId || !accountType || !formData) {
+      return reply.status(400).send({
+        error: 'entityId, accountType, and formData are required',
+      });
+    }
+
+    if (!['personal', 'business'].includes(accountType)) {
+      return reply.status(400).send({
+        error: 'accountType must be personal or business',
+      });
+    }
+
+    try {
+      // Verify entity ownership
+      const entity = await db.select().from(entities).where(
+        and(eq(entities.id, entityId), eq(entities.userId, userId))
+      ).limit(1);
+
+      if (!entity || entity.length === 0) {
+        return reply.status(404).send({ error: 'Entity not found' });
+      }
+
+      const verificationId = ulid();
+      const provider = getProviderForAccountType(accountType);
+
+      // Store normalized form data
+      const verification = await db.insert(kycVerifications).values({
+        id: verificationId,
+        userId,
+        entityId,
+        entityKind: (accountType === 'personal' ? 'PERSONAL' : 'BUSINESS'),
+        idType: accountType,
+        idValueHash: ulid(),
+        status: 'pending',
+        identityData: formData,
+      }).returning();
+
+      if (!verification || verification.length === 0) {
+        return reply.status(500).send({ error: 'Failed to create verification record' });
+      }
+
+      // Route to appropriate provider (async, non-blocking)
+      if (provider === 'brails') {
+        queueBrailsVerification(verificationId, entityId, userId, formData).catch(err => 
+          console.error(`[KYC] Brails queue error: ${err.message}`)
+        );
+      } else if (provider === 'nuvion') {
+        queueNuvionVerification(verificationId, entityId, userId, formData).catch(err =>
+          console.error(`[KYC] Nuvion queue error: ${err.message}`)
+        );
+      }
+
+      return reply.status(202).send({
+        success: true,
+        verificationId,
+        status: 'pending',
+        message: 'Your KYC verification has been submitted. You will be notified when it is complete.',
+      });
+    } catch (err: any) {
+      console.error('[KYC Verify] Error:', err.message);
+      return reply.status(500).send({
+        error: 'Failed to submit KYC verification',
+        details: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/kyc/verification-status?verificationId=...
+   * Poll the status of a KYC verification.
+   */
+  server.get<{ Querystring: { verificationId: string } }>('/api/kyc/verification-status', async (request, reply) => {
+    const { verificationId } = request.query;
+    const userId = request.session!.userId;
+
+    if (!verificationId) {
+      return reply.status(400).send({ error: 'verificationId is required' });
+    }
+
+    try {
+      const verification = await db.select().from(kycVerifications).where(
+        and(eq(kycVerifications.id, verificationId), eq(kycVerifications.userId, userId))
+      ).limit(1);
+
+      if (!verification || verification.length === 0) {
+        return reply.status(404).send({ error: 'Verification not found' });
+      }
+
+      const v = verification[0];
+      let response: any = {
+        verificationId: v.id,
+        status: v.status,
+        entityId: v.entityId,
+        entityKind: v.entityKind,
+      };
+
+      if (v.status === 'approved') {
+        response.message = 'Verification approved! Your account is ready.';
+        
+        const accts = await db.select().from(accounts).where(
+          eq(accounts.entityId, v.entityId)
+        ).limit(1);
+        
+        if (accts && accts.length > 0) {
+          const acc = accts[0];
+          response.virtualAccount = {
+            accountNumber: acc.accountNumber,
+            routingNumber: acc.routingNumber,
+            bankName: acc.bankName,
+            currency: acc.currency,
+          };
+        }
+      } else if (v.status === 'pending') {
+        response.message = 'Your KYC verification is being processed...';
+      } else if (v.status === 'rejected') {
+        response.message = `Verification rejected: ${v.failureReason || 'Please contact support'}`;
+      }
+
+      return reply.send({
+        success: v.status !== 'rejected',
+        ...response,
+      });
+    } catch (err: any) {
+      console.error('[KYC Status] Error:', err.message);
+      return reply.status(500).send({
+        error: 'Failed to fetch verification status',
+      });
+    }
+  });
+
+  // ─── Helper Functions ─────────────────────────────────────────────────────
+
+  async function queueBrailsVerification(
+    verificationId: string,
+    entityId: string,
+    userId: string,
+    formData: Record<string, any>
+  ) {
+    try {
+      const firstName = formData.firstName || '';
+      const lastName = formData.lastName || '';
+      const email = formData.email || '';
+      const phoneNumber = formData.phoneNumber || '';
+      const bvn = formData.bvn || '';
+      const bank = formData.bank || 'providus';
+
+      if (!firstName || !lastName || !email || !phoneNumber || !bvn) {
+        throw new Error('Missing required Brails personal fields');
+      }
+
+      const brailsResponse = await brailsClient.createVirtualAccount({
+        firstName,
+        lastName,
+        email,
+        phoneNumber,
+        bvn,
+        bank: bank as 'providus' | 'safehaven',
+        reference: `kyc_${verificationId}`,
+      } as any);
+
+      const customerId = brailsResponse?.customerId || brailsResponse?.customer_id;
+      const accountId = brailsResponse?.account?.id || brailsResponse?.id;
+      const accountNumber = brailsResponse?.account?.accountNumber || brailsResponse?.accountNumber;
+
+      await db.update(kycVerifications).set({
+        brailsCustomerId: customerId,
+        brailsCustomerPayload: formData,
+        brailsAccountIds: [accountId],
+        status: 'approved',
+        completedAt: new Date(),
+      }).where(eq(kycVerifications.id, verificationId));
+
+      if (accountNumber) {
+        await db.insert(accounts).values({
+          id: `brails_${verificationId}`,
+          entityId,
+          dueVirtualAccountId: accountId,
+          accountNumber,
+          routingNumber: brailsResponse?.routingNumber,
+          bankName: 'Brails',
+          accountHolderName: `${firstName} ${lastName}`,
+          currency: 'NGN',
+          rail: 'bank_transfer',
+          status: 'active',
+        }).onConflictDoNothing();
+      }
+
+      await db.update(entities).set({
+        dueStatus: 'approved',
+        dueCustomerId: customerId,
+      }).where(eq(entities.id, entityId));
+
+      console.log(`[KYC] Brails verification approved for ${verificationId}`);
+    } catch (err: any) {
+      console.error(`[KYC] Brails verification failed for ${verificationId}:`, err.message);
+      
+      await db.update(kycVerifications).set({
+        status: 'rejected',
+        failureReason: err.message,
+      }).where(eq(kycVerifications.id, verificationId));
+    }
+  }
+
+  async function queueNuvionVerification(
+    verificationId: string,
+    entityId: string,
+    userId: string,
+    formData: Record<string, any>
+  ) {
+    try {
+      const personData = {
+        first_name: formData.firstName || '',
+        last_name: formData.lastName || '',
+        date_of_birth: formData.dateOfBirth || '',
+        email: formData.email || '',
+        nationality: formData.nationality || 'NG',
+        gender: formData.gender || 'm',
+        phonenumber: formData.phonenumber || '',
+      };
+
+      const addressData = {
+        line_1: formData['address.line_1'] || '',
+        line_2: formData['address.line_2'],
+        city: formData['address.city'] || '',
+        state: formData['address.state'] || '',
+        postal_code: formData['address.postal_code'] || '',
+        country_code: formData['address.country_code'] || 'NG',
+      };
+
+      const identificationData = {
+        document: {
+          type: formData['identification.document.type'] || 'international_passport',
+          number: formData['identification.document.number'] || '',
+          issuing_country: formData['identification.document.issuing_country'] || 'NG',
+          issuing_authority: formData['identification.document.issuing_authority'] || '',
+        },
+      };
+
+      if (!personData.first_name || !personData.last_name || !addressData.line_1) {
+        throw new Error('Missing required Nuvion business fields');
+      }
+
+      const nuvionResponse = await nuvionClient.createEntity({
+        name: formData['business.legal_name'] || '',
+        person: personData,
+        address: addressData,
+        identification: identificationData,
+        meta: {
+          verificationId,
+          reference: `kyc_${verificationId}`,
+        },
+      });
+
+      const status = nuvionResponse?.status || 'pending';
+
+      await db.update(kycVerifications).set({
+        identityData: formData,
+        status: status === 'approved' ? 'approved' : 'pending',
+        completedAt: status === 'approved' ? new Date() : null,
+      }).where(eq(kycVerifications.id, verificationId));
+
+      console.log(`[KYC] Nuvion verification queued for ${verificationId}, status: ${status}`);
+    } catch (err: any) {
+      console.error(`[KYC] Nuvion verification failed for ${verificationId}:`, err.message);
+      
+      await db.update(kycVerifications).set({
+        status: 'rejected',
+        failureReason: err.message,
+      }).where(eq(kycVerifications.id, verificationId));
+    }
+  }
+}

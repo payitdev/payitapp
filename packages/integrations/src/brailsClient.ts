@@ -292,6 +292,27 @@ export class BrailsClient {
     return this.request('POST', '/customers', payload);
   }
 
+  async listCustomers(params?: { page?: number; take?: number }) {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.take) query.set('take', String(params.take));
+    return this.request('GET', `/customers${query.toString() ? `?${query}` : ''}`);
+  }
+
+  async findCustomerByEmail(email: string) {
+    if (!email) return null;
+    try {
+      const res = await this.listCustomers({ take: 50 });
+      const customers = res?.data?.data || res?.data?.customers || res?.data || [];
+      if (Array.isArray(customers)) {
+        return customers.find((c: any) => String(c.email || '').toLowerCase() === email.trim().toLowerCase()) || null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   async submitBusinessKyb(payload: BrailsBusinessCustomerPayload) {
     return this.request('POST', '/customers', { ...payload, type: 'BUSINESS' });
   }

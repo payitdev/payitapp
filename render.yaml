@@ -53,6 +53,17 @@ services:
         sync: false
       - key: BACKEND_PUBLIC_URL
         value: https://payit-backend-td53.onrender.com
+      - key: JWT_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_MINI_APP_URL
+        fromService:
+          type: web
+          name: payit-mobile-web
+          property: url
       # Configure this exact URL in Brails:
       # https://payit-backend-td53.onrender.com/webhooks/brails
 
@@ -79,7 +90,33 @@ services:
         destination: /index.html
 
   # ---------------------------------------------------------------------------
-  # 3. PayIT Marketing Landing Website
+  # 3. PayIT Telegram Bot Worker
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: payit-telegram-bot
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm --filter "payit-telegram-bot..." build
+    startCommand: pnpm --filter payit-telegram-bot poll
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PAYIT_BACKEND_URL
+        fromService:
+          type: web
+          name: payit-backend
+          property: url
+      - key: TELEGRAM_MINI_APP_URL
+        fromService:
+          type: web
+          name: payit-mobile-web
+          property: url
+
+  # ---------------------------------------------------------------------------
+  # 4. PayIT Marketing Landing Website
   # ---------------------------------------------------------------------------
   - type: web
     name: payit-website

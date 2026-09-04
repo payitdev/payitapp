@@ -8,10 +8,16 @@
 import { PrivyClient } from '@privy-io/server-auth';
 
 export class PrivyServerAuth {
-  private static getClient() {
+  private static clientInstance: any = null;
+  private static async getClient() {
     const appId = process.env.PRIVY_APP_ID || '';
     const appSecret = process.env.PRIVY_APP_SECRET || '';
-    return { appId, client: new PrivyClient(appId, appSecret) };
+    if (!PrivyServerAuth.clientInstance) {
+      if (!appId || !appSecret) throw new Error('Privy server credentials are not configured');
+      const mod = await import('@privy-io/server-auth');
+      PrivyServerAuth.clientInstance = new mod.PrivyClient(appId, appSecret);
+    }
+    return { appId, client: PrivyServerAuth.clientInstance };
   }
 
   /**
@@ -24,7 +30,7 @@ export class PrivyServerAuth {
     }
 
     try {
-      const { appId, client } = PrivyServerAuth.getClient();
+      const { appId, client } = await PrivyServerAuth.getClient();
       if (!appId || !process.env.PRIVY_APP_SECRET) {
         return { valid: false, error: 'Privy server credentials are not configured' };
       }
@@ -39,7 +45,7 @@ export class PrivyServerAuth {
     const verified = await PrivyServerAuth.verifySessionToken(token);
     if (!verified.valid || !verified.privyUserId) return verified;
     try {
-      const { client } = PrivyServerAuth.getClient();
+      const { client } = await PrivyServerAuth.getClient();
       const user = await (client as any).getUser(verified.privyUserId);
       const email = user?.email?.address || user?.linkedAccounts?.find((account: any) => account.type === 'email')?.address;
       if (!email) return { valid: false, error: 'Privy account has no verified email address' };

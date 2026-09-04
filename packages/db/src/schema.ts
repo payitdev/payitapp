@@ -9,6 +9,23 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const telegramUserLinks = pgTable('telegram_user_links', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  privyUserId: text('privy_user_id'),
+  telegramUserId: integer('telegram_user_id'),
+  telegramUsername: text('telegram_username'),
+  nonce: text('nonce').notNull().unique(),
+  status: text('status', { enum: ['pending', 'linked', 'revoked'] }).default('pending').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  linkedAt: timestamp('linked_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  userLinkIdx: uniqueIndex('idx_telegram_user_links_user').on(table.userId),
+  telegramUserIdx: uniqueIndex('idx_telegram_user_links_telegram_user').on(table.telegramUserId),
+}));
+
 export const trustedDevices = pgTable('trusted_devices', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id),

@@ -18,7 +18,8 @@ import { telegramUi } from './telegramUi.js';
 import { groqEngine } from './groqEngine.js';
 import { liveDataService } from './liveDataService.js';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8883261709:AAGIJLcIjUVmuIOcih-B14SX0iIqIwksNto';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is required to start Telegram polling');
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 
@@ -60,7 +61,16 @@ export async function processTelegramUpdate(update: any) {
     const userId = cq.from?.id;
     const data = cq.data || '';
     const messageId = cq.message?.message_id;
-    const session = sessionManager.getSession(chatId, userId, cq.from?.username);
+    let session;
+    try {
+      session = await sessionManager.getSessionAsync(chatId, userId, cq.from?.username);
+    } catch (error: any) {
+      await telegramApi('sendMessage', {
+        chat_id: chatId,
+        text: `🔒 This Telegram account is not linked to a Proxim account yet. Open the web app, sign in, link Telegram, then try again.\n\n${error.message || 'Account provisioning is unavailable.'}`,
+      });
+      return;
+    }
 
     // 1. PIN Keypad Interaction
     if (data.startsWith('pin:')) {
@@ -185,7 +195,8 @@ export async function processTelegramUpdate(update: any) {
       session.step = 'AWAITING_KYC_INPUT';
       await telegramApi('sendMessage', {
         chat_id: chatId,
-        text: `🪪 **Tier 2 Banking Verification (2 Mins)**\n────────────────────────\nTo unlock Nigerian NUBAN accounts, US ACH, European IBANs, and Virtual Cards, please reply with your:\n\n1. **Full Legal Name**\n2. **ID Number (NIN, BVN, or National ID)**\n3. **Country of Residence**\n\n_Or simply send a clear photo of your ID card directly into this chat._`,
+        text: `🪪 **Tier 2 Banking Verification (2 Mins)**\n────────────────────────\nUse the secure verification button below to submit your details and documents inside Telegram. Documents sent as ordinary chat messages are not processed.`,
+        reply_markup: telegramUi.getKycPromptKeyboard(),
       });
       return;
     }
@@ -204,12 +215,11 @@ export async function processTelegramUpdate(update: any) {
 
     // Check for KYC Document Upload (Photos / Documents)
     if (msg.photo || msg.document || session.step === 'AWAITING_KYC_INPUT') {
-      session.kycStatus = 'APPROVED';
       session.step = 'IDLE';
       await telegramApi('sendMessage', {
         chat_id: chatId,
-        text: `✅ **Identity Verified Successfully!**\n────────────────────────\nYou have been upgraded to **Tier 2 (Full Banking Access)**.\n\n🏦 **Your Virtual Accounts are now active:**\n• Virtual Bank Account coordinates are now enabled.\n• 💳 Virtual & Debit Card issuing is now enabled.`,
-        reply_markup: telegramUi.getMainReplyMenu(session.activeEntity),
+        text: `🪪 **KYC must be completed in the authenticated web app**\n────────────────────────\nTelegram does not have the same backend session or wallet-auth context as the web app, so uploaded documents are not treated as a real verification event.\n\nPlease complete the secure verification flow in the main app to unlock local bank accounts and virtual cards.`,
+        reply_markup: telegramUi.getKycPromptKeyboard(),
       });
       return;
     }

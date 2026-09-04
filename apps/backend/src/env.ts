@@ -10,15 +10,22 @@ dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 const EnvSchema = z.object({
   PORT: z.string().default('4000'),
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').default('postgresql://postgres:postgres@localhost:5432/payit_local'),
   FIAT_PROVIDER_LIVE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+
+  // Runtime feature gates: live finance integrations stay off by default.
+  ENABLE_LIVE_FINANCE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  ENABLE_PODS_FINANCE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  ENABLE_ONDO_FINANCE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  ENABLE_NEAR_MPC: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   
   // Proxim Treasury & Monetization
-  PROXIM_TREASURY_WALLET: z.string().min(1, 'PROXIM_TREASURY_WALLET is required'),
-  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters').default('proxim_super_secure_jwt_secret_key_2026'),
+  PROXIM_TREASURY_WALLET: z.string().optional().default(''),
+  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   
   // Savings & Stocks
   PODS_API_KEY: z.string().optional(),
+  PODS_BASE_URL: z.string().url().optional(),
   ONDO_API_KEY: z.string().optional(),
 
   // Nuvion banking infrastructure
@@ -40,8 +47,8 @@ const EnvSchema = z.object({
   NEAR_NETWORK_ID: z.enum(['mainnet'], {
     errorMap: () => ({ message: 'NEAR_NETWORK_ID must be mainnet for production' }),
   }).default('mainnet'),
-  NEAR_RELAYER_ACCOUNT_ID: z.string().min(1, 'NEAR_RELAYER_ACCOUNT_ID is required'),
-  NEAR_RELAYER_PRIVATE_KEY: z.string().min(1, 'NEAR_RELAYER_PRIVATE_KEY is required'),
+  NEAR_RELAYER_ACCOUNT_ID: z.string().optional().default(''),
+  NEAR_RELAYER_PRIVATE_KEY: z.string().optional().default(''),
   NEAR_GAS_TREASURY_IDENTIFIER: z.string().optional().default(''),
 
   // Biconomy MEE Configuration
@@ -51,6 +58,7 @@ const EnvSchema = z.object({
   // NEAR Intent 1Click Configuration
   NEAR_INTENT_1CLICK_API_KEY: z.string().optional().default(''),
   NEAR_INTENT_EXPLORER_API_KEY: z.string().optional().default(''),
+  NEAR_INTENT_BASE_URL: z.string().url().optional().default('https://1click.chaindefuser.com'),
   NEAR_INTENT_ALLOWED_ASSETS: z.string().optional(),
   NEAR_INTENT_ALLOWED_PAIRS: z.string().optional(),
 
@@ -64,8 +72,16 @@ const EnvSchema = z.object({
   BRAILS_API_BASE_URL: z.string().default('https://api.brails.com/v1'),
   BRAILS_WEBHOOK_SECRET: z.string().optional().default(''),
 
+  // Admin seed secret for dev seed routes and admin reconciliation
+  ADMIN_SEED_SECRET: z.string().min(16, 'ADMIN_SEED_SECRET must be at least 16 characters').optional(),
+  
   // Backend public URL for EaseID liveness callbacks
   BACKEND_PUBLIC_URL: z.string().optional().default('https://payit-backend-td53.onrender.com'),
+
+  // Telegram Mini App authentication and launch configuration
+  TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
+  TELEGRAM_MINI_APP_URL: z.string().url().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
 export function validateEnv() {
@@ -89,15 +105,26 @@ export function validatePrivyEnv() {
 
 export function validateNEAREnv() {
   const networkId = process.env.NEAR_NETWORK_ID || 'mainnet';
-  const relayerAccountId = process.env.NEAR_RELAYER_ACCOUNT_ID;
-  const relayerPrivateKey = process.env.NEAR_RELAYER_PRIVATE_KEY;
+  const relayerAccountId = process.env.NEAR_RELAYER_ACCOUNT_ID || '';
+  const relayerPrivateKey = process.env.NEAR_RELAYER_PRIVATE_KEY || '';
+  const liveFinanceEnabled = process.env.ENABLE_LIVE_FINANCE === 'true' || process.env.ENABLE_PODS_FINANCE === 'true' || process.env.ENABLE_ONDO_FINANCE === 'true' || process.env.ENABLE_NEAR_MPC === 'true';
+
+  if (!liveFinanceEnabled) {
+    return {
+      networkId,
+      contractId: 'v1.signer',
+      relayerAccountId: '',
+      relayerPrivateKey: '',
+      liveMode: false,
+    };
+  }
 
   if (networkId !== 'mainnet') {
     throw new Error('Production NEAR MPC requires NEAR_NETWORK_ID=mainnet.');
   }
 
   if (!relayerAccountId || !relayerPrivateKey) {
-    throw new Error('Production NEAR MPC requires NEAR_RELAYER_ACCOUNT_ID and NEAR_RELAYER_PRIVATE_KEY.');
+    throw new Error('Production NEAR MPC requires NEAR_RELAYER_ACCOUNT_ID and NEAR_RELAYER_PRIVATE_KEY when live finance is enabled.');
   }
 
   return {
@@ -105,13 +132,14 @@ export function validateNEAREnv() {
     contractId: 'v1.signer',
     relayerAccountId,
     relayerPrivateKey,
+    liveMode: true,
   };
 }
 
 export function validateBiconomyEnv() {
   return {
-    apiKey: process.env.BICONOMY_MEE_API_KEY || 'mee_QgNK9G24KkNKeitXwh477b',
-    projectId: process.env.BICONOMY_PROJECT_ID || '02059f83-8000-4ed0-a1e3-71458f2010bd',
+    apiKey: process.env.BICONOMY_MEE_API_KEY || '',
+    projectId: process.env.BICONOMY_PROJECT_ID || '',
   };
 }
 

@@ -35,10 +35,14 @@ scripts/.secret-scan-cache
 **/*backup*.sql
 **/*export*.json
 backend-startup.log
+turnkey-export.json.json
+**/scripts/verify-build.js
 *.timestamp-*.mjs
 *.mjs.timestamp-*
 packages/**/src/**/*.d.ts
 packages/**/src/**/*.js
+packages/**/src/**/*.test.js
+packages/**/dist/**/*.test.js
 
 
 

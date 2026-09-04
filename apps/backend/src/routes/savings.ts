@@ -1,14 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq } from '@payit/db';
 import { savingsGoals } from '@payit/db/schema';
-import { PodsClient, OndoClient, KaminoClient, NEARIntentsClient, PodsStrategy, OndoToken } from '@payit/integrations';
+import { PodsClient, OndoClient, NEARIntentsClient, PodsStrategy, OndoToken } from '@payit/integrations';
+import { env } from '../env.js';
 import { ulid } from 'ulid';
 
-const db = createDbClient();
-const podsClient = new PodsClient();
+const db = createDbClient(env.DATABASE_URL);
+const podsClient = new PodsClient(env.PODS_API_KEY);
 const ondoClient = new OndoClient();
-const kaminoClient = new KaminoClient();
-const nearIntentsClient = new NEARIntentsClient();
+const nearIntentsClient = new NEARIntentsClient({ oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY, explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY, baseUrl: env.NEAR_INTENT_BASE_URL });
 
 export async function savingsRoutes(server: FastifyInstance) {
   /**
@@ -34,7 +34,7 @@ export async function savingsRoutes(server: FastifyInstance) {
       currency: (currency || 'USD').toUpperCase(),
       savingsPool: 0,
       roundUpEnabled: true,
-      activeAdapters: ['biconomy_mee_pods', 'biconomy_mee_ondo', 'near_intent_1click_kamino', 'near_intent_1click_earn'],
+      activeAdapters: ['near_intent_1click_kamino', 'near_intent_1click_earn'],
       goals: dbGoals.map((g) => ({
         id: g.id,
         name: g.name,
@@ -52,8 +52,8 @@ export async function savingsRoutes(server: FastifyInstance) {
   server.get('/api/savings/yield-comparison', async (_request, reply) => {
     try {
       const [podsStrategies, ondoTokens, nearEarnData] = await Promise.all([
-        podsClient.getBaseStrategies().catch(() => []),
-        ondoClient.listStocksAndETFs().catch(() => []),
+        env.ENABLE_PODS_FINANCE || env.ENABLE_LIVE_FINANCE ? podsClient.getBaseStrategies().catch(() => []) : Promise.resolve([]),
+        env.ENABLE_ONDO_FINANCE || env.ENABLE_LIVE_FINANCE ? ondoClient.listStocksAndETFs().catch(() => []) : Promise.resolve([]),
         nearIntentsClient.getEarnVaults().catch(() => ({ vaults: [] })),
       ]);
 

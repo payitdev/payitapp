@@ -44,7 +44,6 @@ export type PendingAction =
   | PendingSavingsDeposit
   | PendingInvoice;
 
-import crypto from 'crypto';
 
 export interface UserSession {
   chatId: number;
@@ -82,26 +81,6 @@ export interface UserSession {
   mpcBusinessXrpAddress: string;
 }
 
-export function deriveTelegramMpcAddress(telegramUserId: number, context: 'personal' | 'business'): {
-  baseAddress: string; nearAddress: string; solanaAddress: string; btcAddress: string;
-  tronAddress: string; tonAddress: string; suiAddress: string; aptosAddress: string; cosmosAddress: string; xrpAddress: string;
-} {
-  const path = `proxim-${context}-tg-${telegramUserId}`;
-  const hash = crypto.createHash('sha256').update(path).digest('hex');
-  const baseAddress = '0x' + hash.slice(0, 40);
-  const nearAddress = `tg${telegramUserId}${context === 'business' ? '-biz' : ''}.proximfi.near`;
-  const solanaHash = crypto.createHash('sha256').update(`sol:${path}`).digest('hex');
-  const solanaAddress = `${solanaHash.slice(0, 44)}`;
-  const btcAddress = `bc1q${hash.slice(0, 38)}`;
-  const tronAddress = 'T' + hash.slice(0, 33);
-  const tonAddress = `UQ${hash.slice(0, 46)}`;
-  const suiAddress = `0x${hash}`;
-  const aptosAddress = `0x${hash}`;
-  const cosmosAddress = `cosmos1${hash.slice(0, 38)}`;
-  const xrpAddress = 'r' + hash.slice(0, 33);
-  return { baseAddress, nearAddress, solanaAddress, btcAddress, tronAddress, tonAddress, suiAddress, aptosAddress, cosmosAddress, xrpAddress };
-}
-
 import { liveDataService } from './liveDataService.js';
 
 export class SessionManager {
@@ -111,8 +90,10 @@ export class SessionManager {
   private readonly LOCKOUT_DURATION_MS = 10 * 60 * 1000; // 10 minute lockout
 
   public async getSessionAsync(chatId: number, telegramUserId: number, username?: string): Promise<UserSession> {
+    if (chatId !== telegramUserId) throw new Error('Financial Telegram sessions are only available in private chats');
     const now = Date.now();
-    let session = this.sessions.get(chatId);
+    const sessionKey = telegramUserId;
+    let session = this.sessions.get(sessionKey);
 
     if (!session) {
       const dbEntities = await liveDataService.getOrCreateUserEntities(telegramUserId, username);
@@ -130,27 +111,27 @@ export class SessionManager {
         kycStatus: dbEntities.kycStatus,
         mpcPersonalBaseAddress: dbEntities.personalMpc.evmAddress,
         mpcPersonalNearAddress: dbEntities.personalMpc.nearNamedAddress,
-        mpcPersonalSolanaAddress: dbEntities.personalMpc.solanaAddress || `So11111111111111111111111111111111111111112`,
-        mpcPersonalBtcAddress: dbEntities.personalMpc.btcAddress || `bc1q${telegramUserId}personal`,
-        mpcPersonalTronAddress: dbEntities.personalMpc.tronAddress || `T${telegramUserId}personal`,
-        mpcPersonalTonAddress: dbEntities.personalMpc.tonAddress || `UQ${telegramUserId}personal`,
-        mpcPersonalSuiAddress: dbEntities.personalMpc.suiAddress || `0x${telegramUserId}personal`,
-        mpcPersonalAptosAddress: dbEntities.personalMpc.aptosAddress || `0x${telegramUserId}personal`,
-        mpcPersonalCosmosAddress: dbEntities.personalMpc.cosmosAddress || `cosmos1${telegramUserId}personal`,
-        mpcPersonalXrpAddress: dbEntities.personalMpc.xrpAddress || `r${telegramUserId}personal`,
+        mpcPersonalSolanaAddress: dbEntities.personalMpc.solanaAddress,
+        mpcPersonalBtcAddress: dbEntities.personalMpc.btcAddress,
+        mpcPersonalTronAddress: dbEntities.personalMpc.tronAddress || '',
+        mpcPersonalTonAddress: dbEntities.personalMpc.tonAddress || '',
+        mpcPersonalSuiAddress: dbEntities.personalMpc.suiAddress || '',
+        mpcPersonalAptosAddress: dbEntities.personalMpc.aptosAddress || '',
+        mpcPersonalCosmosAddress: dbEntities.personalMpc.cosmosAddress || '',
+        mpcPersonalXrpAddress: dbEntities.personalMpc.xrpAddress || '',
 
         mpcBusinessBaseAddress: dbEntities.businessMpc.evmAddress,
         mpcBusinessNearAddress: dbEntities.businessMpc.nearNamedAddress,
-        mpcBusinessSolanaAddress: dbEntities.businessMpc.solanaAddress || `So11111111111111111111111111111111111111112`,
-        mpcBusinessBtcAddress: dbEntities.businessMpc.btcAddress || `bc1q${telegramUserId}business`,
-        mpcBusinessTronAddress: dbEntities.businessMpc.tronAddress || `T${telegramUserId}business`,
-        mpcBusinessTonAddress: dbEntities.businessMpc.tonAddress || `UQ${telegramUserId}business`,
-        mpcBusinessSuiAddress: dbEntities.businessMpc.suiAddress || `0x${telegramUserId}business`,
-        mpcBusinessAptosAddress: dbEntities.businessMpc.aptosAddress || `0x${telegramUserId}business`,
-        mpcBusinessCosmosAddress: dbEntities.businessMpc.cosmosAddress || `cosmos1${telegramUserId}business`,
-        mpcBusinessXrpAddress: dbEntities.businessMpc.xrpAddress || `r${telegramUserId}business`,
+        mpcBusinessSolanaAddress: dbEntities.businessMpc.solanaAddress,
+        mpcBusinessBtcAddress: dbEntities.businessMpc.btcAddress,
+        mpcBusinessTronAddress: dbEntities.businessMpc.tronAddress || '',
+        mpcBusinessTonAddress: dbEntities.businessMpc.tonAddress || '',
+        mpcBusinessSuiAddress: dbEntities.businessMpc.suiAddress || '',
+        mpcBusinessAptosAddress: dbEntities.businessMpc.aptosAddress || '',
+        mpcBusinessCosmosAddress: dbEntities.businessMpc.cosmosAddress || '',
+        mpcBusinessXrpAddress: dbEntities.businessMpc.xrpAddress || '',
       };
-      this.sessions.set(chatId, session);
+      this.sessions.set(sessionKey, session);
       return session;
     }
 
@@ -165,13 +146,16 @@ export class SessionManager {
   }
 
   public getSession(chatId: number, telegramUserId: number, username?: string): UserSession {
+    if (chatId !== telegramUserId) throw new Error('Financial Telegram sessions are only available in private chats');
     const now = Date.now();
-    let session = this.sessions.get(chatId);
+    let session = this.sessions.get(telegramUserId);
 
     if (!session) {
+      throw new Error('Synchronous Telegram sessions require an existing authenticated session; use getSessionAsync for new users.');
+
+      /*
       const personalMpc = deriveTelegramMpcAddress(telegramUserId, 'personal');
       const businessMpc = deriveTelegramMpcAddress(telegramUserId, 'business');
-
       session = {
         chatId,
         telegramUserId,
@@ -238,6 +222,7 @@ export class SessionManager {
       }).catch((e) => console.warn('[SessionManager] DB/MPC sync note:', e.message));
 
       return session;
+      */
     }
 
 
@@ -253,7 +238,9 @@ export class SessionManager {
   }
 
   public getActiveEntityId(session: UserSession): string {
-    return session.activeEntity === 'BUSINESS' ? (session.businessEntityId || `ent_tg_${session.telegramUserId}_business`) : (session.localEntityId || `ent_tg_${session.telegramUserId}_personal`);
+    const entityId = session.activeEntity === 'BUSINESS' ? session.businessEntityId : session.localEntityId;
+    if (!entityId) throw new Error('Authenticated session has no active entity');
+    return entityId;
   }
 
 
@@ -306,8 +293,11 @@ export class SessionManager {
       return { success: false, locked: true, remainingAttempts: 0 };
     }
 
-    // Default pin for sandbox testing if user hasn't set one yet
-    const targetHash = session.pinHash || (await bcrypt.hash('123456', 10));
+    if (!session.pinHash) {
+      return { success: false, locked: false, remainingAttempts: 0 };
+    }
+
+    const targetHash = session.pinHash;
     const isMatch = await bcrypt.compare(inputPin, targetHash);
 
     if (isMatch) {

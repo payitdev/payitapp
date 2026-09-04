@@ -3,6 +3,7 @@ import { createDbClient, eq, and, sql } from '@payit/db';
 import { entities, rwaPositions, rwaOrders } from '@payit/db/schema';
 import { OndoClient, BiconomyClient } from '@payit/integrations';
 import { ulid } from 'ulid';
+import { env } from '../env.js';
 
 const db = createDbClient();
 const ondoClient = new OndoClient();
@@ -38,6 +39,22 @@ let stockListCache: { stocks: any[]; timestamp: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 
 export async function ondoRoutes(server: FastifyInstance) {
+  const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_ONDO_FINANCE;
+
+  const denyLiveFinance = async (_request: any, reply: any) => {
+    return reply.status(503).send({
+      success: false,
+      mode: 'demo',
+      error: 'Ondo live finance is disabled.',
+      message: 'Set ENABLE_LIVE_FINANCE=true or ENABLE_ONDO_FINANCE=true with valid relayer credentials to enable this flow.',
+    });
+  };
+
+  if (!liveFinanceEnabled) {
+    server.get('/api/ondo/*', denyLiveFinance);
+    server.post('/api/ondo/*', denyLiveFinance);
+  }
+
   /**
    * GET /api/ondo/stocks
    * List available tokenized stocks & ETFs on BSC with Base funding
@@ -234,7 +251,7 @@ export async function ondoRoutes(server: FastifyInstance) {
 
       // 2. Compose Biconomy MEE Supertransaction quote (Base 8453 -> BSC 56)
       const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: {},
+        userOp: { sender: wallet },
         chainId: 8453,
         mode: 'gasless',
         sponsor: true,
@@ -324,7 +341,7 @@ export async function ondoRoutes(server: FastifyInstance) {
       });
 
       const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: {},
+        userOp: { sender: wallet },
         chainId: 56,
         mode: 'gasless',
         sponsor: true,

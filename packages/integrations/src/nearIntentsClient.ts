@@ -31,13 +31,18 @@ export function toBaseUnits(amount: string, decimals: number): bigint {
 }
 
 const DEFAULT_ALLOWED_ASSETS = [
+  // Stablecoins: EVM chains
   'ethereum:usdc', 'ethereum:usdt', 'base:usdc', 'base:usdt',
   'polygon:usdc', 'polygon:usdt', 'arbitrum:usdc', 'arbitrum:usdt',
-  'optimism:usdc', 'optimism:usdt', 'bsc:usdc',
+  'optimism:usdc', 'optimism:usdt', 'bsc:usdc', 'bsc:usdt',
+  // Native & Wrapped Native: EVM chains
+  'ethereum:eth', 'base:eth', 'arbitrum:eth', 'optimism:eth',
+  'polygon:matic', 'polygon:pol', 'bsc:bnb',
+  // Solana ecosystem
   'solana:sol', 'solana:usdc', 'solana:usdt',
+  // Layer 1 chains
   'bitcoin:btc', 'near:near', 'tron:trx', 'ton:ton',
   'cosmos:atom', 'sui:sui', 'aptos:apt', 'xrp:xrp',
-  'ethereum:eth', 'base:eth', 'polygon:pol', 'bsc:bnb',
 ];
 
 const CHAIN_ALIASES: Record<string, string> = {
@@ -66,7 +71,7 @@ export class NEARIntentsClient {
   constructor(config?: NEARIntentsConfig) {
     this.oneClickApiKey = config?.oneClickApiKey || process.env.NEAR_INTENT_1CLICK_API_KEY || '';
     this.explorerApiKey = config?.explorerApiKey || process.env.NEAR_INTENT_EXPLORER_API_KEY || '';
-    this.baseUrl = config?.baseUrl || 'https://1click.chaindefuser.com';
+    this.baseUrl = config?.baseUrl || process.env.NEAR_INTENT_BASE_URL || 'https://1click.chaindefuser.com';
     this.explorerUrl = config?.explorerUrl || 'https://explorer.near-intents.org';
     this.allowedAssets = new Set((config?.allowedAssets || configuredList(process.env.NEAR_INTENT_ALLOWED_ASSETS, DEFAULT_ALLOWED_ASSETS)).map(asset => {
       const [chain, symbol] = asset.split(':');
@@ -164,7 +169,7 @@ export class NEARIntentsClient {
       if (this.allowedPairs.size > 0 && !this.allowedPairs.has(`${originCanonical}>${destinationCanonical}`)) {
         throw new Error(`Asset pair is not enabled by Proxim policy: ${originCanonical} -> ${destinationCanonical}`);
       }
-      const amount = toBaseUnits(String(payload.amount), Number(origin.decimals)).toString();
+      const amount = toBaseUnits(String(payload.amount), Number(origin.decimals || 6)).toString();
       const response = await fetch(`${this.baseUrl}/v0/quote`, {
         method: 'POST',
         headers: this.get1ClickHeaders(),
@@ -194,7 +199,7 @@ export class NEARIntentsClient {
       return {
         ...quoteResponse,
         success: true,
-        intentId: quoteResponse.quote?.depositAddress,
+        intentId: quoteResponse.quote?.intentId || quoteResponse.quote?.depositAddress,
         depositAddress: quoteResponse.quote?.depositAddress,
         requiresDeposit: true,
       };
@@ -313,6 +318,58 @@ export class NEARIntentsClient {
       amount: payload.amount,
       recipientAddress: payload.recipientAddress,
     });
+  }
+
+  /**
+   * Get sendable assets FROM base:usdc TO a specific destination chain
+   * This validates which tokens can actually be sent to a destination chain
+   * and prevents silent failures from unsupported routes.
+   */
+  async getSendableAssetsForChain(destinationChain: string): Promise<string[]> {
+    try {
+      const tokens = await this.getSupportedTokens();
+      const supportedTokens = Array.isArray(tokens) ? tokens : tokens.tokens || [];
+      
+      const destinationChainCanonical = CHAIN_ALIASES[destinationChain.toLowerCase()] || destinationChain.toLowerCase();
+      const baseUsdc = supportedTokens.find((t: any) => 
+        String(t.symbol).toUpperCase() === 'USDC' && 
+        (CHAIN_ALIASES[String(t.blockchain).toLowerCase()] || String(t.blockchain).toLowerCase()) === 'base'
+      );
+      
+      if (!baseUsdc) {
+        console.warn(`[NEARIntentsClient] Base USDC not found in token list`);
+        return [];
+      }
+
+      // Find all tokens on the destination chain that can be sent from base:usdc
+      const destinationTokens = supportedTokens.filter((t: any) => {
+        const tokenChain = CHAIN_ALIASES[String(t.blockchain).toLowerCase()] || String(t.blockchain).toLowerCase();
+        if (tokenChain !== destinationChainCanonical) return false;
+        
+        const originCanonical = canonicalAsset('base', 'usdc');
+        const destCanonical = canonicalAsset(tokenChain, String(t.symbol));
+        
+        // Check if this route is in the allowed assets (both must be allowed)
+        const originAllowed = this.allowedAssets.has(originCanonical);
+        const destAllowed = this.allowedAssets.has(destCanonical);
+        
+        if (!originAllowed || !destAllowed) return false;
+        
+        // If pair restrictions exist, verify the specific route is allowed
+        if (this.allowedPairs.size > 0) {
+          return this.allowedPairs.has(`${originCanonical}>${destCanonical}`);
+        }
+        
+        return true;
+      });
+
+      // Return sorted list of asset symbols (e.g., ['SOL', 'USDC', 'USDT'])
+      const symbols = Array.from(new Set(destinationTokens.map((t: any) => String(t.symbol).toUpperCase()))) as string[];
+      return symbols.sort();
+    } catch (err: any) {
+      console.error(`[NEARIntentsClient] getSendableAssetsForChain(${destinationChain}) error:`, err.message);
+      return [];
+    }
   }
 }
 
