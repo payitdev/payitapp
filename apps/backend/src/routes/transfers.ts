@@ -9,6 +9,7 @@ import { ulid } from 'ulid';
 import crypto from 'crypto';
 import { PublicKey } from '@solana/web3.js';
 import { env } from '../env.js';
+import { NotificationService } from '../services/notificationService.js';
 
 const lastSyncTimestamps = new Map<string, number>();
 const SYNC_THROTTLE_MS = 60 * 1000;
@@ -589,6 +590,15 @@ async function executeBaseUsdcIntent(params: {
       grossAmount: grossAmount.toFixed(6), feeAmount: feeAmount.toFixed(6), netAmount: netAmount.toFixed(6),
       currency: 'USDC', description: 'Crypto withdrawal platform fee sent to Base treasury',
     });
+
+    NotificationService.notifyWithdrawalCompleted({
+      entityId: params.entity.id,
+      amount: grossAmount.toFixed(2),
+      currency: 'USDC',
+      recipientDetails: params.destinationAddress ? `External Account (${params.destinationAddress.slice(0, 6)}...${params.destinationAddress.slice(-4)})` : 'External account',
+      reference: params.transferId,
+    }).catch((err) => console.error('[Crypto Withdrawal Notification] Failed:', err.message));
+
     return { transferId: params.transferId, swapId, intentId, sourceTxHash, destinationAsset: intentDestinationAsset, status: 'SUBMITTED' };
   } catch (error: any) {
     await db.update(intentSwaps).set({ status: 'FAILED', failureReason: error.message }).where(eq(intentSwaps.id, swapId));
@@ -1834,6 +1844,15 @@ export async function transferRoutes(server: FastifyInstance) {
         currency,
         description: feeCalc.feeBreakdown.description,
       });
+
+      NotificationService.notifyWithdrawalCompleted({
+        entityId,
+        amount,
+        currency,
+        recipientDetails: `${accountName} (${accountNumber})`,
+        bankName,
+        reference: withdrawalId,
+      }).catch((err) => console.error('[Withdrawal Notification] Failed:', err.message));
 
       return reply.send({
         success: true,

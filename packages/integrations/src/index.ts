@@ -23,4 +23,5 @@ export { PrivyServerAuth } from './privyServerAuth.js';
 export { BiconomyClient } from './biconomyClient.js';
 export { NEARIntentsClient } from './nearIntentsClient.js';
 export { fundIntentFromBitcoin, fundIntentFromNear } from './chainSignaturesBackend.js';
-
+export * from './senviokClient.js';
+export { SenviokClient, senviok, SenviokApiError } from './senviokClient.js';

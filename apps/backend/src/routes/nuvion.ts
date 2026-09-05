@@ -16,6 +16,7 @@ import {
 } from '@payit/db/schema';
 import { nuvionClient, verifyNuvionWebhookSignature } from '@payit/integrations';
 import { ulid } from 'ulid';
+import { NotificationService } from '../services/notificationService.js';
 
 const db = createDbClient();
 
@@ -226,6 +227,14 @@ export async function nuvionRoutes(server: FastifyInstance) {
                   reference: dbSession.uniqueReference,
                   rawPayload: session,
                 }).onConflictDoNothing();
+
+                NotificationService.notifyDepositConfirmed({
+                  entityId: dbSession.localEntityId,
+                  amount: (Number(dbSession.amountMinor) / 100).toFixed(2),
+                  currency: dbSession.currency,
+                  sourceDescription: 'Bank transfer',
+                  reference: dbSession.uniqueReference,
+                }).catch((err) => console.error('[Nuvion Notification] Failed:', err.message));
               }
             }
           }
@@ -272,6 +281,15 @@ export async function nuvionRoutes(server: FastifyInstance) {
                 reference: inflow.reference || inflow.tx_hash || null,
                 rawPayload: inflow,
               }).onConflictDoNothing();
+
+              NotificationService.notifyDepositConfirmed({
+                entityId: account.localEntityId,
+                amount: (Number(amount) / 100).toFixed(2),
+                currency: account.currency,
+                sourceDescription: event.includes('stablecoin') ? 'Direct deposit' : 'Account transfer',
+                isCrypto: event.includes('stablecoin'),
+                reference: inflow.reference || inflow.tx_hash || inflow.id,
+              }).catch((err) => console.error('[Nuvion Inflow Notification] Failed:', err.message));
             }
           }
           break;

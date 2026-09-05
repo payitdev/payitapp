@@ -82,6 +82,12 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
   TELEGRAM_MINI_APP_URL: z.string().url().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).optional(),
+
+  // Senviok Messaging Infrastructure (Email, WhatsApp, SMS)
+  SENVIOK_API_KEY: z.string().optional().default(''),
+  SENVIOK_BASE_URL: z.string().url().default('https://api.senviok.live/v1'),
+  SENVIOK_FROM_EMAIL: z.string().email().default('onboarding@senviok.live'),
+  SENVIOK_WHATSAPP_FROM: z.string().optional().default(''),
 });
 
 export function validateEnv() {

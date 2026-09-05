@@ -3,6 +3,7 @@ import { and, createDbClient, eq } from '@payit/db';
 import { accounts, brailsCards, brailsCollections, entities, invoices, kycVerifications, ledgerAccounts, ledgerEntries, payrollItems, rawWebhooks, schoolApplications, transfers } from '@payit/db/schema';
 import { BrailsClient } from '@payit/integrations';
 import { ulid } from 'ulid';
+import { NotificationService } from '../services/notificationService.js';
 
 const db = createDbClient();
 const brails = new BrailsClient();
@@ -160,6 +161,14 @@ export async function brailsRoutes(server: FastifyInstance) {
           const amountMajor = Number(value(body, 'amount') || collection.amountMinor) / 100;
           await db.insert(transfers).values({ id: `tr_${collection.id}`, entityId: collection.entityId, dueTransferId: collection.providerTransactionId || collection.reference, sourceCurrency: collection.currency, targetCurrency: collection.currency, sourceAmount: amountMajor.toFixed(2), targetAmount: amountMajor.toFixed(2), feeAmount: '0', direction: 'CREDIT', settlementStatus: 'LEDGER_CREDITED', status: 'completed' }).onConflictDoNothing();
           await db.insert(ledgerEntries).values([{ id: ulid(), entityId: collection.entityId, transactionId: collection.id, ledgerAccountId: accountId, type: 'DEBIT', amount: amountMajor.toFixed(2) }, { id: ulid(), entityId: collection.entityId, transactionId: collection.id, ledgerAccountId: clearingId, type: 'CREDIT', amount: amountMajor.toFixed(2) }]).onConflictDoNothing();
+
+          NotificationService.notifyDepositConfirmed({
+            entityId: collection.entityId,
+            amount: amountMajor.toFixed(2),
+            currency: collection.currency,
+            sourceDescription: `Local bank transfer (${collection.currency})`,
+            reference: collection.providerTransactionId || collection.reference,
+          }).catch((err) => console.error('[Brails Notification] Failed:', err.message));
         }
       }
     }
@@ -207,6 +216,15 @@ export async function brailsRoutes(server: FastifyInstance) {
             { id: ulid(), entityId: targetEntityId, transactionId: txId || ref, ledgerAccountId: accountId, type: 'DEBIT', amount: amountMajor },
             { id: ulid(), entityId: targetEntityId, transactionId: txId || ref, ledgerAccountId: clearingId, type: 'CREDIT', amount: amountMajor },
           ]).onConflictDoNothing();
+
+          NotificationService.notifyDepositConfirmed({
+            entityId: targetEntityId,
+            amount: amountMajor,
+            currency,
+            sourceDescription: 'Direct deposit',
+            isCrypto: true,
+            reference: txId || ref,
+          }).catch((err) => console.error('[Brails Stablecoin Notification] Failed:', err.message));
         }
       }
 

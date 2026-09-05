@@ -6,6 +6,7 @@ export const users = pgTable('users', {
   phone: text('phone'),
   fullName: text('full_name').notNull(),
   privyUserId: text('privy_user_id').unique(),
+  whatsappNotificationsEnabled: boolean('whatsapp_notifications_enabled').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
