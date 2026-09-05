@@ -1,19 +1,17 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq } from '@payit/db';
-import { savingsGoals } from '@payit/db/schema';
-import { PodsClient, OndoClient, NEARIntentsClient, PodsStrategy, OndoToken } from '@payit/integrations';
+import { savingsGoals, termVaults } from '@payit/db/schema';
+import { NEARIntentsClient } from '@payit/integrations';
 import { env } from '../env.js';
 import { ulid } from 'ulid';
 
 const db = createDbClient(env.DATABASE_URL);
-const podsClient = new PodsClient(env.PODS_API_KEY);
-const ondoClient = new OndoClient();
 const nearIntentsClient = new NEARIntentsClient({ oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY, explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY, baseUrl: env.NEAR_INTENT_BASE_URL });
 
 export async function savingsRoutes(server: FastifyInstance) {
   /**
    * GET /api/savings/summary
-   * Get combined savings summary across Pods, Ondo, Kamino, and NEAR Intent Earn
+   * Get combined savings summary across Kamino and NEAR Intent Earn
    */
   server.get('/api/savings/summary', async (request, reply) => {
     const { entityId, currency = 'USD' } = request.query as { entityId?: string; currency?: string };
@@ -21,20 +19,35 @@ export async function savingsRoutes(server: FastifyInstance) {
     if (entityId && !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     let dbGoals: any[] = [];
+    let savingsPoolUsd = 0;
+
     if (entityId) {
       try {
         dbGoals = await db.select().from(savingsGoals).where(eq(savingsGoals.entityId, entityId));
+        
+        // Sum live term vaults for savings pool balance
+        const activeVaults = await db.select().from(termVaults).where(eq(termVaults.entityId, entityId));
+        savingsPoolUsd = activeVaults.reduce((sum, vault) => {
+          // If status is still active (locked, matured, early_unlocked etc)
+          if (!['WITHDRAWN_EXTERNAL', 'FAILED'].includes(vault.status)) {
+             const principal = parseFloat(vault.principalAmountUsd || '0');
+             const accrued = parseFloat(vault.accruedInterestUsd || '0');
+             return sum + principal + accrued;
+          }
+          return sum;
+        }, 0);
+
       } catch (err: any) {
-        server.log.warn({ err: err.message }, 'savingsGoals table query failed');
+        server.log.warn({ err: err.message }, 'savings data query failed');
       }
     }
 
     return reply.send({
       success: true,
       currency: (currency || 'USD').toUpperCase(),
-      savingsPool: 0,
+      savingsPool: savingsPoolUsd,
       roundUpEnabled: true,
-      activeAdapters: ['near_intent_1click_kamino', 'near_intent_1click_earn'],
+      activeAdapters: ['kamino', 'near_intent_1click_earn'],
       goals: dbGoals.map((g) => ({
         id: g.id,
         name: g.name,
@@ -47,39 +60,13 @@ export async function savingsRoutes(server: FastifyInstance) {
 
   /**
    * GET /api/savings/yield-comparison
-   * Compare live yield across Pods (Base), Ondo (EVM), Kamino (Solana), and NEAR Intent 1Click Earn
+   * Compare live yield across Kamino (Solana) and NEAR Intent 1Click Earn
    */
   server.get('/api/savings/yield-comparison', async (_request, reply) => {
     try {
-      const [podsStrategies, ondoTokens, nearEarnData] = await Promise.all([
-        env.ENABLE_PODS_FINANCE || env.ENABLE_LIVE_FINANCE ? podsClient.getBaseStrategies().catch(() => []) : Promise.resolve([]),
-        env.ENABLE_ONDO_FINANCE || env.ENABLE_LIVE_FINANCE ? ondoClient.listStocksAndETFs().catch(() => []) : Promise.resolve([]),
+      const [nearEarnData] = await Promise.all([
         nearIntentsClient.getEarnVaults().catch(() => ({ vaults: [] })),
       ]);
-
-      const podsYieldOptions = podsStrategies.map((s: PodsStrategy) => ({
-        id: s.id,
-        name: s.assetName,
-        protocol: s.protocol,
-        network: 'Base (8453)',
-        grossApy: `${(s.apy * 100).toFixed(1)}%`,
-        userNetApy: `${((s.userNetApy || (s.apy * 100) - 2.0)).toFixed(1)}%`,
-        proximCutApy: '2.0%',
-        executionEngine: 'Biconomy MEE (Gasless)',
-        insured: Boolean(s.isInsured),
-      }));
-
-      const ondoYieldOptions = ondoTokens.filter((t: OndoToken) => t.category.includes('yield') || t.category.includes('treasury')).map((t: OndoToken) => ({
-        id: t.id || t.symbol,
-        name: t.name,
-        protocol: 'Ondo Global Markets',
-        network: 'Base -> BSC Cross-Chain',
-        grossApy: '5.2%',
-        userNetApy: '4.2%',
-        proximCutApy: '1.0%',
-        executionEngine: 'Biconomy MEE Supertransaction',
-        insured: true,
-      }));
 
       const kaminoYieldOptions = [
         {
@@ -110,8 +97,6 @@ export async function savingsRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         comparison: {
-          pods: podsYieldOptions,
-          ondo: ondoYieldOptions,
           kamino: kaminoYieldOptions,
           nearIntentsEarn: nearEarnVaults,
         },
@@ -216,4 +201,3 @@ export async function savingsRoutes(server: FastifyInstance) {
     });
   });
 }
-

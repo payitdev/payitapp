@@ -227,6 +227,40 @@ server.post('/telegram/webhook', async (request, reply) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const username = msg.from.username;
+    const rawText = (msg.text || '').trim();
+
+    // ── Linking commands: handled BEFORE session gate so unlinked users can complete the flow ──
+    if (rawText.startsWith('/link') || rawText.match(/^\/start\s+link[_ ]/i)) {
+      const nonce = rawText.startsWith('/link')
+        ? rawText.replace(/^\/link\s*/i, '').trim()
+        : rawText.replace(/^\/start\s+link[_ ]/i, '').trim();
+
+      if (!nonce) {
+        return reply.send({
+          method: 'sendMessage',
+          chat_id: chatId,
+          text: '🔗 To link your account, open the Proxim web app → Profile → Telegram bot → Connect Telegram.',
+        });
+      }
+
+      const result = await confirmTelegramLink(nonce, userId, username);
+      if (result.ok && result.data?.success) {
+        return reply.send({
+          method: 'sendMessage',
+          chat_id: chatId,
+          text: `✅ Linked. Your Telegram account (@${username || userId}) is now connected to your Proxim identity.\n\nUse the menu below to get started.`,
+          reply_markup: telegramUi.getMainReplyMenu('PERSONAL'),
+        });
+      }
+
+      return reply.send({
+        method: 'sendMessage',
+        chat_id: chatId,
+        text: `⚠️ Unable to link Telegram right now: ${result.data?.error || 'The link code is invalid or expired.'}\n\nPlease try again from the Proxim app.`,
+      });
+    }
+
+    // ── Session gate for all other commands ──
     let session;
     try {
       session = await sessionManager.getSessionAsync(chatId, userId, username);
@@ -234,11 +268,9 @@ server.post('/telegram/webhook', async (request, reply) => {
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
-        text: `🔒 This Telegram account is not linked to a Proxim account yet. Open the web app, sign in, link Telegram, then try again.\n\n${error.message || 'Account provisioning is unavailable.'}`,
+        text: `🔒 This Telegram account is not linked to a Proxim account yet.\n\nOpen the web app → Profile → Telegram bot → Connect Telegram to get started.\n\n${error.message || ''}`.trim(),
       });
     }
-
-    const rawText = (msg.text || '').trim();
 
     // Check for KYC Document Upload (Photos / Documents)
     if (msg.photo || msg.document || session.step === 'AWAITING_KYC_INPUT') {
@@ -251,33 +283,7 @@ server.post('/telegram/webhook', async (request, reply) => {
       });
     }
 
-    if (rawText === '/start' || rawText.startsWith('/link')) {
-      if (rawText.startsWith('/link')) {
-        const nonce = rawText.replace(/^\/link\s*/i, '').trim();
-        if (!nonce) {
-          return reply.send({
-            method: 'sendMessage',
-            chat_id: chatId,
-            text: '🔗 Link your Telegram to the web app by starting the flow in the app, then send this command with the nonce:\n\n/link <nonce>\n\nExample: /link 4bc2c6a2f0d7a1e4f7c9d2b6a7f1229a',
-          });
-        }
-
-        const result = await confirmTelegramLink(nonce, userId, username);
-        if (result.ok && result.data?.success) {
-          return reply.send({
-            method: 'sendMessage',
-            chat_id: chatId,
-            text: `✅ Linked successfully! Your Telegram account (${username || userId}) is now connected to your web app identity.`,
-          });
-        }
-
-        return reply.send({
-          method: 'sendMessage',
-          chat_id: chatId,
-          text: `⚠️ Unable to link Telegram right now: ${result.data?.error || 'The link nonce is invalid or expired.'}`,
-        });
-      }
-
+    if (rawText === '/start') {
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
@@ -287,7 +293,7 @@ server.post('/telegram/webhook', async (request, reply) => {
       });
     }
 
-    // 2. Persistent Menu Buttons
+    // Persistent Menu Buttons
     if (rawText === '💰 Accounts & Balance') {
       const entityLabel = session.activeEntity === 'PERSONAL' ? '👤 Personal Account' : '🏢 Business Account';
       const entityId = sessionManager.getActiveEntityId(session);
@@ -355,7 +361,6 @@ server.post('/telegram/webhook', async (request, reply) => {
     }
 
     if (rawText === '📈 Savings & Yield') {
-
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
@@ -373,19 +378,17 @@ server.post('/telegram/webhook', async (request, reply) => {
     }
 
     if (rawText === '⚙️ Settings & KYC') {
-      const address = session.activeEntity === 'BUSINESS' ? session.mpcBusinessBaseAddress : session.mpcPersonalBaseAddress;
-      const nearAddr = session.activeEntity === 'BUSINESS' ? session.mpcBusinessNearAddress : session.mpcPersonalNearAddress;
       const tierDesc = session.kycStatus === 'APPROVED' ? 'Tier 2 (Full Banking & Cards Active)' : 'Tier 1 (Instant On-Chain Active • Zero ID)';
 
       return reply.send({
         method: 'sendMessage',
         chat_id: chatId,
-        text: `⚙️ **Account Settings & Security**\n────────────────────────\n• **Status:** ${tierDesc}\n• **Base USDC Address:** \`${address}\`\n• **NEAR Name:** \`${nearAddr}\`\n• **6-Digit PIN:** Configured\n\n${session.kycStatus !== 'APPROVED' ? '💡 _To unlock local bank accounts (NGN, USD, EUR) and debit cards, tap below._' : '✅ _All banking features active._'}`,
+        text: `⚙️ **Account Settings**\n────────────────────────\n• **Status:** ${tierDesc}\n• **Telegram:** ✅ Linked (@${username || userId})\n• **6-Digit PIN:** Configured\n\n${session.kycStatus !== 'APPROVED' ? '💡 _Tap below to unlock local bank accounts and debit cards._' : '✅ _All banking features active. Ready when you are._'}`,
         reply_markup: session.kycStatus !== 'APPROVED' ? telegramUi.getKycPromptKeyboard() : telegramUi.getMainReplyMenu(session.activeEntity),
       });
     }
 
-    // 3. Security Inspection
+    // Security Inspection
     const inspection = securitySentinel.inspectPrompt(rawText);
     if (!inspection.isSafe) {
       return reply.send({
@@ -395,7 +398,7 @@ server.post('/telegram/webhook', async (request, reply) => {
       });
     }
 
-    // 4. Natural Language Processing with Groq Engine
+    // Natural Language Processing with Groq Engine
     const result = await groqEngine.processMessage(inspection.sanitizedPrompt, session);
 
     if (result.actionRequired === 'PIN_PROMPT') {
@@ -426,6 +429,7 @@ server.post('/telegram/webhook', async (request, reply) => {
 
   return reply.send({ ok: true });
 });
+
 
 export async function startBot(port = Number(process.env.PORT) || 5000) {
   try {

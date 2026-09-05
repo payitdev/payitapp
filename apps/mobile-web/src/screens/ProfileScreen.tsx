@@ -5,6 +5,7 @@ import { ListRow } from '../components/ListRow';
 import { Chip } from '../components/Chip';
 import { Button } from '../components/Button';
 import { Sheet } from '../components/Sheet';
+import { TelegramManagerModal } from '../components/TelegramManagerModal';
 import { triggerLightHaptic } from '../hooks/useHaptics';
 import type { PrimaryScreen } from '../types/navigation';
 
@@ -26,6 +27,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onNavigate, onEnte
 
   const [showSecurityModal, setShowSecurityModal] = useState(false);
   const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState('NGN');
 
   const displayName = getLegalDisplayName(activeEntity, currentUser);
@@ -203,6 +205,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onNavigate, onEnte
               toggleAccountMode();
             }}
           />
+          <ListRow
+            title="Telegram bot"
+            meta="Manage connected Telegram account"
+            showChevron
+            onClick={() => {
+              triggerLightHaptic();
+              setShowTelegramModal(true);
+            }}
+          />
         </div>
 
         {/* Section: Support */}
@@ -323,6 +334,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onNavigate, onEnte
       </Sheet>
 
       {/* Floating Bottom Nav */}
+      <TelegramManagerModal isOpen={showTelegramModal} onClose={() => setShowTelegramModal(false)} />
       <BottomNav active="profile" onNavigate={onNavigate} onEnterScreen={onEnterScreen} />
     </div>
   );

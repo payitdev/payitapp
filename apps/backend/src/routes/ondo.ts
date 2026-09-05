@@ -1,39 +1,38 @@
 import { FastifyInstance } from 'fastify';
 import { createDbClient, eq, and, sql } from '@payit/db';
-import { entities, rwaPositions, rwaOrders } from '@payit/db/schema';
-import { OndoClient, BiconomyClient } from '@payit/integrations';
+import { entities, users, rwaPositions, rwaOrders } from '@payit/db/schema';
+import { OndoClient, PrivyNEARBridge } from '@payit/integrations';
 import { ulid } from 'ulid';
 import { env } from '../env.js';
 
 const db = createDbClient();
 const ondoClient = new OndoClient();
-const biconomyClient = new BiconomyClient();
 
-  async function syncPosition(entityId: string, wallet: string, symbol: string) {
-    const positions = await ondoClient.getUserStockPositions(wallet);
-    const position = positions.find(candidate => String(candidate.spotPosition?.currentPositionInShares?.symbol || '').toUpperCase() === symbol.toUpperCase());
-    if (!position) return false;
-    const shares = String(position.spotPosition.currentPositionInShares.value);
-    const totalValueUsd = Number(position.spotPosition.underlyingBalanceUSD || 0);
-    const price = Number(shares) > 0 ? totalValueUsd / Number(shares) : 0;
-    await db.insert(rwaPositions).values({
-      id: `rwa_pos_${entityId}_${symbol.toUpperCase()}`,
-      entityId,
-      symbol: symbol.toUpperCase(),
-      name: position.strategy.assetName || symbol.toUpperCase(),
-      shares,
-      averageCostBasisUsd: price.toFixed(4),
-      currentPriceUsd: price.toFixed(4),
-      totalValueUsd: totalValueUsd.toFixed(2),
-      network: 'BSC',
-      reservedShares: '0',
-      updatedAt: new Date(),
-    }).onConflictDoUpdate({
-      target: [rwaPositions.entityId, rwaPositions.symbol],
-      set: { shares, reservedShares: '0', currentPriceUsd: price.toFixed(4), totalValueUsd: totalValueUsd.toFixed(2), updatedAt: new Date() },
-    });
-    return true;
-  }
+async function syncPosition(entityId: string, wallet: string, symbol: string) {
+  const positions = await ondoClient.getUserStockPositions(wallet);
+  const position = positions.find(candidate => String(candidate.spotPosition?.currentPositionInShares?.symbol || '').toUpperCase() === symbol.toUpperCase());
+  if (!position) return false;
+  const shares = String(position.spotPosition.currentPositionInShares.value);
+  const totalValueUsd = Number(position.spotPosition.underlyingBalanceUSD || 0);
+  const price = Number(shares) > 0 ? totalValueUsd / Number(shares) : 0;
+  await db.insert(rwaPositions).values({
+    id: `rwa_pos_${entityId}_${symbol.toUpperCase()}`,
+    entityId,
+    symbol: symbol.toUpperCase(),
+    name: position.strategy.assetName || symbol.toUpperCase(),
+    shares,
+    averageCostBasisUsd: price.toFixed(4),
+    currentPriceUsd: price.toFixed(4),
+    totalValueUsd: totalValueUsd.toFixed(2),
+    network: 'BSC',
+    reservedShares: '0',
+    updatedAt: new Date(),
+  }).onConflictDoUpdate({
+    target: [rwaPositions.entityId, rwaPositions.symbol],
+    set: { shares, reservedShares: '0', currentPriceUsd: price.toFixed(4), totalValueUsd: totalValueUsd.toFixed(2), updatedAt: new Date() },
+  });
+  return true;
+}
 
 let stockListCache: { stocks: any[]; timestamp: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
@@ -161,37 +160,6 @@ export async function ondoRoutes(server: FastifyInstance) {
   server.get('/api/ondo/status/:actionId', handleActionStatus);
   server.get('/api/ondo/action/:actionId', handleActionStatus);
 
-  server.post('/api/ondo/submit', async (request, reply) => {
-    const { quoteId, signature, userOp, chainId, orderId } = request.body as {
-      quoteId: string;
-      signature: string;
-      userOp: Record<string, any>;
-      chainId: number;
-      orderId?: string;
-    };
-    if (!quoteId || !signature || !userOp || !chainId) {
-      return reply.status(400).send({ error: 'quoteId, signature, userOp, and chainId are required' });
-    }
-    const sender = String(userOp.sender || '').toLowerCase();
-    const orderRows = orderId ? await db.select().from(rwaOrders).where(eq(rwaOrders.id, orderId)).limit(1) : [];
-    if (orderId && (orderRows.length === 0 || !request.session?.userEntityIds.includes(orderRows[0].entityId))) {
-      return reply.status(403).send({ error: 'Order is not owned by the authenticated user' });
-    }
-    if (!sender || !orderRows[0]) return reply.status(400).send({ error: 'A wallet-bound order is required for submission' });
-    const submitEntity = await db.select().from(entities).where(and(eq(entities.id, orderRows[0].entityId), eq(entities.userId, request.session!.userId))).limit(1);
-    if (submitEntity.length === 0 || submitEntity[0].evmDepositAddress?.toLowerCase() !== sender) return reply.status(403).send({ error: 'Submitted wallet does not match the order entity' });
-    try {
-      const result = await biconomyClient.submitSupertransaction({ quoteId, signature, userOp, chainId });
-
-      await db.update(rwaOrders).set({ status: 'SUBMITTED', biconomyTxHash: result?.transactionHash || '' })
-        .where(and(eq(rwaOrders.id, orderId!), eq(rwaOrders.status, 'PENDING')));
-
-      return reply.send({ success: true, result });
-    } catch (err: any) {
-      return reply.status(502).send({ error: 'Ondo transaction submission failed', details: err.message });
-    }
-  });
-
   /**
    * GET /api/ondo/market-status/:symbol
    * Check US stock market live status
@@ -214,7 +182,7 @@ export async function ondoRoutes(server: FastifyInstance) {
 
   /**
    * POST /api/ondo/buy
-   * Buy Tokenized Stocks & RWAs (AAPL, TSLA, NVDA, OUSG, USDY) using Biconomy MEE Supertransactions
+   * Buy Tokenized Stocks & RWAs using NEAR MPC Signatures
    */
   server.post('/api/ondo/buy', async (request, reply) => {
     const { entityId, symbol, strategyId, amountUsd, usdAmount, userWallet } = request.body as {
@@ -249,18 +217,25 @@ export async function ondoRoutes(server: FastifyInstance) {
         userWallet: wallet,
       });
 
-      // 2. Compose Biconomy MEE Supertransaction quote (Base 8453 -> BSC 56)
-      const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: { sender: wallet },
-        chainId: 8453,
-        mode: 'gasless',
-        sponsor: true,
-        instructions: ondoBytecode.bytecode || [],
+      // 2. Fetch Privy user ID for NEAR MPC
+      const userRows = await db.select().from(users).where(eq(users.id, request.session!.userId)).limit(1);
+      const privyUserId = userRows[0]?.privyUserId;
+      if (!privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+
+      // 3. Execute via NEAR MPC
+      const executionResult = await PrivyNEARBridge.signTransaction({
+        privyUserId,
+        context: entityRows[0].kind === 'BUSINESS' ? 'business' : 'personal',
+        bytecode: ondoBytecode.bytecode || [],
       });
 
       const orderId = `rwa_${ulid()}`;
       const actionId = ondoBytecode?.id || `action_${ulid()}`;
       const estimatedShares = 0;
+      
+      // Determine final transaction hash if available from MPC response
+      const executionHashes = Array.isArray(executionResult) ? executionResult.map((r: any) => r.txHash).filter(Boolean) : [(executionResult as any).txHash];
+      const finalTxHash = executionHashes.length > 0 ? executionHashes[executionHashes.length - 1] : '';
 
       // Record in database
       await db.insert(rwaOrders).values({
@@ -270,8 +245,9 @@ export async function ondoRoutes(server: FastifyInstance) {
         side: 'BUY',
         usdAmount: String(finalAmountUsd.toFixed(2)),
         shares: String(estimatedShares.toFixed(6)),
-        status: 'PENDING',
-        biconomyQuoteId: biconomyQuote?.quoteId || ondoBytecode?.id,
+        status: 'SUBMITTED', // Directly set to SUBMITTED since we execute inline
+        biconomyQuoteId: ondoBytecode?.id, // legacy field name, keeping for schema compatibility
+        biconomyTxHash: finalTxHash, // legacy field name, keeping for schema compatibility
         actionId,
       });
 
@@ -284,10 +260,11 @@ export async function ondoRoutes(server: FastifyInstance) {
         amountUsd: finalAmountUsd,
         strategyId: resolvedStrategyId,
         ondoBytecode,
-        biconomyQuote,
-        executionMode: 'BICONOMY_MEE_CROSS_CHAIN_SUPERTRANSACTION',
+        executionResult,
+        txHash: finalTxHash,
+        executionMode: 'NEAR_MPC_SIGNATURES',
         settlementNetwork: 'Base (8453) -> BSC (56)',
-        custodyProtocol: 'Pods Finance / Ondo Global Markets',
+        custodyProtocol: 'Ondo Global Markets',
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
@@ -298,7 +275,7 @@ export async function ondoRoutes(server: FastifyInstance) {
 
   /**
    * POST /api/ondo/sell
-   * Sell Tokenized Stocks & RWAs back to Base USDC via Biconomy MEE Supertransactions
+   * Sell Tokenized Stocks & RWAs back to Base USDC via NEAR MPC Signatures
    */
   server.post('/api/ondo/sell', async (request, reply) => {
     const { entityId, symbol, strategyId, shares, userWallet } = request.body as {
@@ -334,23 +311,32 @@ export async function ondoRoutes(server: FastifyInstance) {
       if (reserved.length === 0) return reply.status(409).send({ error: 'Shares are already reserved by another order' });
       const shareAmountWei = String(Math.floor(shares * 1e18));
 
+      // 1. Fetch Ondo bytecode
       const ondoBytecode = await ondoClient.sellStock({
         strategyId: resolvedStrategyId,
         shareAmountWei,
         userWallet: wallet,
       });
 
-      const biconomyQuote = await biconomyClient.composeInstructionsAndGenerateQuote({
-        userOp: { sender: wallet },
-        chainId: 56,
-        mode: 'gasless',
-        sponsor: true,
-        instructions: ondoBytecode.bytecode || [],
+      // 2. Fetch Privy user ID for NEAR MPC
+      const userRows = await db.select().from(users).where(eq(users.id, request.session!.userId)).limit(1);
+      const privyUserId = userRows[0]?.privyUserId;
+      if (!privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+
+      // 3. Execute via NEAR MPC
+      const executionResult = await PrivyNEARBridge.signTransaction({
+        privyUserId,
+        context: entityRows[0].kind === 'BUSINESS' ? 'business' : 'personal',
+        bytecode: ondoBytecode.bytecode || [],
       });
 
       const orderId = `rwa_${ulid()}`;
       const actionId = ondoBytecode?.id || `action_${ulid()}`;
       const estimatedUsd = 0;
+
+      // Determine final transaction hash if available from MPC response
+      const executionHashes = Array.isArray(executionResult) ? executionResult.map((r: any) => r.txHash).filter(Boolean) : [(executionResult as any).txHash];
+      const finalTxHash = executionHashes.length > 0 ? executionHashes[executionHashes.length - 1] : '';
 
       await db.insert(rwaOrders).values({
         id: orderId,
@@ -359,8 +345,9 @@ export async function ondoRoutes(server: FastifyInstance) {
         side: 'SELL',
         usdAmount: String(estimatedUsd.toFixed(2)),
         shares: String(shares.toFixed(6)),
-        status: 'PENDING',
-        biconomyQuoteId: biconomyQuote?.quoteId || ondoBytecode?.id,
+        status: 'SUBMITTED', // Directly set to SUBMITTED since we execute inline
+        biconomyQuoteId: ondoBytecode?.id,
+        biconomyTxHash: finalTxHash,
         actionId,
       });
 
@@ -373,10 +360,11 @@ export async function ondoRoutes(server: FastifyInstance) {
         sharesSold: shares,
         strategyId: resolvedStrategyId,
         ondoBytecode,
-        biconomyQuote,
-        executionMode: 'BICONOMY_MEE_CROSS_CHAIN_SUPERTRANSACTION',
+        executionResult,
+        txHash: finalTxHash,
+        executionMode: 'NEAR_MPC_SIGNATURES',
         payoutAsset: 'Base USDC',
-        custodyProtocol: 'Pods Finance / Ondo Global Markets',
+        custodyProtocol: 'Ondo Global Markets',
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {

@@ -354,7 +354,7 @@ export async function authRoutes(server: FastifyInstance) {
         nonce,
         expiresAt: expiresAt.toISOString(),
         botCommand: `/link ${nonce}`,
-        botUrl: process.env.TELEGRAM_BOT_LINK || 'https://t.me/proximfi_bot',
+        botUrl: `https://t.me/proximfi_bot?start=link_${nonce}`,
       });
     } catch {
       return reply.status(401).send({ error: 'Invalid or expired session' });
@@ -441,6 +441,21 @@ export async function authRoutes(server: FastifyInstance) {
       });
     } catch {
       return reply.status(401).send({ error: 'Invalid or expired session' });
+    }
+  });
+
+  server.post('/api/auth/telegram/unlink', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
+    try {
+      const payload = jwt.verify(authHeader.slice(7), env.JWT_SECRET) as { userId: string };
+      await db.delete(telegramUserLinks).where(eq(telegramUserLinks.userId, payload.userId));
+      return reply.send({ success: true, unlinked: true });
+    } catch {
+      return reply.status(401).send({ error: 'Invalid session' });
     }
   });
 
@@ -606,26 +621,22 @@ export async function authRoutes(server: FastifyInstance) {
     if (userEntities.length === 0) {
       const personalEntityId = ulid();
       const businessEntityId = ulid();
-      await db.insert(entities).values([
-        {
-          id: personalEntityId,
-          userId,
-          kind: 'PERSONAL',
-          legalName: 'Alex Morgan',
-          username: 'alexmorgan',
-          dueStatus: 'approved',
-          kycTier: 2,
-        },
-        {
-          id: businessEntityId,
-          userId,
-          kind: 'BUSINESS',
-          legalName: 'Alex Morgan Ventures',
-          businessTag: 'ALEXBIZ',
-          dueStatus: 'approved',
-          kycTier: 2,
-        },
-      ]);
+      await db.insert(entities).values({
+        id: personalEntityId,
+        userId,
+        kind: 'PERSONAL',
+        legalName: 'Alex Morgan',
+        username: 'alexmorgan',
+        dueStatus: 'approved',
+      });
+      await db.insert(entities).values({
+        id: businessEntityId,
+        userId,
+        kind: 'BUSINESS',
+        legalName: 'Alex Morgan Ventures',
+        businessTag: 'ALEXBIZ',
+        dueStatus: 'approved',
+      });
     }
 
     const rawEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);
