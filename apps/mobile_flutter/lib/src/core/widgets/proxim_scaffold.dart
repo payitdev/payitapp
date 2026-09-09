@@ -1,52 +1,31 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/account_mode_provider.dart';
 import '../theme/proxim_theme.dart';
 import 'centered_app_container.dart';
 
-enum AccountMode { personal, business }
-
 /// Standard scaffold for all Proxim screens.
-/// Enforces max-width: 440px, safe area padding, optional top header,
-/// ambient aurora background blur circles, and floating bottom nav.
-class ProximScaffold extends StatefulWidget {
+/// Enforces max-width: 440px, safe area padding, top header with
+/// dynamic Personal/Business mode switcher, ambient aurora blur, and floating nav.
+class ProximScaffold extends ConsumerWidget {
   final Widget body;
   final Widget? bottomNavigationBar;
   final bool showHeader;
-  final AccountMode initialMode;
-  final ValueChanged<AccountMode>? onModeChanged;
 
   const ProximScaffold({
     super.key,
     required this.body,
     this.bottomNavigationBar,
     this.showHeader = true,
-    this.initialMode = AccountMode.personal,
-    this.onModeChanged,
   });
 
   @override
-  State<ProximScaffold> createState() => _ProximScaffoldState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(accountModeProvider);
 
-class _ProximScaffoldState extends State<ProximScaffold> {
-  late AccountMode _mode;
-
-  @override
-  void initState() {
-    super.initState();
-    _mode = widget.initialMode;
-  }
-
-  void _switchMode(AccountMode mode) {
-    if (_mode == mode) return;
-    setState(() => _mode = mode);
-    widget.onModeChanged?.call(mode);
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ProximColors.scaffoldBg,
       body: CenteredAppContainer(
@@ -91,24 +70,23 @@ class _ProximScaffoldState extends State<ProximScaffold> {
               bottom: false,
               child: Column(
                 children: [
-                  if (widget.showHeader) _buildHeader(context),
+                  if (showHeader) _buildHeader(context, ref, mode),
                   Expanded(
-                    child: widget.body,
+                    child: body,
                   ),
                 ],
               ),
             ),
 
             // Floating bottom navigation bar if provided
-            if (widget.bottomNavigationBar != null)
-              widget.bottomNavigationBar!,
+            ?bottomNavigationBar,
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, WidgetRef ref, AccountMode mode) {
     return Container(
       height: 64,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -140,14 +118,9 @@ class _ProximScaffoldState extends State<ProximScaffold> {
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Proxim',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: -0.3,
-                ),
+                style: ProximTextStyles.headlineSm(),
               ),
             ],
           ),
@@ -165,13 +138,17 @@ class _ProximScaffoldState extends State<ProximScaffold> {
               children: [
                 _buildModeButton(
                   title: 'Personal',
-                  isSelected: _mode == AccountMode.personal,
-                  onTap: () => _switchMode(AccountMode.personal),
+                  isSelected: mode == AccountMode.personal,
+                  onTap: () {
+                    ref.read(accountModeProvider.notifier).setMode(AccountMode.personal);
+                  },
                 ),
                 _buildModeButton(
                   title: 'Business',
-                  isSelected: _mode == AccountMode.business,
-                  onTap: () => _switchMode(AccountMode.business),
+                  isSelected: mode == AccountMode.business,
+                  onTap: () {
+                    ref.read(accountModeProvider.notifier).setMode(AccountMode.business);
+                  },
                 ),
               ],
             ),
@@ -211,25 +188,25 @@ class _ProximScaffoldState extends State<ProximScaffold> {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected ? ProximColors.surfaceContainerHighest : Colors.transparent,
           borderRadius: BorderRadius.circular(9999),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: ProximColors.primary.withValues(alpha: 0.15),
-                    blurRadius: 8,
+                    color: ProximColors.primary.withValues(alpha: 0.25),
+                    blurRadius: 10,
                   )
                 ]
               : null,
         ),
         child: Text(
           title,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          style: ProximTextStyles.labelSm(
             color: isSelected ? ProximColors.primary : ProximColors.onSurfaceVariant,
+          ).copyWith(
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),
