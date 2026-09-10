@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 
@@ -209,6 +210,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             onTap: () {},
+          ),
+          _buildSettingsTile(
+            icon: Icons.code,
+            title: 'Developer & API Hub',
+            subtitle: 'Programmatic treasury, API keys & webhooks',
+            trailing: const Icon(Icons.chevron_right, size: 18, color: ProximColors.onSurfaceVariant),
+            onTap: () => context.push('/developer'),
           ),
         ]),
         const SizedBox(height: 24),

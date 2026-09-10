@@ -1,9 +1,15 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:proxim_app/src/app/app.dart';
+import 'package:proxim_app/src/app/router.dart';
 
 void main() {
+  setUp(() {
+    router.go('/');
+  });
+
   testWidgets('ProximApp shows Treasury Dashboard by default in Business mode', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: ProximApp()));
     await tester.pumpAndSettle();
@@ -70,5 +76,54 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('Security PIN'), findsOneWidget);
+    expect(find.text('Developer & API Hub'), findsOneWidget);
+  });
+
+  testWidgets('Corporate Quick Bar opens execution screens', (tester) async {
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ProviderScope(child: ProximApp()));
+    await tester.pumpAndSettle();
+
+    // 1. Batch Payroll
+    await tester.tap(find.text('Batch Payroll'));
+    await tester.pumpAndSettle();
+    expect(find.text('Batch Payroll Execution'), findsOneWidget);
+    expect(find.text('Upload CSV'), findsOneWidget);
+    expect(find.text('David Miller'), findsOneWidget);
+
+    // Go back
+    await tester.tap(find.byIcon(Icons.arrow_back).first);
+    await tester.pumpAndSettle();
+
+    // 2. New Invoice
+    await tester.tap(find.text('New Invoice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoices & Billing'), findsOneWidget);
+    expect(find.text('Instant Flow Builder'), findsOneWidget);
+
+    // Go back
+    await tester.tap(find.byIcon(Icons.arrow_back).first);
+    await tester.pumpAndSettle();
+
+    // 3. FX Convert
+    await tester.tap(find.text('FX Convert'));
+    await tester.pumpAndSettle();
+    expect(find.text('Convert & Swap'), findsOneWidget);
+    expect(find.text('YOU PAY'), findsOneWidget);
+    expect(find.text('YOU RECEIVE'), findsOneWidget);
+
+    // Go back
+    await tester.tap(find.byIcon(Icons.arrow_back).first);
+    await tester.pumpAndSettle();
+
+    // 4. Treasury Wire
+    await tester.tap(find.text('Treasury Wire'));
+    await tester.pumpAndSettle();
+    expect(find.text('Transfer Execution'), findsOneWidget);
+    expect(find.text('TREASURY TRANSFER'), findsOneWidget);
+    expect(find.text('Send & Payout'), findsOneWidget);
   });
 }

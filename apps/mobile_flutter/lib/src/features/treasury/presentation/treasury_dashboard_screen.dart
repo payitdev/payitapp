@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 
@@ -256,13 +257,15 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: ProximColors.subtleBorder),
-                    ),
+                  GestureDetector(
+                    onTap: () => context.push('/balance-sheet'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: ProximColors.subtleBorder),
+                      ),
                     child: Row(
                       children: [
                         Expanded(
@@ -322,6 +325,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                       ],
                     ),
                   ),
+                ),
                 ],
               ),
             ),
@@ -337,41 +341,25 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
         _buildActionTile(
           icon: Icons.groups,
           label: 'Batch Payroll',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Opening Batch Payroll')),
-            );
-          },
+          onTap: () => context.push('/payroll'),
         ),
         const SizedBox(width: 8),
         _buildActionTile(
           icon: Icons.receipt_long,
           label: 'New Invoice',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Opening Invoice Builder')),
-            );
-          },
+          onTap: () => context.push('/invoices'),
         ),
         const SizedBox(width: 8),
         _buildActionTile(
           icon: Icons.currency_exchange,
           label: 'FX Convert',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Opening FX Quote & Convert')),
-            );
-          },
+          onTap: () => context.push('/swap'),
         ),
         const SizedBox(width: 8),
         _buildActionTile(
           icon: Icons.send_outlined,
           label: 'Treasury Wire',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Initiating Treasury Wire')),
-            );
-          },
+          onTap: () => context.push('/send'),
         ),
       ],
     );
@@ -546,11 +534,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
               ),
               const SizedBox(width: 8),
               GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Opening Multi-Sig Review Queue')),
-                  );
-                },
+                onTap: () => context.push('/multi-sig'),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(

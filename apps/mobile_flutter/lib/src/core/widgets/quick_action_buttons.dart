@@ -28,12 +28,7 @@ class QuickActionButtons extends StatelessWidget {
           label: 'Send',
           icon: Icons.north_east,
           isPrimary: true,
-          onTap: onSend ??
-              () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Send money sheet coming in Phase 5')),
-                );
-              },
+          onTap: onSend ?? () => context.push('/send'),
         ),
 
         // Receive
@@ -41,12 +36,7 @@ class QuickActionButtons extends StatelessWidget {
           context: context,
           label: 'Receive',
           icon: Icons.south_west,
-          onTap: onReceive ??
-              () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Receive deposit options coming in Phase 5')),
-                );
-              },
+          onTap: onReceive ?? () => context.push('/receive'),
         ),
 
         // Request
@@ -54,12 +44,7 @@ class QuickActionButtons extends StatelessWidget {
           context: context,
           label: 'Request',
           icon: Icons.call_split,
-          onTap: onRequest ??
-              () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Payment request hub coming in Phase 5')),
-                );
-              },
+          onTap: onRequest ?? () => context.push('/payment-hub'),
         ),
 
         // Vault

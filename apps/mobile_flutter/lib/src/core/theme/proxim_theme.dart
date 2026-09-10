@@ -19,6 +19,7 @@ class ProximColors {
   static const Color surfaceElevated = Color(0xFF0D1424);
   static const Color surfaceTreasuryActive = Color(0xFF0B2924);
   static const Color deepBg = Color(0xFF050811);
+  static const Color backgroundVoid = Color(0xFF050811);
 
   // Brand Accents
   static const Color primary = Color(0xFF5DF6EC);
