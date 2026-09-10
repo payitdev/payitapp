@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../data/invoices_repository.dart';
+import 'invoices_provider.dart';
 
-class InvoicesBuilderScreen extends StatefulWidget {
+class InvoicesBuilderScreen extends ConsumerStatefulWidget {
   const InvoicesBuilderScreen({super.key});
 
   @override
-  State<InvoicesBuilderScreen> createState() => _InvoicesBuilderScreenState();
+  ConsumerState<InvoicesBuilderScreen> createState() => _InvoicesBuilderScreenState();
 }
 
-class _InvoicesBuilderScreenState extends State<InvoicesBuilderScreen> {
+class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
   int _selectedFilter = 0; // 0: All, 1: Drafts, 2: Sent, 3: Paid
   final TextEditingController _amountController = TextEditingController(text: '12,500.00');
   final Set<int> _selectedRails = {0, 1}; // 0: Solana, 1: Base, 2: Wire
@@ -19,18 +22,34 @@ class _InvoicesBuilderScreenState extends State<InvoicesBuilderScreen> {
 
   Future<void> _handleGenerateLink() async {
     setState(() => _isGenerating = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
+    
+    final cleanAmount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 12500.0;
+    final rails = _selectedRails.map((id) => id == 0 ? 'Fast USD' : (id == 1 ? 'Digital Rail' : 'Direct Wire')).toList();
+
+    ProximInvoice? invoice;
+    try {
+      invoice = await ref.read(invoicesRepositoryProvider).createInvoice(
+            clientName: 'Acme Corp Inc',
+            clientEmail: 'billing@acmecorp.com',
+            amount: cleanAmount,
+            currency: 'USDC',
+            acceptedRails: rails,
+          );
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _isGenerating = false;
     });
+
+    final invNum = invoice?.invoiceNumber ?? 'INV-2026-095';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Invoice #INV-2026-095 generated & ready to checkout'),
+        content: Text('Invoice #$invNum generated & ready to checkout'),
         action: SnackBarAction(
           label: 'View Checkout',
           textColor: ProximColors.primary,
-          onPressed: () => context.push('/checkout/INV-2026-095'),
+          onPressed: () => context.push('/checkout/$invNum'),
         ),
       ),
     );

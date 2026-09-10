@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../data/treasury_repository.dart';
+import 'treasury_provider.dart';
 
-class BalanceSheetCashflowScreen extends StatefulWidget {
+class BalanceSheetCashflowScreen extends ConsumerStatefulWidget {
   const BalanceSheetCashflowScreen({super.key});
 
   @override
-  State<BalanceSheetCashflowScreen> createState() => _BalanceSheetCashflowScreenState();
+  ConsumerState<BalanceSheetCashflowScreen> createState() => _BalanceSheetCashflowScreenState();
 }
 
-class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen> {
+class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflowScreen> {
   int _selectedPeriod = 1; // 0: MTD, 1: Q3 2026, 2: YTD
   bool _isUsd = true;
 
   @override
   Widget build(BuildContext context) {
+    final balanceSheetAsync = ref.watch(activeBalanceSheetProvider);
+    final report = balanceSheetAsync.value;
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -34,11 +40,11 @@ class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen>
                       const SizedBox(height: 12),
                       _buildCurrencyToggle(),
                       const SizedBox(height: 14),
-                      _buildNetSurplusCard(),
+                      _buildNetSurplusCard(report),
                       const SizedBox(height: 16),
                       _buildCashflowChartCard(),
                       const SizedBox(height: 16),
-                      _buildBalanceSheetBreakdown(),
+                      _buildBalanceSheetBreakdown(report),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -184,7 +190,12 @@ class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen>
     );
   }
 
-  Widget _buildNetSurplusCard() {
+  Widget _buildNetSurplusCard([BalanceSheetData? report]) {
+    final surplus = report?.netOperatingSurplus ?? 34200.00;
+    final formattedUsd = surplus >= 0
+        ? '+\$${surplus.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
+        : '-\$${(-surplus).toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLow,
@@ -231,7 +242,7 @@ class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen>
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      _isUsd ? '+\$34,200.00' : '+₦54,549,000',
+                      _isUsd ? formattedUsd : '+₦54,549,000',
                       style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
@@ -413,7 +424,12 @@ class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen>
     );
   }
 
-  Widget _buildBalanceSheetBreakdown() {
+  Widget _buildBalanceSheetBreakdown([BalanceSheetData? report]) {
+    final runwayText = '${(report?.runwayMonths ?? 14.1).toStringAsFixed(1)} Mo Runway';
+    final assetsTotal = report != null
+        ? '\$${report.totalCurrentAssets.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
+        : '\$482,950.00';
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -434,12 +450,12 @@ class _BalanceSheetCashflowScreenState extends State<BalanceSheetCashflowScreen>
                   color: ProximColors.statusSuccess.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: Text('14.1 Mo Runway', style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
+                child: Text(runwayText, style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text('CURRENT ASSETS (\$482,950.00)', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+          Text('CURRENT ASSETS ($assetsTotal)', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
           const SizedBox(height: 6),
           _buildItemRow('USD Operational Cash Pocket', '\$284,500.00'),
           const SizedBox(height: 6),

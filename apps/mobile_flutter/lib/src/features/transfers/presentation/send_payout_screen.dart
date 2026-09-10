@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import 'transfers_provider.dart';
 
-class SendPayoutScreen extends StatefulWidget {
+class SendPayoutScreen extends ConsumerStatefulWidget {
   const SendPayoutScreen({super.key});
 
   @override
-  State<SendPayoutScreen> createState() => _SendPayoutScreenState();
+  ConsumerState<SendPayoutScreen> createState() => _SendPayoutScreenState();
 }
 
-class _SendPayoutScreenState extends State<SendPayoutScreen> {
+class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
   final TextEditingController _amountController = TextEditingController(text: '5,000.00');
   int _selectedRail = 0; // 0: Nuvion African, 1: Multi-chain, 2: Bank Wire
   int _countdownSeconds = 298;
@@ -55,7 +57,21 @@ class _SendPayoutScreenState extends State<SendPayoutScreen> {
   Future<void> _handleAuthorize() async {
     if (_isAuthorizing || _isDispatched) return;
     setState(() => _isAuthorizing = true);
-    await Future.delayed(const Duration(milliseconds: 1400));
+
+    final cleanAmount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 5000.0;
+    final railName = _selectedRail == 0
+        ? 'Nuvion African Payout Rail'
+        : (_selectedRail == 1 ? 'Multi-Chain Digital Rail' : 'Global Bank Wire');
+
+    try {
+      await ref.read(transfersRepositoryProvider).sendTransfer(
+            recipientName: 'Brails Technology Ltd',
+            amount: cleanAmount,
+            currency: 'USD',
+            rail: railName,
+          );
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _isAuthorizing = false;

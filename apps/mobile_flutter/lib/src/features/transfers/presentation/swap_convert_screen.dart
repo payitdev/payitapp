@@ -1,19 +1,21 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import 'transfers_provider.dart';
 
-class SwapConvertScreen extends StatefulWidget {
+class SwapConvertScreen extends ConsumerStatefulWidget {
   const SwapConvertScreen({super.key});
 
   @override
-  State<SwapConvertScreen> createState() => _SwapConvertScreenState();
+  ConsumerState<SwapConvertScreen> createState() => _SwapConvertScreenState();
 }
 
-class _SwapConvertScreenState extends State<SwapConvertScreen> {
+class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
   final TextEditingController _payController = TextEditingController(text: '2,500.00');
   static const double _rate = 1595.20;
   bool _isUsdToNgn = true;
@@ -78,7 +80,21 @@ class _SwapConvertScreenState extends State<SwapConvertScreen> {
   Future<void> _handleExecute() async {
     if (_isExecuting || _isSuccess) return;
     setState(() => _isExecuting = true);
-    await Future.delayed(const Duration(milliseconds: 1500));
+
+    final fromCurr = _isUsdToNgn ? 'USD' : 'NGN';
+    final toCurr = _isUsdToNgn ? 'NGN' : 'USD';
+    final pay = _payAmount;
+    final receive = _isUsdToNgn ? pay * _rate : pay / _rate;
+
+    try {
+      await ref.read(transfersRepositoryProvider).internalConvert(
+            fromCurrency: fromCurr,
+            toCurrency: toCurr,
+            fromAmount: pay,
+            toAmount: receive,
+          );
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _isExecuting = false;

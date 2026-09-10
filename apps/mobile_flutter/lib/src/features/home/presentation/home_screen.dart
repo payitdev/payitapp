@@ -8,6 +8,7 @@ import '../../../core/widgets/aurora_balance_card.dart';
 import '../../../core/widgets/kyc_banner.dart';
 import '../../../core/widgets/quick_action_buttons.dart';
 import '../../../core/widgets/transaction_tile.dart';
+import '../../auth/presentation/auth_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
 
 /// Dynamic Home Screen that renders:
@@ -28,11 +29,14 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _PersonalHomeView extends StatelessWidget {
+class _PersonalHomeView extends ConsumerWidget {
   const _PersonalHomeView();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider);
+    final userName = user?.fullName ?? 'Alex Rivera';
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
@@ -52,7 +56,7 @@ class _PersonalHomeView extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Alex Rivera',
+                    userName,
                     style: ProximTextStyles.headlineLg(),
                   ),
                 ],

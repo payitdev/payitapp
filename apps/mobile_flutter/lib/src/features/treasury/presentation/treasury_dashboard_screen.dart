@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
+import '../../auth/presentation/auth_provider.dart';
+import 'treasury_provider.dart';
 
-class TreasuryDashboardScreen extends StatefulWidget {
+class TreasuryDashboardScreen extends ConsumerStatefulWidget {
   const TreasuryDashboardScreen({super.key});
 
   @override
-  State<TreasuryDashboardScreen> createState() => _TreasuryDashboardScreenState();
+  ConsumerState<TreasuryDashboardScreen> createState() => _TreasuryDashboardScreenState();
 }
 
-class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
+class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScreen> {
   bool _hideBalance = false;
 
   @override
@@ -49,6 +52,11 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
   }
 
   Widget _buildCompanyBanner() {
+    final activeEntity = ref.watch(activeEntityProvider);
+    final companyName = activeEntity?.legalName ?? 'Acme Global Technologies Ltd';
+    final companyId = activeEntity?.businessTag != null ? 'ID: ${activeEntity!.businessTag}' : 'ID: ACM-884920-CORP';
+    final kybTier = activeEntity?.kybTier != null ? 'KYB Tier ${activeEntity!.kybTier}' : 'KYB Tier 3';
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -98,7 +106,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Acme Global Technologies Ltd',
+                  companyName,
                   style: ProximTextStyles.headlineSm(),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -107,7 +115,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                   children: [
                     Flexible(
                       child: Text(
-                        'ID: ACM-884920-CORP',
+                        companyId,
                         style: ProximTextStyles.labelXs(),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -118,7 +126,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                     const Icon(Icons.verified, size: 12, color: ProximColors.statusSuccess),
                     const SizedBox(width: 3),
                     Text(
-                      'KYB Tier 3',
+                      kybTier,
                       style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess).copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -144,6 +152,11 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
   }
 
   Widget _buildCorporateHeroCard() {
+    final balanceSheetAsync = ref.watch(activeBalanceSheetProvider);
+    final balanceSheet = balanceSheetAsync.value;
+    final totalLiquidity = balanceSheet?.totalCurrentAssets ?? 482950.00;
+    final runway = balanceSheet?.runwayMonths ?? 14.1;
+
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceElevated,
@@ -236,7 +249,9 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
-                          _hideBalance ? '••••••••' : '\$482,950.00',
+                          _hideBalance
+                              ? '••••••••'
+                              : '\$${totalLiquidity.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}',
                           style: ProximTextStyles.displayXl().copyWith(
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
@@ -291,7 +306,7 @@ class _TreasuryDashboardScreenState extends State<TreasuryDashboardScreen> {
                               Text('Net Runway', style: ProximTextStyles.labelXs()),
                               const SizedBox(height: 2),
                               Text(
-                                '14.1 Mo',
+                                '${runway.toStringAsFixed(1)} Mo',
                                 style: ProximTextStyles.headlineSm(color: ProximColors.statusSuccess)
                                     .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
                               ),

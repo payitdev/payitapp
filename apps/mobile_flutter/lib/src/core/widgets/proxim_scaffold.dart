@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/account_mode_provider.dart';
+import '../../features/auth/presentation/auth_provider.dart';
 import '../theme/proxim_theme.dart';
 import 'centered_app_container.dart';
 
@@ -141,6 +142,7 @@ class ProximScaffold extends ConsumerWidget {
                   isSelected: mode == AccountMode.personal,
                   onTap: () {
                     ref.read(accountModeProvider.notifier).setMode(AccountMode.personal);
+                    ref.read(authProvider.notifier).setMode(false);
                   },
                 ),
                 _buildModeButton(
@@ -148,6 +150,7 @@ class ProximScaffold extends ConsumerWidget {
                   isSelected: mode == AccountMode.business,
                   onTap: () {
                     ref.read(accountModeProvider.notifier).setMode(AccountMode.business);
+                    ref.read(authProvider.notifier).setMode(true);
                   },
                 ),
               ],

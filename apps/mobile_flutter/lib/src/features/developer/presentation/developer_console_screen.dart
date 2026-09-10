@@ -1,22 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import 'developer_provider.dart';
 
-class DeveloperConsoleScreen extends StatefulWidget {
+class DeveloperConsoleScreen extends ConsumerStatefulWidget {
   const DeveloperConsoleScreen({super.key});
 
   @override
-  State<DeveloperConsoleScreen> createState() => _DeveloperConsoleScreenState();
+  ConsumerState<DeveloperConsoleScreen> createState() => _DeveloperConsoleScreenState();
 }
 
-class _DeveloperConsoleScreenState extends State<DeveloperConsoleScreen> {
+class _DeveloperConsoleScreenState extends ConsumerState<DeveloperConsoleScreen> {
   bool _isProd = true;
   bool _showKey = false;
-  static const _prodKey = 'prox_live_98a7f471e9803bf2a819c81e';
-  static const _testKey = 'prox_test_41b8a92026fed091ba5501ef';
+  String _prodKey = 'prox_live_98a7f471e9803bf2a819c81e';
+  String _testKey = 'prox_test_41b8a92026fed091ba5501ef';
 
   void _copyToClipboard(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
@@ -325,9 +327,19 @@ class _DeveloperConsoleScreenState extends State<DeveloperConsoleScreen> {
           ),
           const SizedBox(height: 12),
           GestureDetector(
-            onTap: () {
+            onTap: () async {
+              final env = _isProd ? 'production' : 'sandbox';
+              final key = await ref.read(developerRepositoryProvider).rollKey('ent_demo_business_01', env);
+              setState(() {
+                if (_isProd) {
+                  _prodKey = key.keyPrefix;
+                } else {
+                  _testKey = key.keyPrefix;
+                }
+              });
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('New secret generated & rotated')),
+                SnackBar(content: Text('New ${key.name} (${key.keyPrefix}) generated & rotated')),
               );
             },
             child: Container(
