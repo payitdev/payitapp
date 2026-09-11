@@ -60,10 +60,7 @@ services:
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
       - key: TELEGRAM_MINI_APP_URL
-        fromService:
-          type: web
-          name: payit-mobile-web
-          property: url
+        value: https://payit-mobile-web.onrender.com
       # Configure this exact URL in Brails:
       # https://payit-backend-td53.onrender.com/webhooks/brails
 
@@ -105,15 +102,9 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: PAYIT_BACKEND_URL
-        fromService:
-          type: web
-          name: payit-backend
-          property: url
+        value: https://payit-backend-td53.onrender.com
       - key: TELEGRAM_MINI_APP_URL
-        fromService:
-          type: web
-          name: payit-mobile-web
-          property: url
+        value: https://payit-mobile-web.onrender.com
 
   # ---------------------------------------------------------------------------
   # 4. PayIT Marketing Landing Website
