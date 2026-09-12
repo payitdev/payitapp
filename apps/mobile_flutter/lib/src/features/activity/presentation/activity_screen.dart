@@ -142,7 +142,29 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   color: ProximColors.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
+
+              // Payment Details Summary (PRD Spec §7.2)
+              Container(
+                padding: const EdgeInsets.all(14),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: ProximColors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: ProximColors.hairlineBorder),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow('Reference', 'UETR-${item.id.toUpperCase()}-2026'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Status', 'Completed', isStatus: true),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Rail', 'Direct Clearing / Local Settlement'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Estimated delivery', 'Instant (under 10 seconds)'),
+                  ],
+                ),
+              ),
 
               // Status Tracker Steps
               _buildTrackerStep(
@@ -203,6 +225,46 @@ class _ActivityScreenState extends State<ActivityScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, {bool isStatus = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: ProximColors.onSurfaceVariant,
+          ),
+        ),
+        if (isStatus)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: ProximColors.tertiary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(9999),
+            ),
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: ProximColors.tertiary,
+              ),
+            ),
+          )
+        else
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+      ],
     );
   }
 

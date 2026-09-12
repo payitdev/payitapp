@@ -16,6 +16,7 @@ class CurrencyOption {
 }
 
 class AuroraBalanceCard extends StatefulWidget {
+  final String? label;
   final double amount;
   final String trendText;
   final bool isPositiveTrend;
@@ -23,6 +24,7 @@ class AuroraBalanceCard extends StatefulWidget {
 
   const AuroraBalanceCard({
     super.key,
+    this.label,
     this.amount = 48250.00,
     this.trendText = '+\$340.20 (+0.71%)',
     this.isPositiveTrend = true,
@@ -80,15 +82,19 @@ class _AuroraBalanceCardState extends State<AuroraBalanceCard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'TOTAL BALANCE',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: ProximColors.onSurfaceVariant,
-                        letterSpacing: 0.8,
+                    Expanded(
+                      child: Text(
+                        widget.label ?? 'Across 3 accounts · tap to switch',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: ProximColors.onSurfaceVariant,
+                          letterSpacing: 0.2,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     GestureDetector(
                       onTap: _cycleCurrency,
                       child: Container(

@@ -18,6 +18,26 @@ class AssetItem {
   });
 }
 
+class PositionItem {
+  final String symbol;
+  final String name;
+  final double shares;
+  final double avgCost;
+  final double currentPrice;
+
+  const PositionItem({
+    required this.symbol,
+    required this.name,
+    required this.shares,
+    required this.avgCost,
+    required this.currentPrice,
+  });
+
+  double get marketValue => shares * currentPrice;
+  double get unrealizedGain => marketValue - (shares * avgCost);
+  double get returnPercent => (unrealizedGain / (shares * avgCost)) * 100;
+}
+
 class InvestScreen extends StatefulWidget {
   const InvestScreen({super.key});
 
@@ -26,11 +46,30 @@ class InvestScreen extends StatefulWidget {
 }
 
 class _InvestScreenState extends State<InvestScreen> {
+  int _selectedSegment = 0; // 0 = Watchlist, 1 = Positions
+
   static const List<AssetItem> _watchlist = [
     AssetItem(symbol: 'NVDA', name: 'NVIDIA Corp', price: 118.80, changePercent: 3.4),
     AssetItem(symbol: 'TSLA', name: 'Tesla Inc.', price: 214.20, changePercent: -1.2),
     AssetItem(symbol: 'MSFT', name: 'Microsoft Corp', price: 448.10, changePercent: 0.9),
     AssetItem(symbol: 'GOOGL', name: 'Alphabet Inc.', price: 178.40, changePercent: 2.1),
+  ];
+
+  static const List<PositionItem> _positions = [
+    PositionItem(
+      symbol: 'NVDA',
+      name: 'NVIDIA Corp',
+      shares: 15.5,
+      avgCost: 105.20,
+      currentPrice: 118.80,
+    ),
+    PositionItem(
+      symbol: 'MSFT',
+      name: 'Microsoft Corp',
+      shares: 8.2,
+      avgCost: 410.00,
+      currentPrice: 448.10,
+    ),
   ];
 
   late AssetItem _selectedAsset;
@@ -57,15 +96,50 @@ class _InvestScreenState extends State<InvestScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        // Title
-        const Text(
-          'Invest',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.4,
-          ),
+        // Title & Market Open Status Chip (PRD Spec §7.5)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Invest',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: -0.4,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: ProximColors.tertiary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(9999),
+                border: Border.all(color: ProximColors.tertiary.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: ProximColors.tertiary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Market Open',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: ProximColors.tertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
 
@@ -131,78 +205,249 @@ class _InvestScreenState extends State<InvestScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
 
-        // Watchlist Header & Grid
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
-            Text(
-              'Watchlist',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              '48 assets',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: ProximColors.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 1.6,
+        // Watchlist / Positions Segmented Control (PRD Spec §7.5)
+        Container(
+          height: 40,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: ProximColors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: ProximColors.hairlineBorder),
           ),
-          itemCount: _watchlist.length,
-          itemBuilder: (context, index) {
-            final asset = _watchlist[index];
-            final isSelected = asset.symbol == _selectedAsset.symbol;
-            final isPos = asset.changePercent >= 0;
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _selectedSegment = 0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _selectedSegment == 0 ? ProximColors.surfaceContainerHigh : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Watchlist',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: _selectedSegment == 0 ? FontWeight.w600 : FontWeight.w500,
+                        color: _selectedSegment == 0 ? Colors.white : ProximColors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _selectedSegment = 1),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _selectedSegment == 1 ? ProximColors.surfaceContainerHigh : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Positions',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: _selectedSegment == 1 ? FontWeight.w600 : FontWeight.w500,
+                        color: _selectedSegment == 1 ? Colors.white : ProximColors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
 
-            return GestureDetector(
-              onTap: () => setState(() => _selectedAsset = asset),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.all(12),
+        if (_selectedSegment == 0) ...[
+          // Watchlist Header & Grid
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text(
+                'Watchlist',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                '48 assets',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: ProximColors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.6,
+            ),
+            itemCount: _watchlist.length,
+            itemBuilder: (context, index) {
+              final asset = _watchlist[index];
+              final isSelected = asset.symbol == _selectedAsset.symbol;
+              final isPos = asset.changePercent >= 0;
+
+              return GestureDetector(
+                onTap: () => setState(() => _selectedAsset = asset),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: ProximColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected
+                          ? ProximColors.primary
+                          : ProximColors.subtleBorder,
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            asset.symbol,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            '${isPos ? '+' : ''}${asset.changePercent.toStringAsFixed(1)}%',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isPos ? ProximColors.tertiary : ProximColors.error,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '\$${asset.price.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                          Text(
+                            asset.name,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: ProximColors.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ] else ...[
+          // Positions Tab (PRD Spec §7.5)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Active Positions',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                '${_positions.length} holdings',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: ProximColors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _positions.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final pos = _positions[index];
+              final isPos = pos.unrealizedGain >= 0;
+              return Container(
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: ProximColors.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isSelected
-                        ? ProximColors.primary
-                        : ProximColors.subtleBorder,
-                    width: isSelected ? 1.5 : 1,
-                  ),
+                  border: Border.all(color: ProximColors.hairlineBorder),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          asset.symbol,
+                          pos.symbol,
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
                           ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
-                          '${isPos ? '+' : ''}${asset.changePercent.toStringAsFixed(1)}%',
+                          '${pos.shares.toStringAsFixed(2)} shares · Avg \$${pos.avgCost.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: ProximColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '\$${pos.marketValue.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${isPos ? '+' : ''}\$${pos.unrealizedGain.toStringAsFixed(2)} (${pos.returnPercent.toStringAsFixed(1)}%)',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -212,33 +457,12 @@ class _InvestScreenState extends State<InvestScreen> {
                         ),
                       ],
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '\$${asset.price.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                        Text(
-                          asset.name,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: ProximColors.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
-              ),
-            );
-          },
-        ),
+              );
+            },
+          ),
+        ],
         const SizedBox(height: 24),
 
         // Quick Trade Panel

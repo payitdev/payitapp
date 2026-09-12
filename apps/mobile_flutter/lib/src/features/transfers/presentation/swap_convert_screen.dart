@@ -304,7 +304,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                       ),
                       _buildAssetPill(
                         symbol: _isUsdToNgn ? 'USDC' : 'NGN',
-                        network: _isUsdToNgn ? 'Base Rail' : 'Naira Rail',
+                        rail: _isUsdToNgn ? 'Digital Dollar Rail' : 'Naira Rail',
                         icon: _isUsdToNgn ? Icons.token : Icons.payments_outlined,
                       ),
                     ],
@@ -397,7 +397,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                       ),
                       _buildAssetPill(
                         symbol: _isUsdToNgn ? 'NGN' : 'USDC',
-                        network: _isUsdToNgn ? 'Naira Rail' : 'Base Rail',
+                        rail: _isUsdToNgn ? 'Naira Rail' : 'Digital Dollar Rail',
                         icon: _isUsdToNgn ? Icons.payments_outlined : Icons.token,
                       ),
                     ],
@@ -434,7 +434,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
 
   Widget _buildAssetPill({
     required String symbol,
-    required String network,
+    required String rail,
     required IconData icon,
   }) {
     return Container(
@@ -465,7 +465,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              Text(network, style: ProximTextStyles.labelXs()),
+              Text(rail, style: ProximTextStyles.labelXs()),
             ],
           ),
           const SizedBox(width: 4),
@@ -643,7 +643,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildLedgerRow('Network Liquidity Rail', 'Proxim Deep OTC Bridge'),
+          _buildLedgerRow('Settlement Rail', 'Proxim Liquidity Desk'),
           const SizedBox(height: 8),
           _buildLedgerRow('Platform Protocol Fee', '\$0.00 (Zero Fee Promo)', isHighlight: true),
           const SizedBox(height: 8),

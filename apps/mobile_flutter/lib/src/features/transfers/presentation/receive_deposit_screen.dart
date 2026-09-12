@@ -150,7 +150,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
       ),
       child: Row(
         children: [
-          _buildTabItem(0, 'Crypto'),
+          _buildTabItem(0, 'Digital Dollar'),
           _buildTabItem(1, 'Bank (NGN)'),
           _buildTabItem(2, 'MoMo'),
         ],
@@ -292,7 +292,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                               ],
                             ),
                             Text(
-                              '${_chains[_selectedChain]} Mainnet Protocol',
+                              '${_chains[_selectedChain]} Direct Clearing',
                               style: ProximTextStyles.bodySm(),
                             ),
                           ],
@@ -310,7 +310,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                           const Icon(Icons.bolt, size: 12, color: ProximColors.primary),
                           const SizedBox(width: 2),
                           Text(
-                            'Zero Gas Fee',
+                            'Zero Transfer Fee',
                             style: ProximTextStyles.labelXs(color: ProximColors.primary),
                           ),
                         ],
@@ -437,7 +437,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('${_chains[_selectedChain]} USDC Address', style: ProximTextStyles.labelXs()),
+                        Text('${_chains[_selectedChain]} Deposit Account ID', style: ProximTextStyles.labelXs()),
                         Row(
                           children: [
                             Container(
@@ -450,7 +450,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'Verified Contract',
+                              'Verified Route',
                               style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
                             ),
                           ],
@@ -481,7 +481,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                           ),
                           const SizedBox(width: 8),
                           GestureDetector(
-                            onTap: () => _copyToClipboard(_cryptoAddress, 'Address'),
+                            onTap: () => _copyToClipboard(_cryptoAddress, 'Deposit Account ID'),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                               decoration: BoxDecoration(
@@ -510,7 +510,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Network notice
+                // Notice
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -523,7 +523,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Send only USDC on the ${_chains[_selectedChain]} network. Deposits settle in ~2 seconds.',
+                          'Send only USDC on ${_chains[_selectedChain]}. Deposits settle in ~2 seconds.',
                           style: ProximTextStyles.labelXs(),
                         ),
                       ),
@@ -622,8 +622,8 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Beneficiary Name
-          _buildDetailRow('BENEFICIARY NAME', 'Proxim / Alex Rivera', statusBadge: 'Active'),
+          // Account Name
+          _buildDetailRow('ACCOUNT NAME', 'Proxim / Alex Rivera', statusBadge: 'Active'),
         ],
       ),
     );

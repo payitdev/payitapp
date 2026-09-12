@@ -421,11 +421,11 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
         ),
         const SizedBox(height: 6),
 
-        // Rail 2: Crypto Wallet
+        // Rail 2: Digital Dollar
         _buildRailCard(
           index: 1,
-          title: 'Direct Multi-Chain Settlement',
-          subtitle: 'Native settlement across 5 networks',
+          title: 'Digital Dollar Settlement',
+          subtitle: 'Direct settlement across 5 global rails',
           icon: Icons.account_balance_wallet_outlined,
         ),
         const SizedBox(height: 6),
@@ -829,7 +829,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 const Icon(Icons.fingerprint, size: 16, color: ProximColors.onSurfaceVariant),
                 const SizedBox(width: 6),
                 Text(
-                  'Requires Face ID or Biometric authorization to execute',
+                  'Requires Face ID or Biometric authorization to send money',
                   style: ProximTextStyles.labelXs(),
                 ),
               ],

@@ -45,7 +45,7 @@ class _VaultScreenState extends State<VaultScreen> {
         children: [
         // Title
         const Text(
-          'Yield Vaults',
+          'Vault',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w700,
@@ -55,7 +55,7 @@ class _VaultScreenState extends State<VaultScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Total Vaults Balance Card
+        // Total Active Savings Hero Card
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -69,15 +69,19 @@ class _VaultScreenState extends State<VaultScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'TOTAL IN VAULTS',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: ProximColors.onSurfaceVariant,
-                      letterSpacing: 0.8,
+                  const Expanded(
+                    child: Text(
+                      'TOTAL IN VAULTS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: ProximColors.onSurfaceVariant,
+                        letterSpacing: 0.8,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -108,10 +112,87 @@ class _VaultScreenState extends State<VaultScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Earning approximately +\$93.33 each month',
+                'Total active savings · Earn up to 11.2% APY across automated yield routes',
                 style: TextStyle(
                   fontSize: 12,
                   color: ProximColors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Smart Auto-sweep Toggle Card (PRD Spec §7.4)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: ProximColors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: ProximColors.hairlineBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.auto_mode, size: 18, color: ProximColors.tertiary),
+                      SizedBox(width: 8),
+                      Text(
+                        'Smart Auto-Sweep',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ProximColors.tertiary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(9999),
+                    ),
+                    child: const Text(
+                      'Active',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: ProximColors.tertiary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Automatically sweeps idle cash above your liquid buffer into high-yield strategies.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: ProximColors.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 36,
+                child: OutlinedButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Swept idle funds into yield strategies.')),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: ProximColors.hairlineBorder),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                  ),
+                  child: const Text('Sweep now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],

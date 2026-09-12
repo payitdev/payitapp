@@ -15,7 +15,7 @@ class InvoicesBuilderScreen extends ConsumerStatefulWidget {
 }
 
 class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
-  int _selectedFilter = 0; // 0: All, 1: Drafts, 2: Sent, 3: Paid
+  int _selectedFilter = 0; // 0: All, 1: Unpaid, 2: Paid, 3: Overdue
   final TextEditingController _amountController = TextEditingController(text: '12,500.00');
   final Set<int> _selectedRails = {0, 1}; // 0: Solana, 1: Base, 2: Wire
   bool _isGenerating = false;
@@ -277,7 +277,7 @@ class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
   }
 
   Widget _buildFilterPills() {
-    final filters = ['All (14)', 'Drafts (3)', 'Sent (Pending)', 'Paid (9)'];
+    final filters = ['All (14)', 'Unpaid (3)', 'Paid (9)', 'Overdue (2)'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(

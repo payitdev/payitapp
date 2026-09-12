@@ -358,9 +358,9 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
         const SizedBox(height: 8),
         _buildRailOption(
           id: 0,
-          title: 'Web3 Crypto Wallet',
+          title: 'Digital Dollar Settlement',
           badge: '~2s Settled',
-          subtitle: 'Base USDC / Solana USDC (Zero gas sponsored via Paymaster)',
+          subtitle: 'Base USDC / Solana USDC (Zero fee sponsored)',
         ),
         const SizedBox(height: 8),
         _buildRailOption(
@@ -499,7 +499,7 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          _isPaid ? 'Invoice Settled Successfully' : 'Pay Invoice (\$12,500.00)',
+                          _isPaid ? 'Payment complete' : 'Pay Invoice (\$12,500.00)',
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
@@ -512,7 +512,7 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
           ),
         ),
         const SizedBox(height: 8),
-        Text('Zero gas fee subsidized • Powered by Proxim Settle Protocol', style: ProximTextStyles.labelXs()),
+        Text('Zero fee subsidized • Powered by Proxim Settle Protocol', style: ProximTextStyles.labelXs()),
       ],
     );
   }

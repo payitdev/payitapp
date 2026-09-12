@@ -656,7 +656,7 @@ class _BatchPayrollScreenState extends State<BatchPayrollScreen> {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                _isSettled ? 'Batch Settled Successfully' : 'Execute Batch Payout',
+                                _isSettled ? 'Payroll disbursed' : 'Disburse Payroll',
                                 style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
