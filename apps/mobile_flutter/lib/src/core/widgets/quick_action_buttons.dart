@@ -7,6 +7,7 @@ class QuickActionButtons extends StatelessWidget {
   final VoidCallback? onSend;
   final VoidCallback? onReceive;
   final VoidCallback? onRequest;
+  final VoidCallback? onSavings;
   final VoidCallback? onVault;
 
   const QuickActionButtons({
@@ -14,6 +15,7 @@ class QuickActionButtons extends StatelessWidget {
     this.onSend,
     this.onReceive,
     this.onRequest,
+    this.onSavings,
     this.onVault,
   });
 
@@ -47,13 +49,13 @@ class QuickActionButtons extends StatelessWidget {
           onTap: onRequest ?? () => context.push('/payment-hub'),
         ),
 
-        // Vault
+        // Savings
         _buildActionButton(
           context: context,
-          label: 'Vault',
-          icon: Icons.lock_outline,
+          label: 'Savings',
+          icon: Icons.savings_outlined,
           iconColor: ProximColors.tertiary,
-          onTap: onVault ?? () => context.go('/vault'),
+          onTap: onSavings ?? onVault ?? () => context.go('/savings'),
         ),
       ],
     );

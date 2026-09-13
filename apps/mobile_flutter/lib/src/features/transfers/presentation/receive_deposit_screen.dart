@@ -262,43 +262,49 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: ProximColors.primary.withValues(alpha: 0.15),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: ProximColors.primary.withValues(alpha: 0.15),
+                            ),
+                            child: const Icon(Icons.token, size: 20, color: ProximColors.primary),
                           ),
-                          child: const Icon(Icons.token, size: 20, color: ProximColors.primary),
-                        ),
-                        const SizedBox(width: 10),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('USD Coin', style: ProximTextStyles.headlineSm()),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: ProximColors.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text('USDC', style: ProximTextStyles.labelXs()),
+                                Row(
+                                  children: [
+                                    Flexible(child: Text('USD Coin', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis)),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: ProximColors.surfaceContainerHighest,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text('USDC', style: ProximTextStyles.labelXs()),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  '${_chains[_selectedChain]} Direct Clearing',
+                                  style: ProximTextStyles.bodySm(),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
-                            Text(
-                              '${_chains[_selectedChain]} Direct Clearing',
-                              style: ProximTextStyles.bodySm(),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
@@ -437,8 +443,16 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('${_chains[_selectedChain]} Deposit Account ID', style: ProximTextStyles.labelXs()),
+                        Expanded(
+                          child: Text(
+                            '${_chains[_selectedChain]} Deposit Account ID',
+                            style: ProximTextStyles.labelXs(),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
                               width: 5,
@@ -552,27 +566,32 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: ProximColors.surfaceContainerHigh,
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: ProximColors.surfaceContainerHigh,
+                      ),
+                      child: const Icon(Icons.account_balance, size: 18, color: ProximColors.onSurface),
                     ),
-                    child: const Icon(Icons.account_balance, size: 18, color: ProximColors.onSurface),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Virtual Bank Account', style: ProximTextStyles.headlineSm()),
-                      Text('NGN Direct On-Ramp', style: ProximTextStyles.bodySm()),
-                    ],
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Virtual Bank Account', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis),
+                          Text('NGN Direct On-Ramp', style: ProximTextStyles.bodySm(), overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -680,28 +699,33 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: ProximColors.surfaceContainerHighest,
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: ProximColors.surfaceContainerHighest,
+                  ),
+                  child: const Icon(Icons.contactless_outlined, size: 20, color: ProximColors.onSurface),
                 ),
-                child: const Icon(Icons.contactless_outlined, size: 20, color: ProximColors.onSurface),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Mobile Money & QR Cash', style: ProximTextStyles.headlineSm()),
-                  Text('M-Pesa, MTN MoMo, Orange Money', style: ProximTextStyles.bodySm()),
-                ],
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Mobile Money & QR Cash', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis),
+                      Text('M-Pesa, MTN MoMo, Orange Money', style: ProximTextStyles.bodySm(), overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const Icon(Icons.chevron_right, size: 20, color: ProximColors.onSurfaceVariant),
+          const SizedBox(width: 8),
+          const Icon(Icons.arrow_forward_ios, size: 14, color: ProximColors.onSurfaceVariant),
         ],
       ),
     );

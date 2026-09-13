@@ -17,10 +17,10 @@ void main() {
     // Verify Treasury Dashboard elements
     expect(find.text('Proxim'), findsOneWidget);
     expect(find.text('Acme Global Technologies Ltd'), findsOneWidget);
-    expect(find.text('TOTAL OPERATIONAL LIQUIDITY'), findsOneWidget);
+    expect(find.text('Balance'), findsOneWidget);
     expect(find.text('Batch Payroll'), findsOneWidget);
     expect(find.text('New Invoice'), findsOneWidget);
-    expect(find.text('FX Convert'), findsOneWidget);
+    expect(find.text('Receive'), findsOneWidget);
     expect(find.text('Treasury Wire'), findsOneWidget);
   });
 
@@ -62,10 +62,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('PORTFOLIO VALUE'), findsOneWidget);
 
-    // 3. Vault tab
-    await tester.tap(find.text('Vault'));
+    // 3. Savings tab
+    await tester.tap(find.text('Savings'));
     await tester.pumpAndSettle();
-    expect(find.text('TOTAL IN VAULTS'), findsOneWidget);
+    expect(find.text('TOTAL SAVINGS'), findsOneWidget);
 
     // 4. Cards tab
     await tester.tap(find.text('Cards'));
@@ -108,12 +108,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_back).first);
     await tester.pumpAndSettle();
 
-    // 3. FX Convert
-    await tester.tap(find.text('FX Convert'));
+    // 3. Receive
+    await tester.tap(find.text('Receive'));
     await tester.pumpAndSettle();
-    expect(find.text('Convert & Swap'), findsOneWidget);
-    expect(find.text('YOU PAY'), findsOneWidget);
-    expect(find.text('YOU RECEIVE'), findsOneWidget);
+    expect(find.text('Receive & Deposit'), findsOneWidget);
 
     // Go back
     await tester.tap(find.byIcon(Icons.arrow_back).first);

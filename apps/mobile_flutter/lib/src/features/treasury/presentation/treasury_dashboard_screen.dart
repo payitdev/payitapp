@@ -40,11 +40,7 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
           _buildMultiSigAlertBanner(context),
           const SizedBox(height: 20),
 
-          // 5. Dedicated Treasury Sub-Account Pockets
-          _buildTreasuryPocketsSection(),
-          const SizedBox(height: 20),
-
-          // 6. Corporate Cashflow Activity
+          // 5. Corporate Cashflow Activity
           _buildRecentDispatchesSection(),
         ],
       ),
@@ -202,7 +198,7 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
                           children: [
                             Flexible(
                               child: Text(
-                                'TOTAL OPERATIONAL LIQUIDITY',
+                                'Balance',
                                 overflow: TextOverflow.ellipsis,
                                 style: ProximTextStyles.labelSm().copyWith(
                                   letterSpacing: 0.8,
@@ -366,9 +362,9 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
         ),
         const SizedBox(width: 8),
         _buildActionTile(
-          icon: Icons.currency_exchange,
-          label: 'FX Convert',
-          onTap: () => context.push('/swap'),
+          icon: Icons.south_west,
+          label: 'Receive',
+          onTap: () => context.push('/receive'),
         ),
         const SizedBox(width: 8),
         _buildActionTile(
@@ -570,195 +566,6 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
                   ),
                 ),
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTreasuryPocketsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      'Treasury Pockets',
-                      style: ProximTextStyles.headlineSm(),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: ProximColors.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Text('3 Active', style: ProximTextStyles.labelXs()),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '+ New Pocket',
-              style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        _buildPocketCard(
-          icon: Icons.account_balance_wallet_outlined,
-          iconColor: ProximColors.primary,
-          title: 'USD Operational Cash',
-          tag: 'Base',
-          subtitle: 'Instant settlement available',
-          balance: '\$284,500.00',
-          balanceSub: 'USDC Balance',
-          isLive: true,
-        ),
-        _buildPocketCard(
-          icon: Icons.assured_workload_outlined,
-          iconColor: ProximColors.secondary,
-          title: 'NGN Local Clearing',
-          tag: 'NIBSS',
-          subtitle: 'Virtual IBAN • Wema Rail',
-          balance: '₦198.40M',
-          balanceSub: '≈ \$124,400.00 USD',
-        ),
-        _buildPocketCard(
-          icon: Icons.trending_up,
-          iconColor: ProximColors.tertiary,
-          title: 'Yield Treasury Buffer',
-          tag: '11.2% APY',
-          subtitle: 'Kamino & Pods • Auto-compound',
-          balance: '\$74,050.00',
-          balanceSub: '+ \$23.10 / day',
-          tagColor: ProximColors.primary,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPocketCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String tag,
-    required String subtitle,
-    required String balance,
-    required String balanceSub,
-    bool isLive = false,
-    Color? tagColor,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: ProximColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ProximColors.hairlineBorder),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: ProximColors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Center(
-                    child: Icon(icon, size: 20, color: iconColor),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              style: ProximTextStyles.bodySm(color: Colors.white).copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: (tagColor ?? ProximColors.surfaceContainer).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(9999),
-                            ),
-                            child: Text(
-                              tag,
-                              style: ProximTextStyles.labelXs(color: tagColor ?? ProximColors.onSurfaceVariant)
-                                  .copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          if (isLive) ...[
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: const BoxDecoration(
-                                color: ProximColors.statusSuccess,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          Flexible(
-                            child: Text(
-                              subtitle,
-                              overflow: TextOverflow.ellipsis,
-                              style: ProximTextStyles.labelXs(
-                                color: isLive ? ProximColors.statusSuccess : ProximColors.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                balance,
-                style: ProximTextStyles.headlineSm().copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(balanceSub, style: ProximTextStyles.labelXs()),
             ],
           ),
         ],

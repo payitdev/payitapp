@@ -34,7 +34,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     ),
     TransactionItem(
       id: 'tx-103',
-      title: 'Vault Yield Payout',
+      title: 'Savings Interest Earned',
       subtitle: 'Yesterday, 8:00 AM',
       amount: 42.50,
       type: TransactionType.yieldReturn,

@@ -125,33 +125,71 @@ class _PersonalHomeView extends ConsumerWidget {
           const KycBanner(),
           const SizedBox(height: 24),
 
-          // 5. Pockets & Liquidity Breakdown
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Pockets', style: ProximTextStyles.headlineSm()),
-              Text('3 accounts', style: ProximTextStyles.labelSm()),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildPocketRow(
-            icon: Icons.payments_outlined,
-            iconColor: ProximColors.primary,
-            title: 'Cash',
-            amount: '\$24,100.00',
-          ),
-          _buildPocketRow(
-            icon: Icons.attach_money,
-            iconColor: ProximColors.secondary,
-            title: 'Digital Dollar',
-            amount: '\$14,150.00',
-          ),
-          _buildPocketRow(
-            icon: Icons.savings_outlined,
-            iconColor: ProximColors.tertiary,
-            title: 'Vault Savings',
-            amount: '\$10,000.00',
-            badgeText: '11.2% APY',
+          // 5. Savings Overview
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: ProximColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: ProximColors.hairlineBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: ProximColors.tertiary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.savings_outlined, size: 20, color: ProximColors.tertiary),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Savings Balance',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Earning up to 11.2% APY',
+                              style: ProximTextStyles.labelXs(color: ProximColors.tertiary),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => context.go('/savings'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: ProximColors.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(9999),
+                      border: Border.all(color: ProximColors.hairlineBorder),
+                    ),
+                    child: const Text(
+                      'View Savings',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 24),
 
@@ -207,80 +245,6 @@ class _PersonalHomeView extends ConsumerWidget {
               subtitle: 'May 18',
               amount: 120.00,
               type: TransactionType.yieldReturn,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static Widget _buildPocketRow({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String amount,
-    String? badgeText,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: ProximColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ProximColors.subtleBorder),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: ProximColors.surfaceContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: Icon(icon, size: 18, color: iconColor),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: ProximTextStyles.bodySm(color: Colors.white).copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (badgeText != null) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: ProximColors.tertiary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Text(
-                      badgeText,
-                      style: ProximTextStyles.labelXs(color: ProximColors.tertiary).copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            amount,
-            style: ProximTextStyles.bodyLg(color: Colors.white).copyWith(
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],

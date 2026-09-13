@@ -84,7 +84,7 @@ class _AuroraBalanceCardState extends State<AuroraBalanceCard> {
                   children: [
                     Expanded(
                       child: Text(
-                        widget.label ?? 'Across 3 accounts · tap to switch',
+                        widget.label ?? 'Balance',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,

@@ -45,7 +45,7 @@ class _VaultScreenState extends State<VaultScreen> {
         children: [
         // Title
         const Text(
-          'Vault',
+          'Savings',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w700,
@@ -71,7 +71,7 @@ class _VaultScreenState extends State<VaultScreen> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'TOTAL IN VAULTS',
+                      'TOTAL SAVINGS',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -112,7 +112,7 @@ class _VaultScreenState extends State<VaultScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Total active savings · Earn up to 11.2% APY across automated yield routes',
+                'Earn up to 11.2% APY across automated yield routes',
                 style: TextStyle(
                   fontSize: 12,
                   color: ProximColors.onSurfaceVariant,
@@ -142,7 +142,7 @@ class _VaultScreenState extends State<VaultScreen> {
                       Icon(Icons.auto_mode, size: 18, color: ProximColors.tertiary),
                       SizedBox(width: 8),
                       Text(
-                        'Smart Auto-Sweep',
+                        'Smart Auto-Save',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -170,7 +170,7 @@ class _VaultScreenState extends State<VaultScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Automatically sweeps idle cash above your liquid buffer into high-yield strategies.',
+                'Automatically moves idle funds above your liquid buffer into high-yield savings.',
                 style: TextStyle(
                   fontSize: 12,
                   color: ProximColors.onSurfaceVariant,
@@ -183,7 +183,7 @@ class _VaultScreenState extends State<VaultScreen> {
                 child: OutlinedButton(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Swept idle funds into yield strategies.')),
+                      const SnackBar(content: Text('Saved idle funds into high-yield strategies.')),
                     );
                   },
                   style: OutlinedButton.styleFrom(
@@ -192,7 +192,7 @@ class _VaultScreenState extends State<VaultScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                   ),
-                  child: const Text('Sweep now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  child: const Text('Save now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
@@ -217,7 +217,7 @@ class _VaultScreenState extends State<VaultScreen> {
           apy: '11.2% APY',
         ),
         _buildStrategyCard(
-          title: 'Pods Structured Vault',
+          title: 'Pods High-Yield Route',
           protocol: 'Downside-protected return',
           balance: '\$2,500.00',
           apy: '9.8% APY',

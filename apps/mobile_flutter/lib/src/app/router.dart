@@ -18,7 +18,6 @@ import '../features/invoices/presentation/public_invoice_checkout_screen.dart';
 import '../features/payroll/presentation/batch_payroll_screen.dart';
 import '../features/transfers/presentation/receive_deposit_screen.dart';
 import '../features/transfers/presentation/send_payout_screen.dart';
-import '../features/transfers/presentation/swap_convert_screen.dart';
 import '../features/treasury/presentation/balance_sheet_cashflow_screen.dart';
 import '../features/treasury/presentation/multi_sig_approvals_screen.dart';
 
@@ -53,8 +52,12 @@ final router = GoRouter(
           builder: (context, state) => const InvestScreen(),
         ),
         GoRoute(
-          path: '/vault',
+          path: '/savings',
           builder: (context, state) => const VaultScreen(),
+        ),
+        GoRoute(
+          path: '/vault',
+          redirect: (context, state) => '/savings',
         ),
         GoRoute(
           path: '/cards',
@@ -75,11 +78,6 @@ final router = GoRouter(
       parentNavigatorKey: _rootNavigatorKey,
       path: '/receive',
       builder: (context, state) => const ReceiveDepositScreen(),
-    ),
-    GoRoute(
-      parentNavigatorKey: _rootNavigatorKey,
-      path: '/swap',
-      builder: (context, state) => const SwapConvertScreen(),
     ),
     GoRoute(
       parentNavigatorKey: _rootNavigatorKey,

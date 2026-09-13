@@ -28,7 +28,7 @@ class ProximBottomNav extends StatelessWidget {
     ProximNavItem(label: 'Home', icon: Icons.account_balance, path: '/'),
     ProximNavItem(label: 'Activity', icon: Icons.sync_alt, path: '/activity'),
     ProximNavItem(label: 'Invest', icon: Icons.trending_up, path: '/invest'),
-    ProximNavItem(label: 'Vault', icon: Icons.lock_outline, path: '/vault'),
+    ProximNavItem(label: 'Savings', icon: Icons.savings_outlined, path: '/savings'),
     ProximNavItem(label: 'Cards', icon: Icons.credit_card, path: '/cards'),
     ProximNavItem(label: 'Profile', icon: Icons.account_circle_outlined, path: '/profile'),
   ];
