@@ -41,9 +41,14 @@ flutter run --dart-define=API_BASE_URL=https://<staging-host>  # staging
 - **Theme:** dark-only (`ProximTheme.darkTheme`), built from the design
   tokens in `lib/src/core/theme/proxim_theme.dart`.
 - **Feature-first folders:** `lib/src/features/<feature>/{data,domain,presentation}`.
-  Only `home` exists so far (placeholder).
-- **Networking:** dio is a declared dependency, but no API calls exist yet.
-  The plan (documented in `lib/src/core/network/api_client.dart`):
+  Features: auth, home, transfers, treasury, invoices, developer, activity,
+  cards, profile, vault, invest, payroll.
+- **Networking:** dio is live. Repositories in `features/*/data/` call the
+  backend (10 endpoints wired: auth, transfers, treasury, invoices,
+  developer), but every method currently falls back to fabricated demo data
+  on connection failure — see `FLUTTER_BACKEND_INTEGRATION_PLAN.md` at the
+  repo root for the integration plan. Conventions (documented in
+  `lib/src/core/network/api_client.dart`):
   - Repository classes are the only place dio may be used — never call it
     from widgets.
   - Requests get `Authorization: Bearer <jwt>` and, on POSTs, an
