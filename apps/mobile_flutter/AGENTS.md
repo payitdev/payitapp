@@ -1,72 +1,115 @@
-# Proxim Flutter App
+# Proxim Flutter App — Agent Guide
 
-Flutter client for the payit/proxim fintech monorepo. Targets Android APK,
-web, and Telegram Mini App from one codebase. Consumes the Fastify backend
-(`apps/backend`, port 3001).
+## Quick orientation
 
-## Commands
+| Layer | Location | Notes |
+|---|---|---|
+| App shell / routing | `lib/src/app/` | go_router with auth guard |
+| Core networking | `lib/src/core/network/` | Dio + JWT interceptor + idempotency |
+| Feature modules | `lib/src/features/<feature>/` | data / domain / presentation |
+| Theme | `lib/src/core/theme/proxim_theme.dart` | dark-only design system |
 
-Run from `apps/mobile_flutter` (or prefix with `cd apps/mobile_flutter`):
+## Backend connection
+
+The Flutter app talks to the **Fastify backend** (`apps/backend`).
+
+### Port alignment
+- Local backend **must run on port 3001** (`PORT=3001`).
+- The Flutter client defaults to `http://localhost:3001` (web/macOS) and `http://10.0.2.2:3001` (Android emulator).
+
+### Environment Profiles
+
+| Environment | Run command |
+|---|---|
+| **Local dev** (web/macOS) | `flutter run --dart-define=API_BASE_URL=http://localhost:3001` |
+| **Android emulator** | `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3001` |
+| **Demo mode** (no backend needed) | `flutter run --dart-define=API_BASE_URL=http://localhost:3001 --dart-define=DEMO_MODE=true` |
+| **Staging** | `flutter run --dart-define=API_BASE_URL=https://api-staging.proxim.app` |
+| **Production APK** | `flutter build apk --dart-define=API_BASE_URL=https://api.proxim.app` |
+| **Telegram Mini App (web build)** | `flutter build web --dart-define=API_BASE_URL=https://api.proxim.app` |
+
+### Starting the full local stack
+```bash
+# Terminal 1 — backend on port 3001
+cd apps/backend && PORT=3001 pnpm dev
+
+# Terminal 2 — Flutter app
+cd apps/mobile_flutter
+flutter run --dart-define=API_BASE_URL=http://localhost:3001
+```
+
+## Endpoint map (client → backend)
+
+| Feature | Client call | Backend route |
+|---|---|---|
+| Session restore | `GET /api/auth/session` | ✅ |
+| Demo login | `POST /api/auth/demo` | ✅ |
+| Telegram auth | `POST /api/auth/telegram/mini-app` | ✅ |
+| Privy login | `POST /api/auth/privy/login` | ✅ |
+| Passcode verify | `POST /api/auth/passcode/verify` | ✅ |
+| Entity switch | `POST /api/entities/switch-context` | ✅ |
+| FX quote | `GET /api/transfers/fx-quote` | ✅ |
+| Send money | `POST /api/transfers/execute` | ✅ (was `/send`) |
+| Internal swap | `POST /api/transfers/internal` | ✅ (was `/internal-convert`) |
+| Transfer history | `GET /api/transfers/history` | ✅ |
+| Balance | `GET /api/transfers/balance` | ✅ |
+| Cards list | `GET /api/cards` | ✅ |
+| Card freeze | `POST /api/cards/:id/freeze` | ✅ |
+| Card top-up | `POST /api/cards/:id/top-up` | ✅ |
+| Stocks watchlist | `GET /api/ondo/stocks` | ✅ |
+| Positions | `GET /api/ondo/positions/:entityId` | ✅ |
+| Buy stock | `POST /api/ondo/buy` | ✅ |
+| Sell stock | `POST /api/ondo/sell` | ✅ |
+| Savings summary | `GET /api/savings/summary` | ✅ |
+| Deposit | `POST /api/savings/deposit` | ✅ |
+| Withdraw | `POST /api/savings/withdraw` | ✅ |
+| Balance sheet | `GET /api/reports/balance-sheet` | ✅ |
+| Invoices list | `GET /api/invoices` | ✅ |
+| Create invoice | `POST /api/invoices` | ✅ |
+| API keys list | `GET /api/developer/keys` | ✅ |
+| Roll API key | `POST /api/developer/keys` | ✅ |
+
+## Authentication & Session handling
+
+- Auth header: `Authorization: Bearer <jwt>` on every request.
+- Entity context: `x-entity-id: <entityId>` on every request.
+- **Idempotency-Key**: UUID v4 on every POST/PUT/PATCH — generated in `idempotency.dart`.
+- **401 handling**: `api_client.dart` interceptor clears token storage and fires `onUnauthorized` callback → `AuthNotifier` sets state to unauthenticated → go_router redirects to login.
+- **Session expiry**: Telegram JWTs live 1h. `AuthNotifier` implements `WidgetsBindingObserver` and calls `GET /api/auth/session` on every app resume. Failed check logs user out.
+- **DEMO_MODE**: Compile with `--dart-define=DEMO_MODE=true` to enable offline fallbacks in all repositories. Never enabled by default.
+
+## DEMO_MODE vs production
+
+| Behaviour | Default (prod) | DEMO_MODE=true |
+|---|---|---|
+| API error | Surfaces typed `ProximException` to UI | Returns mock data |
+| Passcode | Real API call | Also accepts `123456` |
+| Demo login fail | Throws error | Returns offline user |
+| Balance load fail | Shows error + retry | Returns fake balance |
+
+## Code conventions
+
+- All repositories: real errors propagate; demo fallbacks only when `ApiConfig.isDemoMode`.
+- Never use `try { ... } catch (e) { return fakeData; }` — this is the pattern we replaced.
+- Error messages follow Proxim tone: "We couldn't complete your payment. Please try again."
+- No crypto/blockchain jargon in user-facing copy (see root `AGENTS.md`).
+- `flutter analyze` must pass clean before merging. Run `flutter test` for widget tests.
+
+## Build commands
 
 ```bash
-flutter pub get
-flutter analyze            # must be clean (CI treats infos as fatal)
+# Analyze
+flutter analyze
+
+# Test
 flutter test
-flutter build web
-flutter build apk --debug  # release signing comes later; never commit signing keys
+
+# Web build (Telegram Mini App)
+flutter build web --dart-define=API_BASE_URL=https://api.proxim.app
+
+# Android debug
+flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:3001
+
+# Android release
+flutter build apk --dart-define=API_BASE_URL=https://api.proxim.app
 ```
-
-## Configuration (dart-define)
-
-All configuration is compile-time via `--dart-define` (see
-`lib/src/core/config/app_config.dart`):
-
-```bash
-flutter run --dart-define=API_BASE_URL=http://localhost:3001   # default (dev)
-flutter run --dart-define=API_BASE_URL=https://<staging-host>  # staging
-```
-
-- `API_BASE_URL` — backend base URL. Default: `http://localhost:3001`.
-  Staging/prod hosts come from the domains in `render.yaml`.
-
-## Architecture
-
-- **State management:** Riverpod (`flutter_riverpod`). App is wrapped in
-  `ProviderScope` in `lib/main.dart`; widgets use `ConsumerWidget`.
-- **Navigation:** `go_router`, defined in `lib/src/app/router.dart`.
-  Auth redirects/guards arrive in Phase 4.
-- **Layout:** all screens render inside `CenteredAppContainer`
-  (`lib/src/core/widgets/`) — a 440px-max-width centered wrapper shared by
-  phone, web, and Mini App.
-- **Theme:** dark-only (`ProximTheme.darkTheme`), built from the design
-  tokens in `lib/src/core/theme/proxim_theme.dart`.
-- **Feature-first folders:** `lib/src/features/<feature>/{data,domain,presentation}`.
-  Features: auth, home, transfers, treasury, invoices, developer, activity,
-  cards, profile, vault, invest, payroll.
-- **Networking:** dio is live. Repositories in `features/*/data/` call the
-  backend (10 endpoints wired: auth, transfers, treasury, invoices,
-  developer), but every method currently falls back to fabricated demo data
-  on connection failure — see `FLUTTER_BACKEND_INTEGRATION_PLAN.md` at the
-  repo root for the integration plan. Conventions (documented in
-  `lib/src/core/network/api_client.dart`):
-  - Repository classes are the only place dio may be used — never call it
-    from widgets.
-  - Requests get `Authorization: Bearer <jwt>` and, on POSTs, an
-    `Idempotency-Key` header (backend enforces idempotency).
-  - Errors map to a typed `ApiFailure`; 401 triggers re-login.
-
-## Monorepo integration
-
-This app is **standalone**: it is NOT a pnpm workspace package. Repo-root
-`pnpm-workspace.yaml` matches `apps/*`, but pnpm ignores
-`apps/mobile_flutter` because it has no `package.json` — verified on
-2026-09-09: `pnpm ls --depth -1` from the repo root exited 0 and did not
-list the Flutter app. No exclusion needed. Use Flutter's own tooling here
-(`flutter pub get`, not pnpm/pnpm-lock).
-
-## CI
-
-`.github/workflows/flutter.yml` runs on pushes/PRs touching
-`apps/mobile_flutter/**`: `flutter analyze --fatal-infos`, `flutter test`,
-`flutter build web` (artifact uploaded) on every run; `flutter build apk
---debug` (artifact uploaded) only on `main` branch pushes.

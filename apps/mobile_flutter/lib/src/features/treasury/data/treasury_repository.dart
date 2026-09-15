@@ -1,5 +1,5 @@
-import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_config.dart';
 
 class BalanceSheetData {
   final double netOperatingSurplus;
@@ -24,16 +24,28 @@ class BalanceSheetData {
 
   factory BalanceSheetData.fromJson(Map<String, dynamic> json) {
     return BalanceSheetData(
-      netOperatingSurplus: (json['netOperatingSurplus'] as num?)?.toDouble() ?? 482950.00,
-      totalCurrentAssets: (json['totalCurrentAssets'] as num?)?.toDouble() ?? 562450.00,
-      cashEquivalents: (json['cashEquivalents'] as num?)?.toDouble() ?? 358550.00,
-      accountsReceivable: (json['accountsReceivable'] as num?)?.toDouble() ?? 203900.00,
-      totalCurrentLiabilities: (json['totalCurrentLiabilities'] as num?)?.toDouble() ?? 79500.00,
-      accountsPayable: (json['accountsPayable'] as num?)?.toDouble() ?? 36850.00,
-      accruedPayroll: (json['accruedPayroll'] as num?)?.toDouble() ?? 42650.00,
-      runwayMonths: (json['runwayMonths'] as num?)?.toDouble() ?? 14.1,
+      netOperatingSurplus: (json['netOperatingSurplus'] as num?)?.toDouble() ?? 0,
+      totalCurrentAssets: (json['totalCurrentAssets'] as num?)?.toDouble() ?? 0,
+      cashEquivalents: (json['cashEquivalents'] as num?)?.toDouble() ?? 0,
+      accountsReceivable: (json['accountsReceivable'] as num?)?.toDouble() ?? 0,
+      totalCurrentLiabilities: (json['totalCurrentLiabilities'] as num?)?.toDouble() ?? 0,
+      accountsPayable: (json['accountsPayable'] as num?)?.toDouble() ?? 0,
+      accruedPayroll: (json['accruedPayroll'] as num?)?.toDouble() ?? 0,
+      runwayMonths: (json['runwayMonths'] as num?)?.toDouble() ?? 0,
     );
   }
+
+  /// Demo fallback — only used when DEMO_MODE=true
+  static const BalanceSheetData demo = BalanceSheetData(
+    netOperatingSurplus: 482950.00,
+    totalCurrentAssets: 562450.00,
+    cashEquivalents: 358550.00,
+    accountsReceivable: 203900.00,
+    totalCurrentLiabilities: 79500.00,
+    accountsPayable: 36850.00,
+    accruedPayroll: 42650.00,
+    runwayMonths: 14.1,
+  );
 }
 
 class TreasuryRepository {
@@ -58,19 +70,13 @@ class TreasuryRepository {
       if (data != null && data['report'] != null) {
         return BalanceSheetData.fromJson(data['report'] as Map<String, dynamic>);
       }
+      if (data != null) {
+        return BalanceSheetData.fromJson(data);
+      }
+      throw const ProximException('Unable to load financial report. Please try again.');
     } catch (e) {
-      debugPrint('[TreasuryRepository] Balance sheet report note: $e');
+      if (ApiConfig.isDemoMode) return BalanceSheetData.demo;
+      rethrow;
     }
-
-    return const BalanceSheetData(
-      netOperatingSurplus: 482950.00,
-      totalCurrentAssets: 562450.00,
-      cashEquivalents: 358550.00,
-      accountsReceivable: 203900.00,
-      totalCurrentLiabilities: 79500.00,
-      accountsPayable: 36850.00,
-      accruedPayroll: 42650.00,
-      runwayMonths: 14.1,
-    );
   }
 }

@@ -1,7 +1,12 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_models.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Providers
+// ─────────────────────────────────────────────────────────────────────────────
 
 final apiClientProvider = Provider<ProximApiClient>((ref) {
   return ProximApiClient();
@@ -11,6 +16,10 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   final apiClient = ref.watch(apiClientProvider);
   return AuthRepository(apiClient: apiClient);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth State
+// ─────────────────────────────────────────────────────────────────────────────
 
 class AuthState {
   final bool isLoading;
@@ -54,14 +63,42 @@ class AuthState {
   }
 }
 
-class AuthNotifier extends Notifier<AuthState> {
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth Notifier
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
   late final AuthRepository _repository;
 
   @override
   AuthState build() {
     _repository = ref.watch(authRepositoryProvider);
+
+    // Wire 401 callback: when api_client sees a 401, log the user out
+    _repository.apiClient.onUnauthorized = () async {
+      state = const AuthState();
+    };
+
+    // Register lifecycle observer so we can validate the session on resume
+    WidgetsBinding.instance.addObserver(this);
+    ref.onDispose(() => WidgetsBinding.instance.removeObserver(this));
+
     Future.microtask(() => initializeSession());
     return const AuthState(isLoading: true);
+  }
+
+  /// Called by WidgetsBindingObserver when the app comes back to the foreground.
+  /// Telegram JWTs expire in 1h — re-check the session every time the user
+  /// returns to the app.
+  @override
+  Future<void> didChangeAppLifecycleState(AppLifecycleState appState) async {
+    if (appState == AppLifecycleState.resumed && state.isAuthenticated) {
+      final valid = await _repository.checkSession();
+      if (!valid) {
+        await _repository.logout();
+        state = const AuthState();
+      }
+    }
   }
 
   Future<void> initializeSession() async {
@@ -74,7 +111,8 @@ class AuthNotifier extends Notifier<AuthState> {
       }
     } catch (_) {}
 
-    // Auto-login to demo session so all screens function immediately out of the box
+    // Auto-login to demo session (calls the real /api/auth/demo endpoint;
+    // falls back to offline data only if DEMO_MODE=true)
     try {
       final user = await _repository.loginDemo();
       state = state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId);
@@ -101,9 +139,9 @@ class AuthNotifier extends Notifier<AuthState> {
     final user = state.user;
     if (user == null) return;
 
-    final targetKind = isBusiness ? 'business' : 'individual';
+    final targetKind = isBusiness ? 'BUSINESS' : 'PERSONAL';
     final targetEntity = user.entities.firstWhere(
-      (e) => e.kind.toLowerCase() == targetKind,
+      (e) => e.kind == targetKind,
       orElse: () => user.entities.first,
     );
 
@@ -121,6 +159,10 @@ class AuthNotifier extends Notifier<AuthState> {
     state = const AuthState();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Top-level convenience providers
+// ─────────────────────────────────────────────────────────────────────────────
 
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
 

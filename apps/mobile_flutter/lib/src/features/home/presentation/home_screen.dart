@@ -9,11 +9,11 @@ import '../../../core/widgets/kyc_banner.dart';
 import '../../../core/widgets/quick_action_buttons.dart';
 import '../../../core/widgets/transaction_tile.dart';
 import '../../auth/presentation/auth_provider.dart';
+import '../../transfers/presentation/transfers_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
 
-/// Dynamic Home Screen that renders:
-/// - The Proxim Aurora Treasury Dashboard when in Business mode (default)
-/// - The Consumer Personal Banking Dashboard when in Personal mode
+/// Dynamic Home Screen — Business mode shows Treasury Dashboard,
+/// Personal mode shows the consumer banking view with live balance + activity.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -37,13 +37,16 @@ class _PersonalHomeView extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final userName = user?.fullName ?? 'Alex Rivera';
 
+    final balanceAsync = ref.watch(transfersBalanceProvider);
+    final historyAsync = ref.watch(transfersHistoryProvider);
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. User Greeting & Notifications Row
+          // 1. Greeting Row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -55,10 +58,7 @@ class _PersonalHomeView extends ConsumerWidget {
                     style: ProximTextStyles.labelSm().copyWith(letterSpacing: 0.8),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    userName,
-                    style: ProximTextStyles.headlineLg(),
-                  ),
+                  Text(userName, style: ProximTextStyles.headlineLg()),
                 ],
               ),
               GestureDetector(
@@ -78,11 +78,7 @@ class _PersonalHomeView extends ConsumerWidget {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      const Icon(
-                        Icons.notifications_none,
-                        size: 20,
-                        color: Colors.white,
-                      ),
+                      const Icon(Icons.notifications_none, size: 20, color: Colors.white),
                       Positioned(
                         top: 10,
                         right: 10,
@@ -109,19 +105,29 @@ class _PersonalHomeView extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
-          // 2. Aurora Balance Card
-          const AuroraBalanceCard(
-            amount: 48250.00,
-            trendText: '+\$340.20 (+0.71%)',
-            isPositiveTrend: true,
+          // 2. Live Balance Card
+          balanceAsync.when(
+            data: (balance) => AuroraBalanceCard(
+              amount: balance.totalUsd,
+              trendText: 'Available',
+              isPositiveTrend: true,
+            ),
+            loading: () => const AuroraBalanceCard(
+              amount: 0,
+              trendText: 'Loading...',
+              isPositiveTrend: true,
+            ),
+            error: (err, _) => _BalanceErrorCard(
+              onRetry: () => ref.invalidate(transfersBalanceProvider),
+            ),
           ),
           const SizedBox(height: 20),
 
-          // 3. Primary Quick Actions
+          // 3. Quick Actions
           const QuickActionButtons(),
           const SizedBox(height: 20),
 
-          // 4. KYC Status Banner
+          // 4. KYC Banner
           const KycBanner(),
           const SizedBox(height: 24),
 
@@ -193,7 +199,7 @@ class _PersonalHomeView extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
-          // 6. Recent Activity Feed
+          // 6. Recent Activity — live from API
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -204,50 +210,134 @@ class _PersonalHomeView extends ConsumerWidget {
                   children: [
                     Text(
                       'View all',
-                      style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: ProximTextStyles.labelSm(color: ProximColors.primary)
+                          .copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(width: 2),
-                    const Icon(
-                      Icons.chevron_right,
-                      size: 14,
-                      color: ProximColors.primary,
-                    ),
+                    const Icon(Icons.chevron_right, size: 14, color: ProximColors.primary),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          const TransactionTile(
-            item: TransactionItem(
-              id: 'tx-1',
-              title: 'Sent to Sarah Jenkins',
-              subtitle: 'Today, 4:12 PM',
-              amount: 250.00,
-              type: TransactionType.sent,
+
+          historyAsync.when(
+            data: (items) {
+              final preview = items.take(3).toList();
+              if (preview.isEmpty) {
+                return const _EmptyActivityHint();
+              }
+              return Column(
+                children: preview.map((item) {
+                  return TransactionTile(
+                    item: TransactionItem(
+                      id: item.id,
+                      title: item.title,
+                      subtitle: item.subtitle,
+                      amount: item.amount,
+                      type: item.isSent
+                          ? TransactionType.sent
+                          : item.type == 'YIELD'
+                              ? TransactionType.yieldReturn
+                              : TransactionType.received,
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, value: 0.8),
+                ),
+              ),
             ),
-          ),
-          const TransactionTile(
-            item: TransactionItem(
-              id: 'tx-2',
-              title: 'Received from ACME Corp',
-              subtitle: 'Yesterday',
-              amount: 3400.00,
-              type: TransactionType.received,
-            ),
-          ),
-          const TransactionTile(
-            item: TransactionItem(
-              id: 'tx-3',
-              title: 'Vault Yield',
-              subtitle: 'May 18',
-              amount: 120.00,
-              type: TransactionType.yieldReturn,
+            error: (err, _) => _ActivityErrorTile(
+              onRetry: () => ref.invalidate(transfersHistoryProvider),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BalanceErrorCard extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _BalanceErrorCard({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 140,
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: ProximColors.hairlineBorder),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Unable to load balance.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('Try again', style: TextStyle(color: ProximColors.primary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityErrorTile extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ActivityErrorTile({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Unable to load activity.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('Retry', style: TextStyle(color: ProximColors.primary, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyActivityHint extends StatelessWidget {
+  const _EmptyActivityHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Text(
+          'No recent activity yet.',
+          style: TextStyle(color: ProximColors.onSurfaceVariant, fontSize: 13),
+        ),
       ),
     );
   }

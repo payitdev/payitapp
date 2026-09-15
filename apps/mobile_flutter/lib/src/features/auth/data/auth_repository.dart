@@ -10,7 +10,7 @@ class AuthRepository {
 
   ProximApiClient get apiClient => _apiClient;
 
-  /// Restores existing session from stored JWT
+  /// Restores existing session from stored JWT.
   Future<ProximUser?> restoreSession() async {
     final token = await _apiClient.tokenStorage.getToken();
     if (token == null || token.isEmpty) return null;
@@ -19,16 +19,18 @@ class AuthRepository {
       final response = await _apiClient.get<Map<String, dynamic>>('/api/auth/session');
       final data = response.data;
       if (data != null && data['success'] == true && data['user'] != null) {
-        final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
-        return user;
+        return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
       }
     } catch (e) {
-      debugPrint('[AuthRepository] Session restore note: $e');
+      debugPrint('[AuthRepository] Session restore failed: $e');
+      // Token exists but session is invalid — clear it
+      await _apiClient.tokenStorage.clear();
     }
     return null;
   }
 
-  /// Instant Demo Login (Alex Morgan & Acme Global Technologies)
+  /// Demo Login — connects to backend; falls back to offline data ONLY when
+  /// DEMO_MODE=true is set at compile time.
   Future<ProximUser> loginDemo() async {
     try {
       final response = await _apiClient.post<Map<String, dynamic>>('/api/auth/demo');
@@ -41,40 +43,56 @@ class AuthRepository {
         await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
         return user;
       }
+      throw const ProximException('Demo login failed. Please try again.');
     } catch (e) {
-      debugPrint('[AuthRepository] Backend unreachable for demo login, using demo fallback: $e');
+      // Only fall back to offline demo data if DEMO_MODE is explicitly enabled
+      if (ApiConfig.isDemoMode) {
+        debugPrint('[AuthRepository] DEMO_MODE: using offline fallback user.');
+        final fallbackUser = _getDemoFallbackUser();
+        await _apiClient.tokenStorage.saveActiveEntityId(fallbackUser.activeEntityId);
+        return fallbackUser;
+      }
+      rethrow;
     }
-
-    // Graceful offline fallback
-    final fallbackUser = _getDemoFallbackUser();
-    await _apiClient.tokenStorage.saveActiveEntityId(fallbackUser.activeEntityId);
-    return fallbackUser;
   }
 
   /// Telegram Mini App Auto-Authentication
   Future<ProximUser> loginTelegram(String initData) async {
-    try {
-      final response = await _apiClient.post<Map<String, dynamic>>(
-        '/api/auth/telegram/mini-app',
-        data: {'initData': initData},
-      );
-      final data = response.data;
-      if (data != null && data['success'] == true && data['token'] != null) {
-        final token = data['token'] as String;
-        await _apiClient.tokenStorage.saveToken(token);
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/api/auth/telegram/mini-app',
+      data: {'initData': initData},
+    );
+    final data = response.data;
+    if (data != null && data['success'] == true && data['token'] != null) {
+      final token = data['token'] as String;
+      await _apiClient.tokenStorage.saveToken(token);
 
-        final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
-        await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
-        return user;
-      }
-    } catch (e) {
-      debugPrint('[AuthRepository] Telegram Mini App auth note: $e');
-      throw ProximException('Unable to authenticate Telegram session. Please try again.');
+      final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
+      return user;
     }
-    throw const ProximException('Telegram authentication failed');
+    throw const ProximException('Unable to authenticate Telegram session. Please try again.');
   }
 
-  /// Verify 6-digit passcode
+  /// Privy / email-password login
+  Future<ProximUser> loginPrivy(String privyToken) async {
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/api/auth/privy/login',
+      data: {'privyToken': privyToken},
+    );
+    final data = response.data;
+    if (data != null && data['success'] == true && data['token'] != null) {
+      final token = data['token'] as String;
+      await _apiClient.tokenStorage.saveToken(token);
+
+      final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
+      return user;
+    }
+    throw const ProximException('Authentication failed. Please try again.');
+  }
+
+  /// Verify 6-digit passcode — real API call; no hardcoded bypass.
   Future<bool> verifyPasscode(String passcode) async {
     try {
       final response = await _apiClient.post<Map<String, dynamic>>(
@@ -82,22 +100,47 @@ class AuthRepository {
         data: {'passcode': passcode},
       );
       return response.data?['verified'] == true;
-    } catch (_) {
-      // In demo mode or offline, accept 123456 or standard PIN
-      return passcode == '123456' || passcode == '000000';
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        // In demo mode only, accept the standard demo PIN
+        return passcode == '123456' || passcode == '000000';
+      }
+      rethrow;
     }
   }
 
-  /// Switch active entity between Personal and Business
+  /// Switch the active entity on the backend and update local storage.
   Future<void> switchActiveEntity(String entityId) async {
+    try {
+      await _apiClient.post<Map<String, dynamic>>(
+        '/api/entities/switch-context',
+        data: {'entityId': entityId},
+      );
+    } catch (e) {
+      // Best-effort — local state still switches even if the call fails
+      debugPrint('[AuthRepository] Entity switch call note: $e');
+    }
     await _apiClient.tokenStorage.saveActiveEntityId(entityId);
   }
 
-  /// Sign out and clear stored session
+  /// Check current session validity (call on app resume for Telegram JWTs).
+  Future<bool> checkSession() async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>('/api/auth/session');
+      return response.data?['success'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Sign out and clear stored session.
   Future<void> logout() async {
     await _apiClient.tokenStorage.clear();
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Demo / Offline fallback — only used when DEMO_MODE=true
+  // ─────────────────────────────────────────────────────────────────────────
   static ProximUser _getDemoFallbackUser() {
     return const ProximUser(
       id: 'usr_demo_proxim_01',

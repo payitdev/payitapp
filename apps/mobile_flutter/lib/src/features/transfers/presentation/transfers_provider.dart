@@ -8,11 +8,26 @@ final transfersRepositoryProvider = Provider<TransfersRepository>((ref) {
   return TransfersRepository(apiClient: apiClient);
 });
 
-final fxQuoteProvider = FutureProvider.autoDispose.family<FxQuote, ({String from, String to, double amount})>((ref, arg) async {
+/// Live FX quote — auto-disposes when not in use
+final fxQuoteProvider = FutureProvider.autoDispose
+    .family<FxQuote, ({String from, String to, double amount})>((ref, arg) async {
   final repo = ref.watch(transfersRepositoryProvider);
   return repo.getFxQuote(
     fromCurrency: arg.from,
     toCurrency: arg.to,
     fromAmount: arg.amount,
   );
+});
+
+/// Consolidated balance for the home screen balance card
+final transfersBalanceProvider = FutureProvider.autoDispose<TransfersBalance>((ref) async {
+  final repo = ref.watch(transfersRepositoryProvider);
+  return repo.getBalance();
+});
+
+/// Paginated transfer history for the activity feed
+final transfersHistoryProvider =
+    FutureProvider.autoDispose<List<TransferHistoryItem>>((ref) async {
+  final repo = ref.watch(transfersRepositoryProvider);
+  return repo.getHistory(limit: 30);
 });

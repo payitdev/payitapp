@@ -1,98 +1,120 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/transaction_tile.dart';
+import '../data/cards_repository.dart';
+import '../domain/card_models.dart';
+import 'cards_provider.dart';
 
-class CardsScreen extends StatefulWidget {
+class CardsScreen extends ConsumerWidget {
   const CardsScreen({super.key});
 
   @override
-  State<CardsScreen> createState() => _CardsScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cardsAsync = ref.watch(cardsListProvider);
 
-class _CardsScreenState extends State<CardsScreen> {
-  bool _isFrozen = false;
-  bool _showDetails = false;
-
-  static const List<TransactionItem> _cardTransactions = [
-    TransactionItem(
-      id: 'ctx-1',
-      title: 'Netflix Subscription',
-      subtitle: 'Yesterday, 10:14 PM',
-      amount: 19.99,
-      type: TransactionType.sent,
-    ),
-    TransactionItem(
-      id: 'ctx-2',
-      title: 'Apple Store',
-      subtitle: 'May 17, 2:45 PM',
-      amount: 129.00,
-      type: TransactionType.sent,
-    ),
-    TransactionItem(
-      id: 'ctx-3',
-      title: 'Card Top-up',
-      subtitle: 'May 15, 9:00 AM',
-      amount: 500.00,
-      type: TransactionType.received,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        // Title & Add Card button
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Cards',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                letterSpacing: -0.4,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Cards',
+                style: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.4),
               ),
-            ),
-            GestureDetector(
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Card issuance coming in Phase 5')),
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: ProximColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(9999),
-                  border: Border.all(color: ProximColors.hairlineBorder),
+              GestureDetector(
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Card issuance coming soon')),
                 ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.add, size: 14, color: ProximColors.primary),
-                    SizedBox(width: 4),
-                    Text(
-                      'New Card',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: ProximColors.primary,
-                      ),
-                    ),
-                  ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: ProximColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(9999),
+                    border: Border.all(color: ProximColors.hairlineBorder),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.add, size: 14, color: ProximColors.primary),
+                      SizedBox(width: 4),
+                      Text('New Card',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: ProximColors.primary)),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
+            ],
+          ),
+          const SizedBox(height: 16),
+          cardsAsync.when(
+            data: (cards) {
+              if (cards.isEmpty) {
+                return _NoCardsView(
+                    onIssue: () => ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('Card issuance coming soon'))));
+              }
+              return _CardsBody(cards: cards);
+            },
+            loading: () => _CardsBody(cards: CardsRepository.demoCards()),
+            error: (err, _) => _CardsError(onRetry: () => ref.invalidate(cardsListProvider)),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-        // Aurora Virtual Card Visual
+// ─────────────────────────────────────────────────────────────────────────────
+// Cards Body — renders first card + freeze/top-up controls + transactions
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CardsBody extends ConsumerStatefulWidget {
+  final List<ProximCard> cards;
+  const _CardsBody({required this.cards});
+
+  @override
+  ConsumerState<_CardsBody> createState() => _CardsBodyState();
+}
+
+class _CardsBodyState extends ConsumerState<_CardsBody> {
+  bool _showDetails = false;
+
+  ProximCard get card => widget.cards.first;
+
+  Future<void> _toggleFreeze(BuildContext context) async {
+    final repo = ref.read(cardsRepositoryProvider);
+    try {
+      await repo.toggleFreeze(card.id, freeze: !card.isFrozen);
+      ref.invalidate(cardsListProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(card.isFrozen ? 'Card is now active.' : 'Card has been frozen.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final txAsync = ref.watch(cardTransactionsProvider(card.id));
+    final isFrozen = card.isFrozen;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Card Visual
         Container(
           height: 210,
           width: double.infinity,
@@ -101,19 +123,17 @@ class _CardsScreenState extends State<CardsScreen> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: _isFrozen
+              colors: isFrozen
                   ? [const Color(0xFF1B2230), const Color(0xFF101520)]
                   : [const Color(0xFF132A32), const Color(0xFF22174B)],
             ),
             border: Border.all(
-              color: _isFrozen
-                  ? ProximColors.hairlineBorder
-                  : ProximColors.primary.withValues(alpha: 0.3),
+              color: isFrozen ? ProximColors.hairlineBorder : ProximColors.primary.withValues(alpha: 0.3),
               width: 1.2,
             ),
             boxShadow: [
               BoxShadow(
-                color: _isFrozen
+                color: isFrozen
                     ? Colors.black.withValues(alpha: 0.4)
                     : ProximColors.primary.withValues(alpha: 0.15),
                 blurRadius: 28,
@@ -126,38 +146,22 @@ class _CardsScreenState extends State<CardsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Top row: Brand & Status pill
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Proxim Virtual',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  if (_isFrozen)
+                  const Text('Proxim Virtual',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
+                  if (isFrozen)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(9999),
-                      ),
+                          color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(9999)),
                       child: const Row(
                         children: [
                           Icon(Icons.ac_unit, size: 12, color: Colors.white),
                           SizedBox(width: 4),
-                          Text(
-                            'Frozen',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
+                          Text('Frozen',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
                         ],
                       ),
                     )
@@ -165,20 +169,17 @@ class _CardsScreenState extends State<CardsScreen> {
                     const Icon(Icons.contactless, size: 24, color: Colors.white70),
                 ],
               ),
-
-              // Middle: Card Number
               Text(
-                _showDetails ? '4829  5512  9041  4829' : '••••  ••••  ••••  4829',
+                _showDetails
+                    ? card.maskedNumber.replaceAll('••••  ••••  ••••', '4829  5512  9041')
+                    : card.maskedNumber,
                 style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 2.0,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 2.0,
+                    fontFeatures: [FontFeature.tabularFigures()]),
               ),
-
-              // Bottom Row: Holder, Expiry & Visa Logo
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -186,59 +187,35 @@ class _CardsScreenState extends State<CardsScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'CARDHOLDER',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: ProximColors.onSurfaceVariant,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
+                      const Text('CARDHOLDER',
+                          style: TextStyle(
+                              fontSize: 9, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant, letterSpacing: 0.8)),
                       const SizedBox(height: 2),
-                      const Text(
-                        'ALEX RIVERA',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
+                      Text(card.holderName.toUpperCase(),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
                     ],
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'EXPIRES',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: ProximColors.onSurfaceVariant,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
+                      const Text('EXPIRES',
+                          style: TextStyle(
+                              fontSize: 9, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant, letterSpacing: 0.8)),
                       const SizedBox(height: 2),
                       Text(
-                        _showDetails ? '08/29  CVV: 712' : '08/29',
+                        _showDetails ? '${card.expiryDisplay}  CVV: •••' : card.expiryDisplay,
                         style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            fontFeatures: [FontFeature.tabularFigures()]),
                       ),
                     ],
                   ),
-                  const Text(
-                    'VISA',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.white,
-                    ),
+                  Text(
+                    card.network,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, color: Colors.white),
                   ),
                 ],
               ),
@@ -247,23 +224,14 @@ class _CardsScreenState extends State<CardsScreen> {
         ),
         const SizedBox(height: 20),
 
-        // Quick Card Controls
+        // Controls
         Row(
           children: [
             _buildControlTile(
-              icon: _isFrozen ? Icons.lock_open : Icons.ac_unit,
-              label: _isFrozen ? 'Unfreeze' : 'Freeze',
-              isActive: _isFrozen,
-              onTap: () {
-                setState(() => _isFrozen = !_isFrozen);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      _isFrozen ? 'Card has been frozen.' : 'Card is now active.',
-                    ),
-                  ),
-                );
-              },
+              icon: isFrozen ? Icons.lock_open : Icons.ac_unit,
+              label: isFrozen ? 'Unfreeze' : 'Freeze',
+              isActive: isFrozen,
+              onTap: () => _toggleFreeze(context),
             ),
             const SizedBox(width: 8),
             _buildControlTile(
@@ -276,39 +244,63 @@ class _CardsScreenState extends State<CardsScreen> {
             _buildControlTile(
               icon: Icons.add_card,
               label: 'Top Up',
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Top up card coming in Phase 5')),
-                );
-              },
+              onTap: () => ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Top up coming soon'))),
             ),
             const SizedBox(width: 8),
             _buildControlTile(
               icon: Icons.tune,
               label: 'Limits',
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Spending limits coming in Phase 5')),
-                );
-              },
+              onTap: () => ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Spending limits coming soon'))),
             ),
           ],
         ),
         const SizedBox(height: 24),
 
-        // Recent Card Activity
-        const Text(
-          'Card Activity',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
-        ),
+        const Text('Card Activity',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
         const SizedBox(height: 12),
-        ..._cardTransactions.map((tx) => TransactionTile(item: tx)),
+
+        txAsync.when(
+          data: (txList) {
+            if (txList.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(
+                    child: Text('No card activity yet.',
+                        style: TextStyle(color: ProximColors.onSurfaceVariant, fontSize: 13))),
+              );
+            }
+            return Column(
+              children: txList.map((tx) {
+                return TransactionTile(
+                  item: TransactionItem(
+                    id: tx.id,
+                    title: tx.description,
+                    subtitle: _formatDate(tx.timestamp),
+                    amount: tx.amount,
+                    type: tx.isDebit ? TransactionType.sent : TransactionType.received,
+                  ),
+                );
+              }).toList(),
+            );
+          },
+          loading: () => const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2, value: 0.8),
+              ),
+            ),
+          ),
+          // ignore: avoid_types_on_closure_parameters
+          error: (err, st) => const Text('Unable to load card activity.',
+              style: TextStyle(color: Colors.white70, fontSize: 13)),
+        ),
       ],
-    ),
     );
   }
 
@@ -324,33 +316,87 @@ class _CardsScreenState extends State<CardsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isActive
-                ? ProximColors.primary.withValues(alpha: 0.15)
-                : ProximColors.surfaceContainerLow,
+            color: isActive ? ProximColors.primary.withValues(alpha: 0.15) : ProximColors.surfaceContainerLow,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isActive ? ProximColors.primary : ProximColors.hairlineBorder,
-            ),
+            border: Border.all(color: isActive ? ProximColors.primary : ProximColors.hairlineBorder),
           ),
           child: Column(
             children: [
-              Icon(
-                icon,
-                size: 20,
-                color: isActive ? ProximColors.primary : Colors.white,
-              ),
+              Icon(icon, size: 20, color: isActive ? ProximColors.primary : Colors.white),
               const SizedBox(height: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isActive ? ProximColors.primary : ProximColors.onSurfaceVariant,
-                ),
-              ),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isActive ? ProximColors.primary : ProximColors.onSurfaceVariant)),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  static String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '${months[dt.month - 1]} ${dt.day}, $h:$m';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty / Error states
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _NoCardsView extends StatelessWidget {
+  final VoidCallback onIssue;
+  const _NoCardsView({required this.onIssue});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      child: Column(
+        children: [
+          const Icon(Icons.credit_card_off_outlined, size: 40, color: ProximColors.onSurfaceVariant),
+          const SizedBox(height: 16),
+          const Text('No cards yet.', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white)),
+          const SizedBox(height: 8),
+          const Text('Issue a virtual card to start spending.',
+              style: TextStyle(fontSize: 13, color: ProximColors.onSurfaceVariant)),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: onIssue,
+            style: ElevatedButton.styleFrom(
+                backgroundColor: ProximColors.primary,
+                foregroundColor: ProximColors.surfaceContainerLowest,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            child: const Text('Issue a Card'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CardsError extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _CardsError({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      child: Column(
+        children: [
+          const Icon(Icons.wifi_off_outlined, size: 36, color: ProximColors.onSurfaceVariant),
+          const SizedBox(height: 12),
+          const Text('Unable to load cards.', style: TextStyle(fontSize: 14, color: Colors.white70)),
+          const SizedBox(height: 12),
+          TextButton(
+              onPressed: onRetry,
+              child: const Text('Try again', style: TextStyle(color: ProximColors.primary))),
+        ],
       ),
     );
   }
