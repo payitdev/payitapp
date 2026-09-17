@@ -9,9 +9,12 @@ PrivyAuthService createPrivyAuthServiceImpl() => NativePrivyAuthService();
 
 class NativePrivyAuthService implements PrivyAuthService {
   late final Privy _privy;
+  bool _initialized = false;
 
   @override
   Future<void> init() async {
+    if (_initialized) return;
+    await resolvePrivyConfig();
     _privy = Privy.init(
       config: PrivyConfig(
         appId: AppConfig.privyAppId,
@@ -20,6 +23,7 @@ class NativePrivyAuthService implements PrivyAuthService {
     );
     // Resolves once the SDK is ready; also restores any persisted session.
     await _privy.getAuthState();
+    _initialized = true;
   }
 
   @override

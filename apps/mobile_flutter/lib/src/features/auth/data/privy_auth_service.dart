@@ -1,5 +1,37 @@
+import 'package:dio/dio.dart';
+
+import '../../../core/config/app_config.dart';
+import '../../../core/network/api_config.dart';
 import 'privy_auth_service_native.dart'
     if (dart.library.js_interop) 'privy_auth_service_web.dart';
+
+/// Fills [AppConfig.privyAppId] / [AppConfig.privyClientId] from the backend's
+/// public `GET /api/config` when they weren't supplied via `--dart-define`.
+/// Safe to call repeatedly — resolves only once, and dart-define always wins.
+Future<void> resolvePrivyConfig() async {
+  if (AppConfig.privyAppId.isNotEmpty) return;
+  try {
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: ApiConfig.baseUrl,
+        connectTimeout: ApiConfig.connectTimeout,
+        receiveTimeout: ApiConfig.receiveTimeout,
+      ),
+    );
+    final response = await dio.get<Map<String, dynamic>>('/api/config');
+    final data = response.data;
+    if (data == null) return;
+    final appId = data['privyAppId'] as String?;
+    if (appId != null && appId.isNotEmpty) {
+      AppConfig.privyAppId = appId;
+      AppConfig.privyClientId =
+          (data['privyClientId'] as String?) ?? AppConfig.privyClientId;
+    }
+  } catch (_) {
+    // Unreachable backend → leave values empty; the login screen shows a
+    // "not configured" notice and the demo account remains available.
+  }
+}
 
 /// Result of a successful Privy authentication, carrying the identifiers the
 /// backend needs to mint a Proxim session.

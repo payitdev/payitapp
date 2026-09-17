@@ -99,6 +99,17 @@ export function buildServer() {
     return { status: 'healthy', app: 'PayIT Backend API', timestamp: new Date().toISOString() };
   });
 
+  // Public client configuration — non-secret identifiers only.
+  // Lets mobile/web clients discover Privy credentials at runtime instead of
+  // requiring compile-time dart-define/env flags. Never expose secrets here.
+  server.get('/api/config', async () => {
+    return {
+      success: true,
+      privyAppId: env.PRIVY_APP_ID || null,
+      privyClientId: env.PRIVY_CLIENT_ID || null,
+    };
+  });
+
   // Serve static document uploads for Brails CDN document verification
   server.get('/uploads/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };

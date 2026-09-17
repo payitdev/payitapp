@@ -54,11 +54,18 @@ class AppConfig {
   static const bool isDemoMode =
       bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 
-  /// Privy app ID (Dashboard → Settings). Required for sign-in.
-  static const String privyAppId = String.fromEnvironment('PRIVY_APP_ID');
+  /// Privy app ID.
+  ///
+  /// Resolution order: `--dart-define=PRIVY_APP_ID` wins; otherwise resolved
+  /// at startup from the backend's public `GET /api/config` (which reads the
+  /// backend's `.env`). Empty when neither is available.
+  static String privyAppId = _privyAppIdDefine;
 
-  /// Privy client ID (Dashboard → Settings → Clients).
-  static const String privyClientId = String.fromEnvironment('PRIVY_CLIENT_ID');
+  /// Privy client ID — same resolution order as [privyAppId].
+  static String privyClientId = _privyClientIdDefine;
+
+  static const String _privyAppIdDefine = String.fromEnvironment('PRIVY_APP_ID');
+  static const String _privyClientIdDefine = String.fromEnvironment('PRIVY_CLIENT_ID');
 
   /// Guard that fires in debug mode when a release build is misconfigured.
   static void validateConfig() {

@@ -24,15 +24,21 @@ The Flutter app talks to the **Fastify backend** (`apps/backend`).
 | **Local dev** (web/macOS) | `flutter run --dart-define=API_BASE_URL=http://localhost:3001` |
 | **Android emulator** | `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3001` |
 | **Demo mode** (no backend needed) | `flutter run --dart-define=API_BASE_URL=http://localhost:3001 --dart-define=DEMO_MODE=true` |
-| **Email/Google sign-in** (add to any profile) | `--dart-define=PRIVY_APP_ID=<app-id> --dart-define=PRIVY_CLIENT_ID=<client-id>` |
+| **Email/Google sign-in** (optional override) | `--dart-define=PRIVY_APP_ID=<app-id> --dart-define=PRIVY_CLIENT_ID=<client-id>` |
 | **Staging** | `flutter run --dart-define=API_BASE_URL=https://api-staging.proxim.app` |
-| **Production APK** | `flutter build apk --dart-define=API_BASE_URL=https://api.proxim.app --dart-define=PRIVY_APP_ID=<app-id> --dart-define=PRIVY_CLIENT_ID=<client-id>` |
-| **Telegram Mini App (web build)** | `flutter build web --dart-define=API_BASE_URL=https://api.proxim.app --dart-define=PRIVY_APP_ID=<app-id> --dart-define=PRIVY_CLIENT_ID=<client-id>` |
+| **Production APK** | `flutter build apk --dart-define=API_BASE_URL=https://api.proxim.app` |
+| **Telegram Mini App (web build)** | `flutter build web --dart-define=API_BASE_URL=https://api.proxim.app` |
 
 ## Sign-in architecture (Privy, passwordless)
 
 There are no passwords — email OTP and Google sign-in go through Privy, and
 the backend auto-registers first-time emails (login = sign-up).
+
+- **Credential resolution:** the app discovers Privy credentials at startup
+  from the backend's public `GET /api/config` (which reads `PRIVY_APP_ID` /
+  `PRIVY_CLIENT_ID` from the backend's env, e.g. the root `.env`). The
+  `--dart-define=PRIVY_APP_ID` / `PRIVY_CLIENT_ID` flags override the
+  endpoint when supplied. Nothing secret is ever exposed to the client.
 
 - **Native (Android/iOS/APK):** `privy_flutter` plugin → `privy_auth_service_native.dart`.
 - **Web / Telegram Mini App:** `privy_flutter` is native-only, so web builds
@@ -41,7 +47,7 @@ the backend auto-registers first-time emails (login = sign-up).
 - Flow: Privy login → `{privyUserId, accessToken}` → `POST /api/auth/privy/login`
   with `Authorization: Bearer <privy access token>` → backend mints a 7-day
   Proxim JWT (`{success, token, user}`).
-- Android: `minSdk 27` (privy_flutter requirement); OAuth redirect scheme
+- Android: `minSdk 28` (privy_flutter / privy-core requirement); OAuth redirect scheme
   `proxim://` registered in `AndroidManifest.xml`.
 - Router guard: `core/auth/auth_guard.dart` — `AuthNotifier` updates it on
   every state change; go_router redirects unauthenticated users to `/login`

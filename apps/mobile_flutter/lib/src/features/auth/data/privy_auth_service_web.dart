@@ -28,6 +28,8 @@ extension type _PrivySessionJs(JSObject _) implements JSObject {
 }
 
 class WebPrivyAuthService implements PrivyAuthService {
+  bool _initialized = false;
+
   Future<T> _call<T>(Future<T> Function(_ProximPrivyBridge bridge) invoke) async {
     final bridge = _globalBridge;
     if (bridge == null) {
@@ -43,10 +45,13 @@ class WebPrivyAuthService implements PrivyAuthService {
   }
 
   @override
-  Future<void> init() {
-    return _call((bridge) async {
+  Future<void> init() async {
+    if (_initialized) return;
+    await resolvePrivyConfig();
+    await _call((bridge) async {
       await bridge.init(AppConfig.privyAppId, AppConfig.privyClientId).toDart;
     });
+    _initialized = true;
   }
 
   @override
