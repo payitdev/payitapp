@@ -54,6 +54,12 @@ class AppConfig {
   static const bool isDemoMode =
       bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 
+  /// Privy app ID (Dashboard → Settings). Required for sign-in.
+  static const String privyAppId = String.fromEnvironment('PRIVY_APP_ID');
+
+  /// Privy client ID (Dashboard → Settings → Clients).
+  static const String privyClientId = String.fromEnvironment('PRIVY_CLIENT_ID');
+
   /// Guard that fires in debug mode when a release build is misconfigured.
   static void validateConfig() {
     assert(

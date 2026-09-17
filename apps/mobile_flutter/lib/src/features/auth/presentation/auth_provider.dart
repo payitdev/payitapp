@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/network/api_client.dart';
 import '../data/auth_repository.dart';
+import '../data/privy_auth_service.dart';
 import '../domain/auth_models.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,18 +19,24 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(apiClient: apiClient);
 });
 
+final privyAuthServiceProvider = Provider<PrivyAuthService>((ref) {
+  return createPrivyAuthService();
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth State
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AuthState {
   final bool isLoading;
+  final bool isSendingCode;
   final ProximUser? user;
   final String? activeEntityId;
   final String? errorMessage;
 
   const AuthState({
     this.isLoading = false,
+    this.isSendingCode = false,
     this.user,
     this.activeEntityId,
     this.errorMessage,
@@ -50,15 +58,18 @@ class AuthState {
 
   AuthState copyWith({
     bool? isLoading,
+    bool? isSendingCode,
     ProximUser? user,
     String? activeEntityId,
     String? errorMessage,
+    bool clearError = false,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
+      isSendingCode: isSendingCode ?? this.isSendingCode,
       user: user ?? this.user,
       activeEntityId: activeEntityId ?? this.activeEntityId,
-      errorMessage: errorMessage,
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
 }
@@ -69,14 +80,16 @@ class AuthState {
 
 class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
   late final AuthRepository _repository;
+  late final PrivyAuthService _privy;
 
   @override
   AuthState build() {
     _repository = ref.watch(authRepositoryProvider);
+    _privy = ref.watch(privyAuthServiceProvider);
 
     // Wire 401 callback: when api_client sees a 401, log the user out
     _repository.apiClient.onUnauthorized = () async {
-      state = const AuthState();
+      _setState(const AuthState());
     };
 
     // Register lifecycle observer so we can validate the session on resume
@@ -87,6 +100,13 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     return const AuthState(isLoading: true);
   }
 
+  /// Single funnel for state transitions — keeps the router's auth guard in
+  /// sync with the Riverpod state.
+  void _setState(AuthState next) {
+    state = next;
+    authGuard.setAuthenticated(next.isAuthenticated);
+  }
+
   /// Called by WidgetsBindingObserver when the app comes back to the foreground.
   /// Telegram JWTs expire in 1h — re-check the session every time the user
   /// returns to the app.
@@ -95,31 +115,119 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     if (appState == AppLifecycleState.resumed && state.isAuthenticated) {
       final valid = await _repository.checkSession();
       if (!valid) {
-        await _repository.logout();
-        state = const AuthState();
+        await logout();
       }
     }
   }
 
+  /// App start: restore the stored session, then try a silent Privy
+  /// re-authentication before giving up and showing the login screen.
   Future<void> initializeSession() async {
-    state = state.copyWith(isLoading: true);
+    _setState(state.copyWith(isLoading: true, clearError: true));
     try {
       final user = await _repository.restoreSession();
       if (user != null) {
-        state = state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId);
+        _setState(state.copyWith(
+          isLoading: false,
+          user: user,
+          activeEntityId: user.activeEntityId,
+        ));
         return;
       }
-    } catch (_) {}
 
-    // Auto-login to demo session (calls the real /api/auth/demo endpoint;
-    // falls back to offline data only if DEMO_MODE=true)
-    try {
-      final user = await _repository.loginDemo();
-      state = state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId);
+      // Stored app JWT missing/invalid — if Privy still has a session,
+      // exchange it for a fresh Proxim JWT without user interaction.
+      try {
+        await _privy.init();
+        final session = await _privy.restoreSession();
+        if (session != null) {
+          final privyUser = await _repository.loginPrivy(
+            privyUserId: session.userId,
+            accessToken: session.accessToken,
+          );
+          _setState(state.copyWith(
+            isLoading: false,
+            user: privyUser,
+            activeEntityId: privyUser.activeEntityId,
+          ));
+          return;
+        }
+      } catch (e) {
+        debugPrint('[AuthNotifier] Silent Privy restore failed: $e');
+      }
+
+      _setState(const AuthState(isLoading: false));
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      _setState(AuthState(isLoading: false, errorMessage: e.toString()));
     }
   }
+
+  // ── Sign-in flows ──────────────────────────────────────────────────────────
+
+  /// Step 1 of email sign-in / sign-up: send a one-time code.
+  Future<bool> sendEmailCode(String email) async {
+    _setState(state.copyWith(isSendingCode: true, clearError: true));
+    try {
+      await _privy.init();
+      await _privy.sendEmailCode(email.trim());
+      _setState(state.copyWith(isSendingCode: false));
+      return true;
+    } catch (e) {
+      _setState(state.copyWith(isSendingCode: false, errorMessage: e.toString()));
+      return false;
+    }
+  }
+
+  /// Step 2 of email sign-in / sign-up: verify the code. First-time emails
+  /// are registered automatically by the backend — there is no separate
+  /// sign-up endpoint.
+  Future<bool> loginWithEmailCode({required String email, required String code}) async {
+    _setState(state.copyWith(isLoading: true, clearError: true));
+    try {
+      final session = await _privy.loginWithEmailCode(email: email.trim(), code: code.trim());
+      final user = await _repository.loginPrivy(
+        privyUserId: session.userId,
+        accessToken: session.accessToken,
+      );
+      _setState(state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId));
+      return true;
+    } catch (e) {
+      _setState(AuthState(isLoading: false, errorMessage: e.toString()));
+      return false;
+    }
+  }
+
+  Future<bool> loginWithGoogle() async {
+    _setState(state.copyWith(isLoading: true, clearError: true));
+    try {
+      await _privy.init();
+      final session = await _privy.loginWithGoogle();
+      final user = await _repository.loginPrivy(
+        privyUserId: session.userId,
+        accessToken: session.accessToken,
+      );
+      _setState(state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId));
+      return true;
+    } catch (e) {
+      _setState(AuthState(isLoading: false, errorMessage: e.toString()));
+      return false;
+    }
+  }
+
+  /// Demo account — used by the "Explore the demo" button on the login screen.
+  Future<bool> loginDemo() async {
+    _setState(state.copyWith(isLoading: true, clearError: true));
+    try {
+      final user = await _repository.loginDemo();
+      _setState(state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId));
+      return true;
+    } catch (e) {
+      _setState(AuthState(isLoading: false, errorMessage: e.toString()));
+      return false;
+    }
+  }
+
+  // ── Session management ─────────────────────────────────────────────────────
 
   Future<void> toggleEntityMode() async {
     final user = state.user;
@@ -132,7 +240,7 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     );
 
     await _repository.switchActiveEntity(targetEntity.id);
-    state = state.copyWith(activeEntityId: targetEntity.id);
+    _setState(state.copyWith(activeEntityId: targetEntity.id));
   }
 
   Future<void> setMode(bool isBusiness) async {
@@ -146,17 +254,22 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     );
 
     await _repository.switchActiveEntity(targetEntity.id);
-    state = state.copyWith(activeEntityId: targetEntity.id);
+    _setState(state.copyWith(activeEntityId: targetEntity.id));
   }
 
   Future<void> selectEntity(String entityId) async {
     await _repository.switchActiveEntity(entityId);
-    state = state.copyWith(activeEntityId: entityId);
+    _setState(state.copyWith(activeEntityId: entityId));
   }
 
   Future<void> logout() async {
+    try {
+      await _privy.logout();
+    } catch (e) {
+      debugPrint('[AuthNotifier] Privy logout note: $e');
+    }
     await _repository.logout();
-    state = const AuthState();
+    _setState(const AuthState());
   }
 }
 

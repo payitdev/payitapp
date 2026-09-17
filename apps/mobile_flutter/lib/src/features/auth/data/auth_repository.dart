@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_config.dart';
@@ -74,22 +75,42 @@ class AuthRepository {
     throw const ProximException('Unable to authenticate Telegram session. Please try again.');
   }
 
-  /// Privy / email-password login
-  Future<ProximUser> loginPrivy(String privyToken) async {
+  /// Privy login — verifies a Privy session and mints a Proxim JWT.
+  ///
+  /// Backend contract (POST /api/auth/privy/login):
+  /// - Header `Authorization: Bearer <privy access token>` (verified server-side)
+  /// - Body `{ privyUserId }` — must match the verified token's user.
+  /// The backend creates the user + entities on first login (sign-up is
+  /// implicit), and responds with `{ success, token, user }`.
+  Future<ProximUser> loginPrivy({
+    required String privyUserId,
+    required String accessToken,
+    String? walletAddress,
+  }) async {
     final response = await _apiClient.post<Map<String, dynamic>>(
       '/api/auth/privy/login',
-      data: {'privyToken': privyToken},
+      data: {
+        'privyUserId': privyUserId,
+        'walletAddress': ?walletAddress,
+      },
+      options: Options(
+        headers: {'Authorization': 'Bearer $accessToken'},
+      ),
     );
     final data = response.data;
     if (data != null && data['success'] == true && data['token'] != null) {
-      final token = data['token'] as String;
-      await _apiClient.tokenStorage.saveToken(token);
-
-      final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
-      await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
-      return user;
+      await _saveSession(data);
+      return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
     }
     throw const ProximException('Authentication failed. Please try again.');
+  }
+
+  Future<void> _saveSession(Map<String, dynamic> data) async {
+    final token = data['token'] as String;
+    await _apiClient.tokenStorage.saveToken(token);
+
+    final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+    await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
   }
 
   /// Verify 6-digit passcode — real API call; no hardcoded bypass.

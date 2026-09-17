@@ -30,10 +30,11 @@ class ProximApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          // Attach JWT bearer token
+          // Attach JWT bearer token (never clobber an explicitly-set header,
+          // e.g. the Privy token sent to /api/auth/privy/login)
           final token = await _tokenStorage.getToken();
           if (token != null && token.isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer $token';
+            options.headers['Authorization'] ??= 'Bearer $token';
           }
 
           // Attach active entity context

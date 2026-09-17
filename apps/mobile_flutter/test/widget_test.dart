@@ -4,14 +4,40 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:proxim_app/src/app/app.dart';
 import 'package:proxim_app/src/app/router.dart';
+import 'package:proxim_app/src/core/auth/auth_guard.dart';
+import 'package:proxim_app/src/features/auth/presentation/auth_provider.dart';
+
+/// Auth notifier that stays inert: no session restore, no Privy calls, no
+/// auth-guard flips. The router guard is authenticated in setUp instead, so
+/// tests render the dashboard exactly as before the login flow existed.
+class _FakeAuthNotifier extends AuthNotifier {
+  @override
+  AuthState build() => const AuthState();
+}
+
+Future<void> pumpProximApp(WidgetTester tester) {
+  return tester.pumpWidget(
+    ProviderScope(
+      overrides: [authProvider.overrideWith(() => _FakeAuthNotifier())],
+      child: const ProximApp(),
+    ),
+  );
+}
 
 void main() {
   setUp(() {
+    // Authenticate the router guard so tests render the dashboard instead of
+    // the login screen (screens render their hardcoded demo fallbacks).
+    authGuard.setAuthenticated(true);
     router.go('/');
   });
 
+  tearDown(() {
+    authGuard.setAuthenticated(false);
+  });
+
   testWidgets('ProximApp shows Treasury Dashboard by default in Business mode', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: ProximApp()));
+    await pumpProximApp(tester);
     await tester.pumpAndSettle();
 
     // Verify Treasury Dashboard elements
@@ -25,7 +51,7 @@ void main() {
   });
 
   testWidgets('Top bar switcher toggles between Business Treasury and Personal banking', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: ProximApp()));
+    await pumpProximApp(tester);
     await tester.pumpAndSettle();
 
     // Defaults to Business
@@ -49,7 +75,7 @@ void main() {
   });
 
   testWidgets('Bottom navigation switches across all 6 primary tabs', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: ProximApp()));
+    await pumpProximApp(tester);
     await tester.pumpAndSettle();
 
     // 1. Activity tab
@@ -84,7 +110,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(const ProviderScope(child: ProximApp()));
+    await pumpProximApp(tester);
     await tester.pumpAndSettle();
 
     // 1. Batch Payroll

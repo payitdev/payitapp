@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../core/widgets/centered_app_container.dart';
+import '../core/auth/auth_guard.dart';
 import '../core/widgets/proxim_bottom_nav.dart';
 import '../core/widgets/proxim_scaffold.dart';
 import '../features/activity/presentation/activity_screen.dart';
+import '../features/auth/presentation/login_screen.dart';
 import '../features/cards/presentation/cards_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/invest/presentation/invest_screen.dart';
@@ -26,9 +27,24 @@ final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 /// App router with persistent shell navigation across the 6 primary tabs
 /// and dedicated full-screen routes for execution flows.
+///
+/// Auth guard: unauthenticated users are redirected to /login, except for
+/// public routes (invoice checkout). [authGuard] is updated by AuthNotifier
+/// and drives both the redirect and router refresh.
 final router = GoRouter(
   navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
+  refreshListenable: authGuard,
+  redirect: (context, state) {
+    final loggedIn = authGuard.isAuthenticated;
+    final location = state.matchedLocation;
+    final onLogin = location == '/login';
+    final isPublic = location.startsWith('/checkout');
+
+    if (!loggedIn && !onLogin && !isPublic) return '/login';
+    if (loggedIn && onLogin) return '/';
+    return null;
+  },
   routes: [
     ShellRoute(
       navigatorKey: _shellNavigatorKey,
@@ -120,7 +136,7 @@ final router = GoRouter(
     GoRoute(
       parentNavigatorKey: _rootNavigatorKey,
       path: '/login',
-      builder: (context, state) => const _LoginPlaceholderScreen(),
+      builder: (context, state) => const LoginScreen(),
     ),
   ],
 );
@@ -139,19 +155,6 @@ class _AppShell extends StatelessWidget {
     return ProximScaffold(
       bottomNavigationBar: ProximBottomNav(currentPath: currentPath),
       body: child,
-    );
-  }
-}
-
-class _LoginPlaceholderScreen extends StatelessWidget {
-  const _LoginPlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: CenteredAppContainer(
-        child: Center(child: Text('Login — coming in Phase 4')),
-      ),
     );
   }
 }

@@ -41,6 +41,7 @@ dependencies:
   intl: ^0.20.3
   url_launcher: ^6.3.2
   google_fonts: ^8.2.1
+  privy_flutter: ^0.10.2
 
 dev_dependencies:
   flutter_test:
