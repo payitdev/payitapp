@@ -41,8 +41,27 @@ export function buildServer() {
 
   server.register(rawBody, { field: 'rawBody', global: false, encoding: 'utf8', runFirst: true });
 
+  // Flutter web (dev servers pick arbitrary ports) and the deployed Render
+  // frontends call this API cross-origin. In non-production, accept any
+  // localhost origin; in production, only the explicit allowlist
+  // (CORS_ORIGIN env, comma-separated, overrides the defaults).
+  const defaultOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://payit-flutter-web.onrender.com',
+    'https://payit-mobile-web.onrender.com',
+  ];
   server.register(cors, {
-    origin: process.env.CORS_ORIGIN || ['http://localhost:3000', 'http://localhost:5173'],
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const allowed = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+        : defaultOrigins;
+      const isLocalDev =
+        process.env.NODE_ENV !== 'production' &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      cb(null, isLocalDev || allowed.includes(origin));
+    },
   });
 
   // Debug endpoint for EaseID testing (admin-gated)

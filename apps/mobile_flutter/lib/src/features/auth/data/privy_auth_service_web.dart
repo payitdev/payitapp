@@ -30,13 +30,25 @@ extension type _PrivySessionJs(JSObject _) implements JSObject {
 class WebPrivyAuthService implements PrivyAuthService {
   bool _initialized = false;
 
-  Future<T> _call<T>(Future<T> Function(_ProximPrivyBridge bridge) invoke) async {
+  Future<_ProximPrivyBridge> _ensureBridge() async {
+    // web/privy_bridge.js is an ES module that imports the Privy SDK from a
+    // CDN — it lands asynchronously, often after the app's first frame. Wait
+    // for it instead of failing sign-in on a cold start.
+    final sw = Stopwatch()..start();
+    while (_globalBridge == null && sw.elapsed < const Duration(seconds: 15)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
     final bridge = _globalBridge;
     if (bridge == null) {
       throw Exception(
         'Sign-in is unavailable right now. Please check your connection and reload the app.',
       );
     }
+    return bridge;
+  }
+
+  Future<T> _call<T>(Future<T> Function(_ProximPrivyBridge bridge) invoke) async {
+    final bridge = await _ensureBridge();
     try {
       return await invoke(bridge);
     } catch (e) {
