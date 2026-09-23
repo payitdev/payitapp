@@ -38,7 +38,7 @@ export async function uploadDocumentToCdn(base64Data: string, prefix = 'doc'): P
       else if (header.includes('jpeg') || header.includes('jpg')) ext = 'jpg';
     }
 
-    const fileHash = crypto.createHash('md5').update(rawBase64).digest('hex').slice(0, 16);
+    const fileHash = crypto.createHash('sha256').update(rawBase64).digest('hex').slice(0, 16);
     const fileName = `${prefix}_${Date.now()}_${fileHash}.${ext}`;
     const filePath = path.join(UPLOADS_DIR, fileName);
 

@@ -53,17 +53,17 @@ export class KaminoClient {
       const tokenMint = String(vault.state?.tokenMint || vault.tokenMint || '');
       const token = tokenByMint.get(tokenMint);
       return {
-      id: String(vault.address),
-      name: String(vault.state?.name || vault.name || vault.address),
-      protocol: 'kamino',
-      network: 'solana',
-      type: 'LEND_STABLE',
-      assetSymbol: String(vault.state?.tokenSymbol || vault.tokenSymbol || token?.symbol || 'UNKNOWN'),
-      assetMint: tokenMint,
-      grossApy: 0,
-      proximCutApy: 0,
-      userNetApy: 0,
-      tvlUsd: Number(vault.state?.tvl || vault.tvl || 0),
+id: String(vault.address),
+       name: String(vault.state?.name || vault.name || vault.address),
+       protocol: 'kamino',
+       network: 'solana',
+       type: 'LEND_STABLE',
+       assetSymbol: String(vault.state?.tokenSymbol || vault.tokenSymbol || token?.symbol || 'UNKNOWN'),
+       assetMint: tokenMint,
+       grossApy: Number(vault.state?.grossApy || vault.grossApy || 0),
+       proximCutApy: 2.50,
+       userNetApy: Number(vault.state?.grossApy || vault.grossApy || 0) - 2.50,
+       tvlUsd: Number(vault.state?.tvl || vault.tvl || 0),
       liquidityDepthUsd: 0,
       verified: Boolean(vault.address && tokenMint && token?.verified),
       };

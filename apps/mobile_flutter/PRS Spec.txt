@@ -1,0 +1,521 @@
+Proxim — App Specification
+Audience: this document is written for the developer(s) building Proxim across all four delivery targets at once — the mobile web app, native iOS, native Android, and the Telegram bot — plus whoever on the team is making backend/vendor decisions. Sections are flagged where a decision differs by platform.
+
+Tagline: "Money without limits." Internal codename: payit-mobile-web Reviewed codebase: a mobile-first React 18 + TypeScript + Vite web app, designed to also run inside Telegram as a Mini App.
+
+This spec is reconstructed directly from the project's source: config files, App.tsx, all primary/secondary screen components, their data hooks, shared UI components, and the App-level modals. Anything not visible in code is marked (inferred) or listed as an open question. Where the code contains something that looks like a bug, placeholder, or unresolved inconsistency, it's called out under ⚠ Developer note so nothing gets silently carried into the rebuild.
+Contents
+Platform & Delivery Targets — start here
+Critical Architecture Finding: Two Parallel Banking Backends
+Product Overview
+Personas
+Information Architecture
+Authentication & Session Flow
+Deep Links
+Screen-by-Screen Functional Spec
+Shared UI Components
+Cross-Cutting Systems
+Multi-Chain & Wallet Support
+API Endpoint Reference
+Design System
+Technical Architecture
+Non-Functional Requirements
+App-Level Modals — Full Detail
+Open Questions for the Team
+Glossary of Named Systems & Providers
+
+
+0. Platform & Delivery Targets
+The reviewed codebase is one thing: a React DOM web app (Vite build, browser APIs, localStorage, CSS-in-JS via inline styles). It is not a React Native codebase. That matters immediately because the four targets have different starting points:
+
+Target
+What exists today
+What's needed
+Mobile web app
+This is exactly what's been reviewed. Runs in any mobile browser at the 440px-max-width "phone" layout described in §12.
+Ship as-is; this is the reference implementation everything else should match.
+Telegram Mini App
+Partially exists: telegram-web-app.js is loaded globally in index.html, and haptics (§9.1) already detect and prefer Telegram.WebApp.HapticFeedback. This is the same web app, opened inside Telegram's in-app browser via a Mini App URL.
+Confirm the Telegram Mini App manifest/BotFather configuration is set up, and that anything relying on browser-only APIs (e.g. navigator.clipboard, window.open used for the Help Center link and Telegram-bot-linking deep link in §15.4) degrades gracefully inside Telegram's webview.
+Telegram bot
+Does not exist in any reviewed file. TelegramManagerModal (§15.4) only links a user's Proxim account to a Telegram account — its copy says the bot lets users "send money, check balances, and manage cards directly in the bot using your 6-digit PIN," which describes a separate, conversational Telegram Bot API integration (a bot server using node-telegram-bot-api/grammy/Telegraf or similar, hitting the same backend). This is a distinct piece of engineering — a stateful chat bot with its own command handlers, PIN-based step-up auth for money movement, and its own notification-sending logic — not something derived from the web app's React components at all.
+This needs to be scoped and built as its own service. It will share the backend API and probably the /api/auth/telegram/* endpoints (§15.4), but none of its UI/UX can be copied from the web screens — a bot's "screens" are message templates and inline keyboards, not React components.
+Native iOS / Android
+Does not exist. No React Native, Swift, Kotlin, Capacitor, or Cordova config found anywhere in the reviewed files.
+This is the single biggest open decision in the whole project — see below.
+
+The native-app decision the team needs to make first
+There are three realistic paths from "one React web app" to "native iOS + Android apps," and they have very different cost/consistency trade-offs. The developer shouldn't start native work until the team has picked one:
+
+Wrap the existing web app (Capacitor or a similar native-shell approach). Fastest path — the React/Vite app runs inside a native WebView, gets a real App Store/Play Store listing, and can access native APIs (push notifications, biometrics, secure storage, deep links) through plugins. Nearly everything already documented in this spec (screens, hooks, modals, design tokens) carries over unchanged. Trade-off: it's still a webview under the hood, so certain "feels native" details (native navigation transitions, some gesture handling) are harder to get exactly right, and Privy's React SDK (browser-oriented) needs to be confirmed compatible with a Capacitor WebView context (Privy does also publish a dedicated React Native SDK — see below).
+Rebuild natively with React Native, sharing business logic (the hook layer — useCards, useSavings, useTransactions, etc. — is mostly fetch calls and state, which ports reasonably well) but rewriting every screen's UI in React Native primitives instead of DOM/CSS. Privy publishes @privy-io/expo for exactly this case. More work upfront, but a genuinely native feel and native performance.
+Fully separate native codebases (Swift/SwiftUI for iOS, Kotlin/Jetpack Compose for Android). Maximum native quality, maximum cost — effectively three frontends (web, iOS, Android) to keep in sync with every product change, on top of the Telegram bot as a fourth. Given the size of this app (6 tabs, ~10 modals, multiple third-party integrations per §1 and §15), this path has the highest ongoing maintenance burden of the three.
+
+Recommendation for the developer to raise with the team, not a decision this document makes unilaterally: given the app is already built as a polished, token-driven, mobile-first web app, option 1 (Capacitor wrapper) is very likely the pragmatic starting point, with option 2 (React Native) as a later upgrade path for specific screens if the wrapped version doesn't feel native enough — but this is a product/business call (App Store review risk, budget, timeline) as much as a technical one.
+Cross-platform implications to design around now, regardless of which path is chosen
+Auth: confirm which Privy SDK each target uses (@privy-io/react-auth for web/Capacitor-webview, @privy-io/expo for React Native) and that session/JWT handling (§5) works the same way across all of them — the localStorage-based token storage described in §5 will need a native-secure-storage equivalent (Keychain/Keystore) on any real native build, not localStorage.
+Push notifications: nothing in the reviewed code sends or registers for push notifications on any platform. This needs a plan per target: web push (or none, if wrapped), native push (APNs/FCM) for iOS/Android, and Telegram's own message-based "notifications" for the bot. Payment/request/invoice events (§7.6, §7.2) are the obvious first candidates.
+Deep links: the ?invoice= web deep link (§6) needs an equivalent on every platform — universal links/app links for iOS/Android, and a bot start parameter (t.me/YourBot?start=invoice_<id>) for Telegram, all resolving to the same underlying invoice data.
+Haptics: the existing useHaptics/triggerLightHaptic helper (§9.1) already branches on Telegram's WebApp API vs. the browser Vibration API — a native wrapper/rebuild will need a third branch for native haptic APIs (Capacitor's Haptics plugin, or React Native's).
+One design system, four surfaces: tokens.css (§12) is CSS custom properties, which work as-is on web/Capacitor but need to be ported to whatever styling system a React Native rebuild uses (e.g. a shared JS/TS token object consumed by both). Keep the token values as the single source of truth even if the mechanism changes.
+
+
+1. ⚠ Critical Architecture Finding: Two Parallel Banking Backends
+Having now seen the modal components, there's a structural issue that should be resolved with the team before any further building, because it affects almost everything else in this document.
+
+The codebase contains two independent, non-integrated systems that each implement onboarding, funding/payout, cards, and savings:
+
+Concern
+System A — "Core" (wired into the main tab bar)
+System B — "Nuvion" (a self-contained hub, mostly not wired in)
+Onboarding/KYC
+KycVerificationModal (EaseID: NIN/BVN + liveness), BrailsKycModal (Brails: dynamic schema form, provisions the NGN account)
+NuvionOnboardingWizard — full individual/business onboarding with document upload, hits /api/nuvion/entities/individual, /api/nuvion/entities/business, /api/nuvion/documents, /api/nuvion/review
+Send money
+NuvionPayoutModal — is wired in as the Home "Send" action
+(same component)
+Receive/fund
+NuvionFundingModal — is wired in as the Home "Receive" action, supporting Bank Transfer, Mobile Money, and multi-chain crypto deposit
+(same component)
+Cards
+CardsScreen + useCards hook, hitting /api/cards/* (Visa/Mastercard, Personal/Business/Burner) — this is what's in the tab bar
+NuvionCardHub — a full debit/prepaid/virtual card manager with spending limits and PAN/CVV reveal, hitting /api/nuvion/cards/* — exists in the codebase but is not imported anywhere in App.tsx
+Savings
+SavingsScreen + useSavings hook — Kamino/Pods DeFi yield vaults, hitting /api/kamino/* / /api/pods/* — this is what's in the tab bar
+NuvionSavingsHub — goal-based savings ("Emergency Fund", target amount/date, ~6.5% APY), hitting /api/nuvion/savings/* — also not imported in App.tsx
+
+
+In other words: Send and Receive already run on the "Nuvion" backend (a traditional banking-as-a-service style provider — bank transfers, mobile money, cross-border wire payouts with IBAN/routing/sort-code/bank-code fields), while Cards and Savings on the main tab bar run on an entirely different, crypto-native stack (card-issuing API + Kamino/Pods DeFi yield + Ondo tokenized stocks). Meanwhile a second, unused implementation of onboarding, cards, and savings already exists for the Nuvion side (NuvionOnboardingWizard, NuvionCardHub, NuvionSavingsHub) but was never connected to the app's navigation.
+
+This needs a decision from the team, not just the developer: is Nuvion meant to become the single backend for everything (in which case CardsScreen/useCards/useSavings are the legacy pieces to retire, and NuvionCardHub/NuvionSavingsHub need to be wired into the tab bar in their place), or is the crypto-native stack (Kamino/Pods/Ondo) the long-term direction (in which case Send/Receive need to be rebuilt off that stack instead of Nuvion, and the orphaned Nuvion hub components should be deleted)? Right now the app is straddling both, and a developer building "the next feature" on either side risks building on the piece that's about to be thrown away.
+
+
+2. Product Overview
+Proxim is a global payments and treasury app for individuals and small businesses, combining:
+
+A fiat wallet per entity (₦ for Personal, $ for Business, expandable to EUR/GBP/KES/GHS/CAD)
+A USDC stablecoin balance held on-chain, with support for connecting to Solana, NEAR, or an external wallet (WalletConnect / Coinbase Wallet)
+Send / receive / request / convert across fiat and crypto rails
+Virtual cards (Visa/Mastercard) for spending, with freeze/fund/withdraw controls
+Savings ("Vault") with automated yield strategies and an "auto-sweep idle cash" feature
+Stock investing ("Invest") via tokenized equities (tickers priced in USD, buy/sell with a watchlist and positions view)
+Business tools: invoicing (fiat or stablecoin settlement), payroll batch runs, a balance sheet view, and a developer hub
+Identity verification (KYC), required to unlock fiat banking features
+Telegram integration: runs inside Telegram's Mini App container and supports linking/managing a Telegram bot account from Profile
+
+Two account types exist per user — Personal and Business — toggled from Home or Profile, each backed by its own entity, balances, and KYC state.
+
+
+3. Personas (inferred)
+Persona
+Primary use
+Individual
+Hold/convert currency, send/receive/request money, get a card, save into yield, invest in stocks
+Freelancer / small business
+All of the above, plus invoicing, payroll, and a business balance sheet
+Developer/integrator
+API access via the Developer Hub
+
+
+
+4. Information Architecture
+4.1 Onboarding (not yet wired into routing — see §5)
+launch → welcome → auth → kyc-intro → kyc-form → kyc-pending
+4.2 Primary screens (bottom tab bar — BottomNav)
+home · activity · stocks (labelled Invest in-UI) · savings (labelled Vault in-UI) · cards · profile
+
+All primary screens accept onNavigate and an optional onEnterScreen map (a per-screen callback fired when that tab becomes active — e.g. for lazy-refetching data on tab focus).
+4.3 Secondary screens (pushed, not tabbed)
+requests · invoices · invoice-new · payroll · payroll-new — each uses a ScreenHeader with an explicit Back action rather than the tab bar.
+4.4 Modals / sheets
+Two sheet patterns exist in the code: App-level modals (declared in App.tsx, full custom-styled overlays) and Sheet components (a shared bottom-sheet primitive used inside individual screens — e.g. Cards' "Issue card" flow, Savings' "Deposit" flow, Requests' "Request money" flow). Both should be treated as the same UI pattern (a bottom sheet with a title and close affordance) — the developer should confirm Sheet is the one true implementation and the App-level modals are just older/parallel instances of the same idea. See §16 for full detail on each App-level modal now that their source is available.
+
+⚠ Duplicate "Requests" experience: the Home "Request" quick action opens PaymentRequestHubModal (a full Inbox/Outbound/Create experience with a Trusted-vs-Strangers split and a Decline action — see §16.4), which is a separate, more capable implementation from the RequestsScreen secondary screen described in §7.6 (which only supports All/Pending/Paid/Declined + Fulfill, no Decline). Nothing in the reviewed files actually navigates to the requests secondary screen — it may be unreachable dead code, or reachable from a component not yet reviewed. Confirm which of the two is meant to be the real Requests experience.
+
+
+5. Authentication & Session Flow
+Login screen shown when no currentUser. Primary path: Privy (Google / Apple / Email), which also provisions an embedded wallet.
+On Privy success, frontend exchanges the Privy token for a Proxim session via POST /api/auth/privy/login; JWT stored in localStorage as proxim_auth_token.
+Session restore on load via GET /api/auth/session.
+Demo login via POST /api/auth/demo, with a hardcoded local fallback (Alex Morgan / alex.morgan@proxim.app) if unreachable — should be gated out of production builds.
+If the Privy→backend exchange fails, the app falls back to using the raw Privy identity directly (degraded mode) — decide deliberately what should work in that state.
+Backend response includes user.entities[]; the app selects the Personal entity by default and derives kycTier / dueStatus from it.
+AccountContext (AccountContext.tsx) is the single source of truth for accountType, activeEntity, currentUser, kycStatus, and kycTier, exposed app-wide via useAccount().
+⚠ Developer note: handleLogout clears three different localStorage keys — proxim_auth_token, proxim_session_token, and payit_auth_token. Only the first is ever written anywhere in the reviewed code. The other two look like leftovers from an earlier naming scheme (payit_auth_token matches the internal codename payit-mobile-web) or an earlier auth implementation — worth a quick audit to confirm nothing still depends on them, then remove the dead keys.
+⚠ restoreSession is a stub — its body is just the comment // Ported in Step 7. It's exposed on the context but does nothing. If anything is meant to call it, that porting work still needs to happen.
+Display-name resolution (getLegalDisplayName / getLegalFirstName) is a deliberately defensive helper: it tries entity.legalName → user.fullName → user.name → user.google.name → derived-from-email-handle → truncated wallet address → "Valued Client" fallback, while explicitly rejecting values that look like placeholder/test data (containing "proxim", an "@", or exactly equal to "test"). This is good practice already in place — the developer should keep this helper as the one canonical way to render a user's name anywhere new UI is added, rather than reading currentUser.fullName directly.
+
+
+6. Deep Links
+?invoice=<id> routes to PublicInvoiceCheckout, an unauthenticated, fully standalone page (its own dark "Financial Enclave" branded shell, not the app's screen-container). It fetches GET /api/invoices/public/{id}, shows the invoice, and offers three payment rails — Crypto (shows a deposit address + network/asset, e.g. "USDC on Base"), Bank Wire (shows a dedicated account number/name + a payment reference tag), and Card/Mobile Money ("via Brails payment rails," covering Visa/Mastercard/Apple Pay/M-Pesa). Also offers "Save as Image" (fetches GET /api/invoices/{id}/export and downloads an SVG) and "Print PDF" (just calls window.print()).
+
+⚠ Developer note (important): none of the three rails actually process a real payment. Each just shows a "I have sent this / Confirm payment" button that calls POST /api/invoices/public/{id}/pay with a plain descriptive string as paymentMethod (e.g. "1-Click Web3 Stablecoin Settlement") — there's no card form, no crypto transaction broadcast/verification, and no webhook-driven confirmation visible in this component. As written, paying an invoice is a self-attested "trust me" click, not a verified payment. This is fine for a prototype/demo but is a real gap to close (real card processing, on-chain payment verification, or a bank-webhook reconciliation flow) before this is a genuine public payment page.
+
+
+7. Screen-by-Screen Functional Spec
+7.1 Home
+Header: avatar (first initial of legal display name), greeting ("Good evening" for Personal / "Corporate Account" label for Business), first name, and a flip-style Personal/Business switcher control.
+KYC banner (KycBanner), one of three states:
+Unverified: "Unlock your Naira account — Verify your identity in 60 seconds" + Verify ID button → opens the EaseID/Brails KYC modal.
+Pending: "Verification in review — Your bank accounts will activate once confirmed."
+Approved: "Verified Personal/Business Account — Tier {n} · Bank accounts active" + a Verified chip.
+Hero balance card:
+An animated AuroraBar sweep graphic.
+Label: "Across 3 accounts · tap to switch" (Personal) or "Corporate Treasury Balance" (Business) — (inferred) the "3 accounts" figure looks hardcoded copy, confirm with product whether it should reflect a real count.
+A currency tag (selectedCurrency, e.g. NGN/USD) that opens the Currency Convert modal when tapped.
+Large balance figure: 42px for Personal, 34px for Business.
+Secondary lines: true USDC balance, optional on-chain asset summary, and an optional on-chain-balance-error message (shown in soft red) if the chain read fails.
+A static "+₦0.00 today" delta line — ⚠ Developer note: this is hardcoded in the component, not computed from real daily change. Needs real data wiring.
+Quick actions, which differ by account type:
+Personal: Send, Receive, Request, Contacts, Vault (labelled "Vault", navigates to Savings).
+Business: Receive, Invoices.
+⚠ Developer note: the Business "Invoices" quick-action button (onGoInvoices) currently calls onNavigate('home') — it does not navigate to the Invoices screen. The comment in the code says "secondary nav wired at App level," implying this was meant to be wired up in App.tsx but wasn't finished. This needs a real fix: either pass a proper cross-screen navigate handler into HomeScreen, or change its onNavigate prop type (currently typed as accepting only PrimaryScreen) to also accept SecondaryScreen.
+Business Home is also missing Send/Request/Contacts/Vault entirely — confirm with product whether that's intentional (e.g. Business sends only via Invoices/Payroll) or a gap.
+7.2 Activity
+Title + a 3-way filter (All / Received / Sent) using activityFilter (all/in/out).
+Transactions are grouped under date headers (Today, Yesterday, or the raw date string).
+Each row: direction icon, title, subtitle · time-or-date, and a signed formatted amount (+₦1,000.00 / -$1,000.00), using each transaction's own currency symbol.
+Tapping a row calls fetchPayoutTracker(tx.id) and opens a Payment details bottom sheet showing: Reference (UETR or payout ID), Status, Network (e.g. "NIBSS / SWIFT / SEPA"), Estimated delivery.
+⚠ Developer note: fetchPayoutTracker has a hardcoded fallback tracker object (fake UETR, "Within 1–2 business days") used whenever the real endpoint fails or returns unsuccessfully — meaning on any backend hiccup the user is shown fabricated tracking data with no visible error. This should be replaced with a genuine error/empty state before launch; silently faking financial tracking info is a real risk area.
+Standard loading (skeleton rows) / error (with retry) / empty states throughout.
+Data source: GET /api/transfers/history?entityId=...; tracker: GET /api/transfers/status/{payoutId}.
+7.3 Cards
+Header: "Cards" title + a New card button (only shown once at least one card exists).
+No card yet: empty state with an icon, "Get your virtual card" copy, "Spend globally with real-time conversion and zero hidden fees," and an Issue card CTA.
+Card present (only the first issued card, issuedCards[0], is shown as the active card — confirm with product whether multi-card support/switching is in scope, since the data model already returns a list):
+A visual card element (aurora gradient) showing brand ("Proxim"), an Active/Frozen status chip, masked PAN, cardholder name, expiry, and card network brand (VISA/MASTERCARD).
+Action row: Freeze/Unfreeze, Fund, Withdraw.
+Card activity section — filtered from the general transactions list by a heuristic (mode === 'fiat' and title/subtitle containing the word "card") rather than a dedicated card-transactions endpoint. ⚠ Developer note: this string-matching filter is fragile; a dedicated cardId-scoped transactions endpoint would be more robust.
+Issue card sheet: choose brand (Visa/Mastercard) and card type (Personal/Business/Burner — "Burner" implying a disposable/single-use card concept worth confirming the intended use case for), then submit.
+Fund/Withdraw sheet: single "Amount (USD)" field, min $1.
+Endpoints: GET /api/cards?entityId=, POST /api/cards/issue, POST /api/cards/freeze, POST /api/cards/top-up, POST /api/cards/withdraw.
+7.4 Savings ("Vault")
+Hero card: "Total active savings" figure (savingsPool), and "Earn up to 11.2% APY across automated yield routes" — (inferred) confirm this headline rate is meant to be dynamic rather than a hardcoded marketing number.
+Smart auto-sweep toggle: "Automatically sweeps idle cash above your liquid buffer into high-yield strategies," with an Active/Paused pill and a manual Sweep now action (POST /api/pods/sweep-idle-cash with entityId + liquidBufferUsd, default buffer $250).
+Active positions list (from Kamino, GET /api/kamino/positions/{id}) showing name, net APY, lock-duration term, and principal.
+Yield options list, merged from two providers:
+Kamino (GET /api/kamino/yield-options)
+Pods (GET /api/pods/strategies, filtered to non-paused, mapped into the same shape)
+Sorted by net APY descending; each option shows name, provider chip, APY, and a Deposit action.
+Deposit sheet: shows estimated APY, an "Amount (USD)" input, submits to POST /api/kamino/lock with { entityId, amountUsd, lockDurationDays: 90 (hardcoded), vaultId, strategy: 'near_intent' | 'kamino' }.
+⚠ Developer note: lock duration is hardcoded to 90 days regardless of which yield option/duration the user might expect from the option's own apyByDuration field — confirm whether the UI should let the user choose a term.
+The useSavings hook also has a separate signAndSubmitBiconomyQuote helper for gasless/meta-transaction submission via a connected Privy wallet's EIP-712 typed-data signing (eth_signTypedData_v4) — used for Pods/Ondo provider flows. See §9 for how this interacts with Stocks.
+7.5 Stocks ("Invest")
+Header: "Invest" title, a Market Open/Closed status chip, and a Watchlist / Positions segmented control.
+Watchlist tab: search box (client-side filter over symbol/name) + list of tickers with live price and a colored up/down trend icon; tapping opens a Buy sheet.
+Positions tab: flattens stockPositions.personal.positions and stockPositions.business.positions into one list (regardless of which account mode is currently active — confirm with product whether Personal-mode users should see Business positions mixed in, since this always shows both); tapping a position opens a Sell sheet.
+Buy sheet: shows current price, "Amount (USD)" input, submits via POST /api/ondo/buy with { entityId, symbol, usdAmount }.
+Sell sheet: shows current value, "Shares to sell" input (supports fractional shares to 4 decimals), submits via POST /api/ondo/sell.
+Both buy/sell expect the backend to return a biconomyQuote; on success the app signs and submits a gasless meta-transaction, then polls GET /api/ondo/action/{actionId} every 5s until a terminal status (COMPLETED/SUCCESS/REFUNDED/EXPIRED/FAILED/CANCELLED).
+⚠ Developer note (real inconsistency to reconcile): useStocks.ts defines its own signAndSubmitBiconomyQuote that calls (window as any).ethereum.request(...) directly — i.e., it assumes a browser-injected wallet (MetaMask-style) is present. This is inconsistent with useSavings.ts's version of the same helper, which correctly goes through the user's Privy-managed embedded wallet (useWallets() → wallet.getEthereumProvider()). Since most users won't have window.ethereum (they're using Privy's embedded wallet, no browser extension), the Stocks buy/sell signing flow as currently written will likely fail for the majority of users. These two implementations should be unified into one shared hook/util that always goes through the Privy wallet.
+There's also a no-entity fallback path (if (!activeEntityId)) that just shows a browser alert() claiming the purchase succeeded without calling any API — this looks like leftover demo/prototype behavior and should be removed or replaced with a proper guarded state before launch.
+Endpoints: GET /api/ondo/stocks, GET /api/ondo/positions/{entityId}, GET /api/ondo/market-status/{symbol}, POST /api/ondo/buy, POST /api/ondo/sell, GET /api/ondo/action/{actionId}, POST /api/ondo/submit (Biconomy relay).
+7.6 Requests
+Request money primary CTA opens a sheet with: payer's Proxim username, amount, optional narration ("What's it for?"). Submits POST /api/payments/request with { entityId, payerUsernameOrId, amount, currency: 'NGN' (hardcoded), narration }.
+⚠ Developer note: currency is hardcoded to 'NGN' regardless of the active entity's actual currency (e.g. Business/USD) — confirm this is intentional or a bug for non-NGN entities.
+Filter row: All / Pending / Paid / Declined.
+List rows show the requester's username, narration, amount, and a status chip; tapping a pending row calls handleFulfillRequest → POST /api/payments/fulfill.
+Data: GET /api/payments/requests?entityId=.
+7.7 Invoices
+Three summary tiles: Billed, Collected, Outstanding (all computed client-side from the invoice list).
+New invoice CTA → invoice-new screen.
+Filter tabs with live counts: All / Unpaid / Paid / Overdue.
+Rows: client name, "Due {date} · {tag or id prefix}", amount, status chip (Paid/Overdue/Unpaid/other); tapping sets selectedInvoiceForModal (the invoice-detail modal component wasn't included in the provided files — request InvoiceDetailModal or equivalent separately if you need its spec).
+Data: GET /api/invoices?entityId=.
+7.8 Invoice — New (3-step wizard)
+Client details: Payment method toggle (🏦 Bank transfer / ⚡ Stablecoin), client/business name, client email.
+Billing:
+If fiat: currency dropdown (USD/EUR/GBP/NGN/KES/GHS/CAD).
+If crypto: network dropdown (Base/Solana/Polygon/Ethereum/Arbitrum) + asset dropdown (USDC/USDT/EURC).
+Amount field, which triggers a live FX quote (POST /api/invoices/quote) showing estimated net receivable — falls back to a client-side approximation (1.2% fee, static FX table) if the endpoint fails.
+Due date (optional, defaults to "14 days" in the review step if blank) and description (optional).
+Review: summary table (Client, Email, Amount, Due, Description), then Issue & send invoice.
+⚠ Developer note: on submit, the handler only navigates back to the Invoices list and clears local form state — it never actually calls a create-invoice API endpoint. This screen currently cannot create a real invoice; the create call needs to be implemented (likely POST /api/invoices, mirroring the /quote endpoint's payload shape) before this flow is functional.
+7.9 Payroll
+New payroll run CTA → payroll-new.
+Explainer line: "Send salaries to your team in one batch payment."
+List of past runs: title, recipient count, amount, status chip (Completed/Processing/Failed/Pending).
+Data: GET /api/payroll?entityId=.
+7.10 Payroll — New (2-step wizard)
+Batch title, currency (NGN/USD/EUR/GBP), total batch amount, number of team members.
+Review summary → Disburse payroll, which posts to POST /api/payroll/run with { title, totalAmount, currency, employeeCount }.
+⚠ Developer note: this only sends a title, a total amount, and a headcount — there's no per-employee name/account/amount input anywhere in this flow. Either there's a separate "team members" management screen not included in these files, or the actual payroll-run payload needs individual recipient records added before this could disburse real, distinct salaries.
+7.11 Profile
+Avatar + display name + email/phone + Personal/Business chip.
+Account section: Security & PIN (opens a sheet describing a 6-digit PIN, with a Change security PIN button that doesn't yet do anything beyond closing the sheet — ⚠ placeholder, not implemented); Identity verification row (status-dependent copy + chip, but tapping it currently does nothing beyond a haptic — ⚠ should open the actual KYC flow); Account type row (tap or the inline "Switch" chip both call toggleAccountMode).
+Preferences section: Default currency (opens a picker sheet: NGN/USD/EUR/GBP — note: this is a separate, purely local selectedCurrency state that does not appear to be wired to the Home screen's real currency logic — confirm whether Profile's currency preference should actually drive Home's display currency); Account switch (duplicate of the Account-section toggle); Telegram bot (opens TelegramManagerModal).
+Support section: Help center (opens https://t.me/proximsupport in a new tab) and Terms of service (no-op currently).
+Log out button, full width, destructive-red text.
+
+
+8. Shared UI Components (build once, reuse everywhere)
+Component
+Purpose
+ScreenHeader
+Title + Back button, used on all secondary/pushed screens
+BottomNav
+Floating tab bar for the 6 primary screens
+StatusBar
+Branded top status area on Home
+AuroraBar
+Animated gradient sweep bar used as a decorative accent
+ListRow
+Icon + title + meta line + amount + optional status chip + optional chevron, used for every transaction/invoice/request/payroll/settings row in the app
+Chip
+Small status pill; tones: success, warning, danger, neutral, teal
+Sheet
+Shared bottom-sheet/modal primitive with a title and close control
+Button
+Four variants: primary (aurora-gradient pill), secondary (outlined), ghost (text-only), icon (44×44 circular icon button); supports fullWidth; every click fires the light haptic automatically
+Input
+Labeled form input with built-in focus/error border states (teal on focus, red on error)
+ListRow
+Confirmed generic: icon-or-avatar-initial, title, meta line, right-aligned amount/chip/chevron
+EmptyState / LoadingState / ErrorState
+Standardized per-list states (skeleton rows / message + retry / friendly empty message)
+AccountSwitcher
+A second, separate Personal/Business pill-toggle component, styled differently from the custom "flip card" switcher built inline in HomeScreen. Functionally identical (calls the same toggleAccountMode). Confirm with design which one is canonical — right now the app has two different visual treatments for the same control depending on where you look.
+
+
+
+9. Cross-Cutting Systems
+9.1 Haptics
+triggerLightHaptic() fires on nearly every tap throughout the app. It prefers the Telegram Mini App HapticFeedback.impactOccurred('light') API when running inside Telegram, and falls back to the standard Web Vibration API (navigator.vibrate(10)) otherwise. A second, more capable hook (useHaptics) exists with selectionChanged / impactOccurred / notificationOccurred variants mapped to Telegram's medium/heavy styles, but screens currently only use the simple light-tap helper — confirm whether richer haptic feedback (e.g. a heavier buzz on payment success, or a warning buzz on error) should be adopted more broadly.
+9.2 Gasless transactions (Biconomy)
+Two subsystems (Savings/Vault deposits, and Stocks buy/sell) rely on a "Biconomy quote" pattern: the backend returns an unsigned user operation, the frontend signs it via EIP-712 typed data through the user's wallet, and submits the signature back to a /submit endpoint for relay. As noted in §7.5, the Stocks implementation of this pattern needs to be fixed to use the Privy wallet instead of window.ethereum.
+9.3 Error handling pattern
+Most data-fetching hooks swallow errors silently into an empty array/default value (e.g. fetchYieldOptions catches and sets []; several useEffect-driven fetches have empty catch {} blocks) rather than surfacing a visible error. This gives clean-looking empty states even when something has actually failed upstream. Recommend the developer add at least console/telemetry logging on these silent catches, so real outages aren't indistinguishable from "nothing to show yet" in production monitoring.
+
+
+10. Multi-Chain & Wallet Support
+CSP and dependencies confirm support for: NEAR (mainnet/testnet RPC), Solana (mainnet-beta RPC), WalletConnect, Coinbase Wallet (WalletLink), and Privy-embedded wallets. (inferred) the default/mainstream path should be the Privy embedded wallet; external wallet connections are for advanced users. Confirm with the team which chain actually backs the visible USDC balance.
+
+⚠ Third potential funding path: Privy's own SDK ships a complete, ready-to-use "Add Funds" flow (Apple Pay / Google Pay / debit card fiat on-ramp, or "transfer from wallet" for crypto) plus its own EVM↔Solana bridging screens, ready to trigger from usePrivy()/useFundWallet()-style hooks. This is Privy's built-in UI, separate from both NuvionFundingModal (Receive, §15.6) and any crypto-native funding the Kamino/Pods stack might offer. If this Privy-native flow is ever enabled (even accidentally, e.g. via a default config left on), users could end up with three different "add money" experiences depending on which one gets triggered. Worth an explicit check with the developer that Privy's native funding/bridging UI is deliberately disabled (or scoped to a specific, intentional use) rather than left on by default alongside the app's own Receive flow.
+
+
+11. API Endpoint Reference (as discovered in the hooks)
+Endpoint
+Method
+Used by
+/api/auth/privy/login
+POST
+Login exchange
+/api/auth/session
+GET
+Session restore
+/api/auth/demo
+POST
+Demo login
+/api/transfers/history?entityId=
+GET
+Activity
+/api/transfers/status/{payoutId}
+GET
+Payout tracker sheet
+/api/cards?entityId=
+GET
+Cards list
+/api/cards/issue
+POST
+Issue card
+/api/cards/freeze
+POST
+Freeze/unfreeze
+/api/cards/top-up
+POST
+Fund card
+/api/cards/withdraw
+POST
+Withdraw from card
+/api/savings/summary?entityId=
+GET
+Vault total
+/api/kamino/positions/{entityId}
+GET
+Active yield positions
+/api/kamino/yield-options
+GET
+Yield option list (Kamino)
+/api/pods/strategies
+GET
+Yield option list (Pods)
+/api/pods/sweep-idle-cash
+POST
+Manual/auto sweep
+/api/kamino/lock
+POST
+Deposit into a yield vault
+/api/{provider}/submit (pods/ondo)
+POST
+Biconomy meta-tx relay
+/api/ondo/stocks
+GET
+Watchlist
+/api/ondo/positions/{entityId}
+GET
+Stock positions
+/api/ondo/market-status/{symbol}
+GET
+Market open/closed
+/api/ondo/buy
+POST
+Buy stock
+/api/ondo/sell
+POST
+Sell stock
+/api/ondo/action/{actionId}
+GET
+Poll order status
+/api/payments/requests?entityId=
+GET
+Requests list
+/api/payments/request
+POST
+Create request
+/api/payments/fulfill
+POST
+Pay a pending request
+/api/invoices?entityId=
+GET
+Invoices list
+/api/invoices/quote
+POST
+FX quote preview
+/api/payroll?entityId=
+GET
+Payroll runs list
+/api/payroll/run
+POST
+Disburse a payroll batch
+
+
+Not found anywhere in the provided files but implied as missing: a create-invoice endpoint (see §7.8), and any per-employee payroll recipient endpoint (see §7.10).
+
+
+12. Design System
+(unchanged from prior investigation — tokens.css is authoritative)
+
+Layout: single mobile "screen container," centered, max-width 440px, even on desktop. 96px bottom padding reserved for the floating bottom nav.
+Theme: dark only. --bg-app #061B18, --bg-deep #050811, --surface #0D1424 / --surface-alt #0B2924.
+Brand accent: teal→indigo "aurora" gradient (#35D9D0 → #7567F8).
+Typography: display font Bricolage Grotesque, body font Satoshi; fixed type scale 11/13/15/20/24/34/42px.
+Spacing: 4px base unit (4/8/12/16/20/24/32).
+Radius: 8 / 16 / 24 (sheets) / pill.
+Semantic colors: success (green), warning (amber), danger (red).
+Only one border color used anywhere: rgba(255,255,255,0.06) hairline.
+
+
+13. Technical Architecture
+React 18 + TypeScript (strict: true), Vite 5, tsc && vite build.
+Monorepo workspace packages @payit/contracts and @payit/ui.
+@privy-io/react-auth for auth + embedded wallets.
+Backend proxied to localhost:4000 in dev; api.proximfi.xyz / *.onrender.com in the CSP.
+Data-fetching pattern: one custom hook per domain (useTransactions, useCards, useInvoices, usePayroll, useRequests, useSavings, useStocks), each owning its own local UI state (filters, form fields, modal visibility) alongside its fetch logic — screens are largely presentational wrappers around these hooks.
+Telegram Mini App support via telegram-web-app.js, with the haptics layer (§9.1) as the main runtime integration point so far.
+Build target: modern browsers only (esnext).
+
+
+14. Non-Functional Requirements
+Security: tighten CSP unsafe-inline/unsafe-eval where feasible; reconsider JWT-in-localStorage vs. httpOnly cookies for a payments app; rate-limit and audit-log money-movement endpoints.
+Observability: address the silent-catch pattern in §9.3 before launch — several "empty state" screens may currently be masking real backend failures.
+Accessibility: user-scalable=no disables pinch-zoom; confirm this trade-off with the team.
+Data integrity: the hardcoded payout-tracker fallback (§7.2) and the no-op invoice/payroll submission gaps (§7.8, §7.10) should be resolved before this can be considered feature-complete for a real money-movement product.
+
+
+15. App-Level Modals — Full Detail
+15.1 Identity Verification — two named providers, three form implementations
+Two real third-party providers are named directly in the code:
+
+EaseID — identity/liveness verification (KycVerificationModal). Personal flow: explain → enter NIN or BVN (11 digits, validated client-side) → POST /api/kyc/lookup returns an identity preview (name/DOB/gender/phone) → user confirms → POST /api/kyc/liveness/create opens an EaseID hosted liveness-check popup/redirect → POST /api/kyc/liveness/verify polls for the result → success/under-review screen. Business (KYB) flow: explain → director's NIN/BVN + company legal name, trade tag, RC/BN/IT registration number, TIN, address, industry → POST /api/kyc/submit-tier2.
+Brails — payment-rails provisioning: NGN virtual bank accounts (confirmed by an in-code comment: "Bank Transfer (Brails NGN Account)" inside NuvionFundingModal), and the card/mobile-money checkout gateway on the public invoice page ("Pay securely using Visa, Mastercard, Apple Pay, or MPesa mobile money via Brails payment rails" — PublicInvoiceCheckout.tsx). So Brails looks like the underlying rails/BaaS partner for both collecting money (virtual accounts, card/MoMo checkout) rather than a narrowly-scoped NGN-only provider.
+NuvionOnboardingForm is a third, more generic version of the same dynamic-schema pattern — it accepts a kind: 'PERSONAL' | 'BUSINESS' prop, fetches the same /api/kyc/schema endpoint for either account type, but submits to POST /api/kyc/verify (not the polling-based Brails flow) and doesn't poll for a result at all.
+
+⚠ Developer note: these are not simply "old vs new" — EaseID and Brails serve genuinely different purposes (identity proofing vs. account issuance), but there are still three separately-built dynamic/semi-dynamic KYC form components with overlapping schema endpoints and inconsistent submit/poll behavior. Before extending KYC further, get the team to confirm: is BrailsKycModal the one actually wired to the Home banner's "Verify ID" button (per App.tsx, yes — onOpenKyc opens BrailsKycModal, and KycVerificationModal's wiring in App.tsx is a separate modal state, showKycModal, that nothing in the reviewed code actually triggers), and whether NuvionOnboardingForm is meant to replace both or is leftover from an earlier attempt.
+15.2 CurrencyConvertModal (opened from Home's currency tag)
+Swap-style UI: "You pay" (amount + currency dropdown) / swap-direction button / "You receive" (read-only computed amount + currency dropdown), 5 currencies (USD/NGN/EUR/GBP/KES). Live FX quote from GET /api/transfers/fx-quote, auto-refreshing every 60 seconds with a visible countdown ("Rate locked for {n}s"), turning red under 10s. Submits to POST /api/transfers/internal-convert.
+
+⚠ Developer note (real bug): if the convert API call throws for any reason (network error, non-2xx response caught in the catch block), the component's catch handler still shows a success message and closes the modal as if the conversion happened — the code comment literally says "Optimistically accept conversion in demo / preview mode." For a real money-movement feature, a failed conversion must never be presented to the user as successful. This should be fixed before this modal goes anywhere near production.
+The FX-quote fetch also has a silent fallback to a hardcoded USD↔NGN rate of 1550 if the quote endpoint fails, with no visible indication to the user that they're seeing a stale/fake rate.
+15.3 ContactsManagerModal (opened from Home's "Contacts" quick action)
+Search existing contacts (by name/@username/account number) via GET /api/social/contacts?entityId=. "Add" flow: enter a @username or account number → GET /api/users/resolve-identity?query=&entityId= to resolve a real Proxim identity → preview via a shared UniversalIdentityCard component → save via POST /api/social/contacts. Supports an optional onSelectContactForTransfer callback so it can double as a recipient picker for Send/Request flows (not currently wired to do so anywhere in the reviewed files — confirm whether Send/Request are meant to let users pick from saved contacts instead of typing a username each time).
+15.4 PaymentRequestHubModal (opened from Home's "Request" quick action — see §4.4 duplication note)
+Three tabs: Inbox (with a Trusted/Strangers sub-split — presumably "Strangers" are requests from people outside the user's contacts, likely surfaced with more caution/friction), Outbound (requests the user has sent), Create. Create flow resolves the payer via the same /api/users/resolve-identity endpoint as Contacts, then amount + currency (defaults NGN) + narration. Inbox rows support both Decline (POST /api/payments/decline — not present in the simpler RequestsScreen/useRequests flow at all) and Fulfill/Pay (POST /api/payments/fulfill).
+15.5 NuvionPayoutModal — "Send" (wired into App.tsx)
+4-step flow: select source account → new-recipient form (if none saved) → amount → confirm.
+
+Recipient creation is a genuine cross-border payments pattern: creates a counterparty (POST /api/nuvion/counterparties) with a type (individual/business), relationship (vendor/employee/contractor/family), and country, then attaches payment details (POST /api/nuvion/payment-details) whose required fields depend on the recipient's currency — IBAN for EUR, account number + sort code for GBP, account number + routing number for USD, and account number + bank code for everything else (implicitly NGN and others).
+Final transfer presumably hits POST /api/nuvion/transfers (endpoint present in the file; the confirm-step call wasn't in the excerpted range but this is the only transfer-shaped endpoint in the component).
+Note for the developer: this recipient/payment-details modeling (counterparty → payment method → transfer) is a fairly standard BaaS/payments-orchestrator pattern (similar in shape to providers like Airwallex, Wise Platform, or Modern Treasury) — useful context if you need to map this to whatever Nuvion's actual API docs describe.
+15.6 NuvionFundingModal — "Receive" (wired into App.tsx)
+Three funding rails, selected via a 3-way toggle:
+
+Bank Transfer ("Brails NGN Account") — shows the user's dedicated virtual account (bank name, account number with a copy button).
+Mobile Money — phone number + channel (KE-SAFARICOM-C2B, TZ-AIRTEL-C2B, TZ-TIGO-C2B), i.e. East African mobile-money rails.
+Multi-Currency (crypto) — deposit addresses across 5 chains: Base (USDC, instant), Solana (USDC/SOL, ~5 sec), Tron (USDT-TRC20, ~1 min), Bitcoin (~15 min), NEAR (NEAR/USDC, instant, using a human-readable {username}.proxim.near address). All three post to a single POST /api/nuvion/funding-sessions endpoint with a fundingType discriminator. If the user isn't KYC-approved, this modal is expected to redirect into KYC via its onOpenKyc prop (confirm the exact trigger condition with the team, since it wasn't in the reviewed excerpt).
+15.7 NuvionCardHub — orphaned card manager (not wired into App.tsx — see §1)
+Richer than the tab-bar Cards screen: card types debit/prepaid/virtual, per-card daily and monthly spending limits, an international-spending toggle, a "reveal" action that fetches full PAN/expiry/CVV for virtual cards (a genuinely sensitive operation — make sure whatever replaces/keeps this enforces step-up auth before reveal), and per-card transaction history via GET /api/nuvion/cards/{cardId}/transactions. Freeze/unfreeze via POST /api/nuvion/cards/{cardId}/{action}.
+15.8 NuvionSavingsHub — orphaned goals-based savings (not wired into App.tsx — see §1)
+Named savings goals (e.g. "Emergency Fund") with a target amount and target date, a fixed ~6.5% APY promo banner, and a progress bar (current/target). Distinct product concept from the tab-bar Vault's yield-strategy-shopping model — goal-based savings vs. yield-strategy savings are genuinely different UX patterns, not just a backend swap, so if the team consolidates onto Nuvion this screen's whole interaction model (not just its data source) would replace Vault's.
+15.9 BusinessBalanceSheetModal
+Period selector (This Month / Last Month / QTD / YTD / All Time) driving GET /api/reports/balance-sheet?entityId=&period=. Renders a genuinely complete small-business financial statement: Revenue & Receivables (billed/collected/outstanding/overdue + invoice counts), Payroll & Personnel (total disbursed, run count), Operating Expenses (vendor payouts, platform fees), Tax Provision, a Performance summary (net operating income, profit margin %), and a full three-part Balance Sheet (Assets: liquid cash + accounts receivable + vault holdings + tokenized assets; Liabilities: pending payroll + tax payable; Equity: retained earnings). A Download/FileSpreadsheet icon is imported but no export handler was visible in the reviewed range — confirm whether CSV/PDF export is expected here.
+15.10 DeveloperHubModal
+Four tabs: Keys (generate live/test API keys, one-time secret reveal), Webhooks (register a URL, send a test event), Logs (API activity log), Docs (quickstart snippets in curl/Node/Python). Endpoints: GET/POST /api/developer/keys, DELETE /api/developer/keys/{id}, /api/developer/webhooks (+ /test), /api/developer/logs.
+
+⚠ Developer note (real bug): this component reads its API base URL from import.meta.env.VITE_API_URL, falling back to http://localhost:3001 — but every other file in the app (hooks, other modals) reads VITE_API_BASE_URL. Since VITE_API_URL is never set anywhere else in the project, the Developer Hub will silently try to talk to localhost:3001 in every real environment, including production. This is a one-line fix (align the env var name) but worth catching before anyone relies on this screen.
+
+
+16. Open Questions for the Team
+Architecture (highest priority — see §1):
+
+Which backend is the long-term source of truth: the crypto-native stack (Kamino/Pods/Ondo, currently backing the tab-bar Cards and Vault screens) or Nuvion (currently backing Send/Receive, with an orphaned but complete Cards/Savings/Onboarding implementation sitting unused)? This affects almost every other decision below.
+If Nuvion is the direction: should NuvionCardHub and NuvionSavingsHub replace CardsScreen/useCards and SavingsScreen/useSavings in the tab bar? Should NuvionOnboardingWizard replace the current KYC modals entirely?
+Is PaymentRequestHubModal (opened from Home) or RequestsScreen (an apparently-unreachable secondary screen) the real Requests experience going forward?
+
+Real bugs to fix regardless of the architecture decision: 4. CurrencyConvertModal shows "conversion successful" even when the conversion API call fails (§15.2) — must be fixed before this is anywhere near real money. 5. DeveloperHubModal reads the wrong environment variable (VITE_API_URL instead of VITE_API_BASE_URL) and will silently point at localhost:3001 in every real environment (§15.10). 6. Invoice creation has no real API call (§7.8) — confirm the intended create-invoice contract. 7. Payroll has no per-employee recipient data (§7.10) — is a "manage team" flow missing, or does the payload need individual records? 8. Stocks buy/sell signing uses window.ethereum instead of the Privy wallet (§7.5) — needs to be unified with the working pattern in useSavings.ts. 9. Business Home's "Invoices" quick action doesn't navigate anywhere real (§7.1). 10. AccountContext.restoreSession is an empty stub (// Ported in Step 7) — is anything supposed to call it? 11. Three different localStorage key names are cleared on logout (proxim_auth_token, proxim_session_token, payit_auth_token) but only the first is ever written — confirm the other two are safe to remove.
+
+Product decisions: 12. Is showing both Personal and Business stock positions together in the Positions tab intentional (§7.5)? 13. Should Requests support currencies other than NGN (§7.6)? 14. Should the Payout tracker show a genuine error/retry state instead of fabricated tracking data when the real status can't be fetched (§7.2)? 15. Is Profile's "Default currency" meant to actually drive Home's displayed balance currency (§7.11)? 16. What does a "Burner" card type mean functionally (§7.3)? 17. Is the demo-login path meant to exist in production, or staging/preview only? 18. Should ContactsManagerModal's "select for transfer" mode actually be wired into Send/Request so users can pick a saved contact instead of retyping a username (§15.3)?
+
+Platform & delivery (see §0): 19. Which native-app path is the team committing to — Capacitor wrapper, React Native rebuild, or fully separate native codebases? This blocks essentially all native-side estimation and scheduling. 20. Who owns building the Telegram bot server, and does it already exist in a repo not yet reviewed? (Nothing in the reviewed frontend implements it — only the linking UI in §15.4.) 21. Is there a push-notification plan (provider, event triggers, per-platform delivery), or does that need to be scoped from scratch? 22. Does the backend's API need any changes to support three additional native/bot clients calling it directly (e.g. CORS, rate limits per client type, a bot-specific auth flow using the Telegram user ID rather than Privy)?
+
+
+
+This specification reflects the state of all files provided so far. The apiClient module itself hasn't been reviewed (it would confirm exactly how auth headers and the active-entity ID are attached to every request) — worth sharing if you want that nailed down precisely. The actual Telegram bot server, and any native (iOS/Android) code, have not been reviewed because they don't appear to exist yet in what's been shared — see §0.
+
+
+17. Glossary of Named Systems & Providers
+A quick reference for the third-party names that recur throughout this document:
+
+Name
+What it is
+Where it shows up
+Privy
+Auth + embedded-wallet provider (Google/Apple/Email login, wallet provisioning)
+§5, throughout
+Nuvion
+Traditional banking-as-a-service partner: bank transfers, mobile money, cross-border wire payouts, cards, goal-based savings, KYB/KYC onboarding
+§1, §15.5–15.8
+EaseID
+Identity/liveness verification provider (NIN/BVN lookup + liveness check)
+§15.1
+Brails
+Payment-rails provider: NGN virtual bank accounts, and card/mobile-money checkout
+§6, §15.1, §15.6
+Kamino
+Solana-based DeFi lending/yield protocol backing part of the Vault's yield options
+§7.4
+Pods
+A second yield-strategy provider merged into the same Vault yield-options list, and the "auto-sweep idle cash" feature
+§7.4
+Ondo
+Tokenized-stock trading provider backing the Invest/Stocks screen
+§7.5
+Biconomy
+Gasless meta-transaction relay used for Vault deposits and Stocks buy/sell
+§9.2
+NEAR / Solana / WalletConnect / Coinbase Wallet (WalletLink)
+Blockchain networks and external-wallet connection protocols supported alongside Privy's embedded wallet
+§10
+
+
+Given how many of these are only partially wired together (§1), keeping this glossary in front of whoever's making integration decisions is probably as useful as the rest of the document.
+

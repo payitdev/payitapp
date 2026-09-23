@@ -4,8 +4,9 @@ import { intentSwaps, termVaults, transfers, ledgerAccounts, ledgerEntries, enti
 import { NEARIntentsClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 
-const db = createDbClient();
-const nearIntentsClient = new NEARIntentsClient();
+import { env } from '../env.js';
+const db = createDbClient(env.DATABASE_URL);
+const nearIntentsClient = new NEARIntentsClient({ oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY, explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY, baseUrl: env.NEAR_INTENT_BASE_URL });
 
 function assetDecimals(asset: string): number {
   const symbol = asset.split(':').pop()?.toLowerCase();

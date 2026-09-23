@@ -53,6 +53,14 @@ services:
         sync: false
       - key: BACKEND_PUBLIC_URL
         value: https://payit-backend-td53.onrender.com
+      - key: JWT_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_MINI_APP_URL
+        value: https://payit-mobile-web.onrender.com
       # Configure this exact URL in Brails:
       # https://payit-backend-td53.onrender.com/webhooks/brails
 
@@ -79,7 +87,27 @@ services:
         destination: /index.html
 
   # ---------------------------------------------------------------------------
-  # 3. PayIT Marketing Landing Website
+  # 3. PayIT Telegram Bot Worker
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: payit-telegram-bot
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm --filter "payit-telegram-bot..." build
+    startCommand: pnpm --filter payit-telegram-bot poll
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PAYIT_BACKEND_URL
+        value: https://payit-backend-td53.onrender.com
+      - key: TELEGRAM_MINI_APP_URL
+        value: https://payit-mobile-web.onrender.com
+
+  # ---------------------------------------------------------------------------
+  # 4. PayIT Marketing Landing Website
   # ---------------------------------------------------------------------------
   - type: web
     name: payit-website
@@ -92,6 +120,20 @@ services:
           type: web
           name: payit-backend
           property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # ---------------------------------------------------------------------------
+  # 5. PayIT Flutter Web App
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: payit-flutter-web
+    env: static
+    rootDir: apps/mobile_flutter
+    buildCommand: git clone https://github.com/flutter/flutter.git -b stable --depth 1 && export PATH="$PWD/flutter/bin:$PATH" && flutter pub get && flutter build web --release --dart-define=API_URL=https://payit-backend-td53.onrender.com
+    staticPublishPath: ./build/web
     routes:
       - type: rewrite
         source: /*

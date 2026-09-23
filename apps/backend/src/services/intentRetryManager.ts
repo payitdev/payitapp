@@ -9,9 +9,14 @@ import { createDbClient, eq, and, lte } from '@payit/db';
 import { intentSwaps, users, entities } from '@payit/db/schema';
 import { fundIntentFromBitcoin, fundIntentFromNear, signAndSubmitTransaction, signAndSubmitSolanaTransaction, toBaseUnits } from '@payit/integrations';
 import { NEARIntentsClient } from '@payit/integrations';
+import { env } from '../env.js';
 
-const db = createDbClient();
-const nearIntentsClient = new NEARIntentsClient();
+const db = createDbClient(env.DATABASE_URL);
+const nearIntentsClient = new NEARIntentsClient({
+  oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY,
+  explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY,
+  baseUrl: env.NEAR_INTENT_BASE_URL,
+});
 
 export class IntentRetryManager {
   private static readonly RETRY_INTERVALS = [
@@ -125,11 +130,11 @@ export class IntentRetryManager {
       sourceTxHash = await this.retryEvmIntent(intent, userIdentifier, context, entity[0]);
     }
 
-    // Submit deposit hash to NEAR Intents
+    const originChain = intent.originAsset.split(':')[0];
     await nearIntentsClient.submitDepositTxHash({
       intentId: intent.depositAddress,
       txHash: sourceTxHash,
-      chain: intent.originAsset.split(':')[0],
+      chain: originChain,
     });
 
     // Update intent status
@@ -212,16 +217,18 @@ export class IntentRetryManager {
 
     // Determine network from origin asset
     const network = intent.originAsset.split(':')[0] as 'base' | 'bsc' | 'ethereum' | 'polygon' | 'arbitrum' | 'optimism';
-    const tokenAddress = this.getTokenAddress(network, intent.originAsset.split(':')[1]);
-    
-    const bytecode = tokenAddress
-      ? [{ 
-          to: tokenAddress, 
-          data: this.encodeErc20Transfer(intent.depositAddress, toBaseUnits(intent.originAmount, 18)), 
-          value: '0', 
-          chainId: 0 
-        }]
-      : [{ to: intent.depositAddress, data: '0x', value: intent.originAmount, chainId: 0 }];
+const tokenAddress = this.getTokenAddress(network, intent.originAsset.split(':')[1]);
+      
+      const decimals = intent.originAsset.includes('usdc') || intent.originAsset.includes('usdt') ? 6 : 18;
+      
+      const bytecode = tokenAddress
+        ? [{ 
+            to: tokenAddress, 
+            data: this.encodeErc20Transfer(intent.depositAddress, toBaseUnits(intent.originAmount, decimals)), 
+            value: '0', 
+            chainId: 0 
+          }]
+        : [{ to: intent.depositAddress, data: '0x', value: intent.originAmount, chainId: 0 }];
 
     const result = await signAndSubmitTransaction({
       userIdentifier,
@@ -231,9 +238,9 @@ export class IntentRetryManager {
     });
 
     const submitted = result[0];
-    if (!submitted?.success || !submitted.txHash) {
-      throw new Error(submitted?.error || 'EVM retry failed');
-    }
+      if (!submitted || !submitted.success || !submitted.txHash) {
+        throw new Error('EVM retry failed');
+      }
 
     return submitted.txHash;
   }

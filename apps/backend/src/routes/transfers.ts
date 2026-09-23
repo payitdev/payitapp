@@ -8,13 +8,14 @@ import { calculateReserve, fetchNativeUsdPrice, settleEvmGasSponsorship, waitFor
 import { ulid } from 'ulid';
 import crypto from 'crypto';
 import { PublicKey } from '@solana/web3.js';
+import { env } from '../env.js';
 
 const lastSyncTimestamps = new Map<string, number>();
 const SYNC_THROTTLE_MS = 60 * 1000;
 
-const db = createDbClient();
-const nearIntentsClient = new NEARIntentsClient();
-const brails = new BrailsClient();
+const db = createDbClient(env.DATABASE_URL);
+const nearIntentsClient = new NEARIntentsClient({ oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY, explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY, baseUrl: env.NEAR_INTENT_BASE_URL });
+const brails = new BrailsClient(env.BRAILS_API_KEY, env.BRAILS_API_BASE_URL);
 
 const evmUsdcNetworks = [
   { name: 'ethereum', rpc: 'https://cloudflare-eth.com', symbol: 'USDC', decimals: 6, nativeAsset: 'ETH', gasTopUpNative: '0.002', token: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' },
@@ -384,17 +385,14 @@ async function fundIntentFromEvm(params: {
     throw error;
   }
 
-  const failedLegs = result.filter((entry) => !entry?.success || !entry?.txHash);
-  if (failedLegs.length > 0 || result.length !== bytecode.length) {
-    const message = failedLegs.length > 0
-      ? failedLegs.map((entry) => entry?.error || `${entry?.leg || 'unknown'} failed without a tx hash`).join('; ')
-      : 'MPC Intent funding transaction did not submit every transfer leg';
+  if (result.length !== bytecode.length || result.some((entry) => !entry.success || !entry.txHash)) {
+    const message = 'MPC Intent funding transaction did not submit every transfer leg';
     await db.update(gasSponsorships).set({ status: 'TRANSACTION_FAILED', failureReason: message, updatedAt: new Date() }).where(eq(gasSponsorships.id, gasSponsorshipId));
     throw new Error(message);
   }
 
   const submitted = result[0];
-  if (!submitted?.success || !submitted.txHash) throw new Error(submitted?.error || 'MPC Intent funding transaction failed');
+  if (!submitted?.success || !submitted.txHash) throw new Error('MPC Intent funding transaction failed');
   await db.update(gasSponsorships).set({ status: 'TRANSACTION_SUBMITTED', userTxHash: submitted.txHash, updatedAt: new Date() }).where(eq(gasSponsorships.id, gasSponsorshipId));
   try {
     const receipt = await waitForEvmReceipt(params.network.rpc, submitted.txHash);
@@ -1319,11 +1317,45 @@ export async function transferRoutes(server: FastifyInstance) {
   });
 
   /**
+   * GET /api/transfers/sendable-assets/:destinationChain
+   * Get list of tokens that can be sent from Base USDC to a specific destination chain
+   * Uses NEAR Intent to validate actual supported routes and prevent silent failures
+   */
+  server.get('/api/transfers/sendable-assets/:destinationChain', async (request, reply) => {
+    try {
+      const { destinationChain } = request.params as { destinationChain: string };
+      if (!destinationChain) {
+        return reply.status(400).send({ error: 'destinationChain is required' });
+      }
+
+      const sendableAssets = await nearIntentsClient.getSendableAssetsForChain(destinationChain);
+      
+      return reply.send({
+        success: true,
+        destinationChain: destinationChain.toLowerCase(),
+        sourceAsset: 'base:usdc',
+        sendableAssets,
+        count: sendableAssets.length,
+        message: sendableAssets.length === 0 
+          ? `No NEAR Intent routes available from Base USDC to ${destinationChain}. Contact support.`
+          : `${sendableAssets.length} token(s) can be sent to ${destinationChain}`,
+      });
+    } catch (err: any) {
+      console.error('[Route /api/transfers/sendable-assets/:destinationChain] Error:', err.message);
+      return reply.status(500).send({
+        error: 'Failed to fetch sendable assets',
+        details: err.message,
+      });
+    }
+  });
+
+  /**
    * Force On-Chain Activity Sync for Entity
    */
   server.post('/api/transfers/sync', async (request, reply) => {
     const { entityId } = request.body as { entityId: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     await syncOnChainActivityAndBalance(entityId);
     const balance = await calculateLiveEntityBalance(entityId);

@@ -10,6 +10,7 @@ import { cardRoutes } from './routes/cards.js';
 import { invoiceRoutes } from './routes/invoices.js';
 import { payrollRoutes } from './routes/payroll.js';
 import { kycRoutes } from './routes/kyc.js';
+import { registerDynamicKycRoutes } from './routes/dynamicKyc.js';
 import { socialRoutes } from './routes/social.js';
 import { savingsRoutes } from './routes/savings.js';
 import { waitlistRoutes } from './routes/waitlist.js';
@@ -18,7 +19,6 @@ import { podsRoutes } from './routes/pods.js';
 import { ondoRoutes } from './routes/ondo.js';
 import { intentRoutes } from './routes/intents.js';
 import { kaminoRoutes } from './routes/kamino.js';
-import { biconomyRoutes } from './routes/biconomy.js';
 import { financialReportsRoutes } from './routes/financialReports.js';
 import { developerRoutes } from './routes/developer.js';
 import { adminRoutes } from './routes/adminRoutes.js';
@@ -27,6 +27,7 @@ import { v1Routes } from './routes/v1Routes.js';
 import { brailsRoutes } from './routes/brails.js';
 import { schoolRoutes } from './routes/schools.js';
 import { nuvionRoutes } from './routes/nuvion.js';
+import { mpcRoutes } from './routes/mpc.js';
 import { easeIdClient } from '@payit/integrations';
 import rawBody from 'fastify-raw-body';
 
@@ -40,12 +41,36 @@ export function buildServer() {
 
   server.register(rawBody, { field: 'rawBody', global: false, encoding: 'utf8', runFirst: true });
 
+  // Flutter web (dev servers pick arbitrary ports) and the deployed Render
+  // frontends call this API cross-origin. In non-production, accept any
+  // localhost origin; in production, only the explicit allowlist
+  // (CORS_ORIGIN env, comma-separated, overrides the defaults).
+  const defaultOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://payit-flutter-web.onrender.com',
+    'https://payit-mobile-web.onrender.com',
+  ];
   server.register(cors, {
-    origin: '*',
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const allowed = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+        : defaultOrigins;
+      const isLocalDev =
+        process.env.NODE_ENV !== 'production' &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      cb(null, isLocalDev || allowed.includes(origin));
+    },
   });
 
-  // Debug endpoint for EaseID testing (must be before auth hook)
-  server.get('/api/kyc/debug/test-easeid', async () => {
+  // Debug endpoint for EaseID testing (admin-gated)
+  server.get('/api/kyc/debug/test-easeid', async (request, reply) => {
+    const adminSecret = request.headers['x-admin-secret'];
+    const expectedSecret = process.env.ADMIN_SEED_SECRET;
+    if (!expectedSecret || !adminSecret || adminSecret !== expectedSecret) {
+      return reply.status(403).send({ error: 'UNAUTHORIZED_ADMIN_REQUEST', message: 'Valid x-admin-secret header required' });
+    }
     try {
       const testConfig = {
         appId: process.env.EASEID_APP_ID,
@@ -58,7 +83,7 @@ export function buildServer() {
         'nin',
         '12345678901',
         'test-entity-id',
-        '0x0000000000000000000000000000000000000',
+        '0x00000000000000000000000000000000000',
       );
 
       return {
@@ -93,6 +118,17 @@ export function buildServer() {
     return { status: 'healthy', app: 'PayIT Backend API', timestamp: new Date().toISOString() };
   });
 
+  // Public client configuration — non-secret identifiers only.
+  // Lets mobile/web clients discover Privy credentials at runtime instead of
+  // requiring compile-time dart-define/env flags. Never expose secrets here.
+  server.get('/api/config', async () => {
+    return {
+      success: true,
+      privyAppId: env.PRIVY_APP_ID || null,
+      privyClientId: env.PRIVY_CLIENT_ID || null,
+    };
+  });
+
   // Serve static document uploads for Brails CDN document verification
   server.get('/uploads/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };
@@ -109,16 +145,31 @@ export function buildServer() {
   server.register(authRoutes);
   server.register(entityRoutes);
   server.register(kycRoutes);
+  server.register(registerDynamicKycRoutes);
   server.register(socialRoutes);
   server.register(savingsRoutes);
   server.register(waitlistRoutes);
   server.register(transferRoutes);
-  server.register(podsRoutes);
-  server.register(ondoRoutes);
+
+  const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE || env.ENABLE_ONDO_FINANCE || env.ENABLE_NEAR_MPC;
+  if (liveFinanceEnabled) {
+    server.register(podsRoutes);
+    server.register(ondoRoutes);
+  } else {
+    server.get('/api/pods/status', async () => ({
+      success: false,
+      mode: 'demo',
+      message: 'Pods flow is disabled. Set ENABLE_PODS_FINANCE=true and provide live credentials to enable it.',
+    }));
+    server.get('/api/ondo/status', async () => ({
+      success: false,
+      mode: 'demo',
+      message: 'Ondo flow is disabled. Set ENABLE_ONDO_FINANCE=true and provide live credentials to enable it.',
+    }));
+  }
+
   server.register(intentRoutes);
   server.register(kaminoRoutes);
-  server.register(biconomyRoutes);
-
   server.register(cardRoutes);
   server.register(invoiceRoutes);
   server.register(payrollRoutes);
@@ -130,6 +181,7 @@ export function buildServer() {
   server.register(brailsRoutes);
   server.register(schoolRoutes);
   server.register(nuvionRoutes);
+  server.register(mpcRoutes);
 
   // Dev/Staging only — seed routes for local testing
   if (env.NODE_ENV !== 'production') {

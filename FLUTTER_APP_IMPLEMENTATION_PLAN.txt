@@ -1,0 +1,193 @@
+FLUTTER APP IMPLEMENTATION PLAN (APK + TELEGRAM MINI APP + WEB)
+================================================================
+
+Goal: One Flutter codebase that ships as (1) Android APK,
+(2) Telegram Mini App, and (3) web app, consuming the existing
+Fastify backend and matching the Stitch/Proxim designs.
+
+Ground truth used:
+- Backend: apps/backend - Fastify, port 3001 (apps/backend/src/server.ts)
+- Auth: Privy JWT (apps/backend/src/middleware/authMiddleware.ts)
+  + Telegram initData (apps/backend/src/routes/auth.ts:145,
+  POST /api/auth/telegram/mini-app) + passcode/session
+  (/api/auth/passcode/*, /api/auth/session) + demo login
+  (/api/auth/demo)
+- Feature routes: apps/backend/src/routes/ - transfers, brails
+  (cards/deposits), ondo (stocks), savings (kamino/pods vault),
+  cards, payroll, invoices, kyc, entities, intents
+- Developer/BaaS API: /v1/* (API-key auth) in
+  apps/backend/src/routes/v1Routes.ts
+- Idempotency middleware exists: apps/backend/src/middleware/idempotency.ts
+  (Flutter client must send Idempotency-Key headers on POSTs)
+- Designs: stitch_document_content_extractor/ - 20 screens, each as
+  code.html + screen.png, plus design tokens and spec in
+  proxim_app_specification.md
+- Existing React reference: apps/mobile-web (shows how auth/base URL
+  are wired today)
+
+
+PHASE 0 - DECISIONS (LOCKED IN 2026-09-09)
+------------------------------------------
+1. Auth on APK/Web (non-Telegram): OPTION A - flutter_inappwebview
+   hosting the existing Privy React login page (apps/mobile-web build);
+   backend exchange at POST /api/auth/privy/login stays unchanged.
+   Telegram Mini App login uses POST /api/auth/telegram/mini-app.
+2. State management: Riverpod (flutter_riverpod). No Bloc.
+3. Monorepo placement: apps/mobile_flutter/ (standalone; not a pnpm
+   workspace package).
+
+
+PHASE 1 - FLUTTER PROJECT SCAFFOLDING (1-2 days)
+------------------------------------------------
+- flutter create apps/mobile_flutter --org app.proxim --platforms android,web
+  (iOS later).
+- Flavors/config: AppConfig class with apiBaseUrl per environment
+  (dev http://localhost:3001, staging/prod from render.yaml domains);
+  --dart-define driven.
+- Packages: dio (HTTP), flutter_riverpod, go_router,
+  flutter_secure_storage, intl, google_fonts (or bundle
+  Bricolage Grotesque + Satoshi TTFs - fonts are not on Google Fonts,
+  so bundle from the Stitch export licenses).
+- CI: GitHub Actions workflow - flutter analyze, flutter test,
+  flutter build web, flutter build apk --release.
+- Target wrapper: 440px max-width container, dark-only theme per spec.
+
+
+PHASE 2 - DESIGN SYSTEM FROM STITCH (3-5 days)
+----------------------------------------------
+Source of truth: proxim_app_specification.md section 12 + each screen's
+code.html/screen.png.
+
+- ThemeData from tokens:
+  --bg-app: #061B18, --bg-deep: #050811, --surface: #0D1424,
+  --surface-alt: #0B2924, aurora gradient #35D9D0 -> #7567F8,
+  hairline borders rgba(255,255,255,0.06).
+- Typography scale: 11 / 13 / 15 / 20 / 24 / 34 / 42.
+- Core widgets reused everywhere: AuroraBalanceCard, QuickActionPill,
+  ProximBottomNav, StatusSheet, AuroraCardVisual, KycBanner.
+- Convert each of the 20 Stitch screens to a widget tree 1:1; verify with
+  golden tests against screen.png for the 6 bottom-nav screens first
+  (home, activity, invest, vault, cards, profile).
+- Build order: Home -> Activity -> Cards -> Invest -> Vault -> Profile,
+  then secondary screens (send, receive, swap, invoices, payment hub,
+  payroll, checkout, developer, business/treasury).
+
+
+PHASE 3 - NETWORKING LAYER (2-3 days)
+-------------------------------------
+- ApiClient on dio with:
+  - Base URL from AppConfig; Authorization: Bearer <jwt> via interceptor.
+  - Idempotency-Key header (ULID) auto-attached to all POSTs - backend
+    enforces it.
+  - Error mapper -> typed ApiFailure (401 -> re-auth, 409/422 messages
+    to UI).
+- JWT storage: flutter_secure_storage on Android; web falls back to
+  localStorage with httpOnly-cookie alternative to be reviewed (JWT in
+  localStorage is an accepted trade-off for Mini Apps; flag for security
+  review).
+- Token refresh: reuse /api/auth/session semantics; 401 interceptor ->
+  re-login redirect.
+- Repository layer per feature (HomeRepository, TransfersRepository, ...)
+  so screens never call dio directly.
+- Generate DTOs by hand from the zod schemas in apps/backend/src/routes/*
+  (no OpenAPI spec exists - recommend adding fastify-swagger to backend
+  as a fast follow, then openapi_generator for Dart models).
+
+
+PHASE 4 - AUTH FLOWS (2-4 days, depends on Phase 0 decision)
+------------------------------------------------------------
+- Telegram Mini App: read window.Telegram.WebApp.initData via
+  dart:js/js_util (Flutter web) -> POST /api/auth/telegram/mini-app ->
+  store returned JWT. Handle auth_date expiry re-login. Support
+  claimed-account flow (/api/auth/telegram/web-claim/*) for web users
+  linking Telegram later.
+- APK/Web: per Phase 0 decision (WebView Privy bridge, or passcode flow:
+  /api/auth/passcode/set + /api/auth/passcode/verify + /api/auth/session).
+- Passcode PIN screen (design exists in Profile spec) wired to backend
+  passcode endpoints.
+- Route guard in go_router: unauthenticated -> login screen.
+
+
+PHASE 5 - FEATURE INTEGRATION, SCREEN BY SCREEN (2-3 weeks)
+-----------------------------------------------------------
+Screen              Backend routes
+------------------  -----------------------------------------------------
+Home                entities/accounts balance, KYC status (kyc.ts)
+Activity            /api/transfers*, transfers status tracker
+Send (Nuvion)       transfers, POST /api/payouts/resolve-account (v1),
+                    intents
+Receive/Deposit     brails: /api/brails/deposit-options, virtual
+                    accounts, multi-chain deposit addresses
+Invest (Ondo)       /api/ondo*, Biconomy relay (biconomy.ts)
+Vault (savings)     /api/savings/* (summary, goals, three tiers),
+                    kamino, pods
+Cards               /api/cards* (issue/freeze/top-up/withdraw),
+                    brails cards
+Swap/Convert        fxQuoteEngine service -> rates endpoint
+Invoices + Checkout /api/invoices*, settle
+Payroll             /api/payroll*, run/execute
+Payment Request Hub social/intents routes
+Profile             auth/session, passcode, telegram link, KYC trigger
+Developer console   /api/developer/* (only for B2B/API-key users)
+
+Web3 signing: backend already abstracts signing (MPC routes,
+PrivyNEARBridge, Biconomy relay) - Flutter app should NOT hold keys;
+it calls backend endpoints only.
+
+
+PHASE 6 - TELEGRAM MINI APP PACKAGING (2-3 days)
+------------------------------------------------
+- flutter build web --release -> serve static build from Fastify
+  (@fastify/static) or host on Render static site; register Mini App URL
+  in @BotFather (apps/telegram-bot).
+- JS interop: telegram_web_app.js bridge - ready(), expand(),
+  setHeaderColor, MainButton/BackButton, HapticFeedback, openLink,
+  themeParams.
+- Deep links: https://t.me/<bot>/<miniapp>?startapp=<invoice_id> for
+  public invoice checkout (?invoice=<id> screen already in designs).
+- Local dev: Telegram requires HTTPS - use ngrok/Cloudflare tunnel
+  against dev backend.
+
+
+PHASE 7 - WEB + APK RELEASE (2-3 days)
+--------------------------------------
+- Web: flutter build web deployed to Render per render.yaml; confirm CORS
+  in apps/backend/src/server.ts allows the web origin (currently
+  Privy/React origins - must add Flutter web origin).
+- APK: signing key in CI secrets; flutter build apk --release
+  --split-per-abi; GitHub Actions artifact + optional Play internal
+  track; in-app update notice optional.
+
+
+PHASE 8 - TESTING & ROLLOUT
+---------------------------
+- Unit: repositories/mappers (mock dio).
+- Golden: 6 core screens vs screen.png.
+- Integration: flutter_test driving login (demo auth /api/auth/demo for
+  CI), send flow against dev backend.
+- Backend contract tests: verify each route used by Flutter has zod
+  validation already (they do); add fastify-swagger as follow-up.
+- Rollout: internal APK -> dev Mini App with test bot -> prod.
+
+
+RISKS & OPEN ITEMS
+------------------
+1. Privy in Flutter - biggest unknown; Phase 0 decision. WebView bridge
+   is proven but adds a React login bundle to maintain.
+2. Fonts licensing - Bricolage Grotesque/Satoshi must be bundled with
+   correct licenses.
+3. No OpenAPI spec - DTOs hand-written until fastify-swagger lands.
+4. CORS - backend must whitelist the Flutter web/Mini App origins.
+5. JWT storage on web/TG - security review for localStorage vs cookie.
+6. Idempotency retry UX - client must retry with same key, not generate
+   a new one per tap.
+
+
+TIMELINE ESTIMATE
+-----------------
+Scaffolding + design system: ~1.5 weeks.
+Networking + auth: ~1 week.
+Features: ~2-3 weeks.
+TG packaging + web/APK release: ~1 week.
+Total: ~6-8 weeks for one Flutter dev, to feature-parity with
+apps/mobile-web.

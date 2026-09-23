@@ -38,14 +38,38 @@ async function getNearKeyPair() {
 
 // Dynamic resolution for PayIT's NEAR relayer account
 function getRelayerAccountId(): string {
-  return process.env.NEAR_RELAYER_ACCOUNT_ID || 'proxim.near';
+  return process.env.NEAR_RELAYER_ACCOUNT_ID || '';
 }
 
+export function getLiveFinanceModeStatus(feature: string = 'generic') {
+  const liveFinanceEnabled = process.env.ENABLE_LIVE_FINANCE === 'true' || process.env.ENABLE_PODS_FINANCE === 'true' || process.env.ENABLE_ONDO_FINANCE === 'true' || process.env.ENABLE_NEAR_MPC === 'true';
+  const relayerAccountId = process.env.NEAR_RELAYER_ACCOUNT_ID || '';
+  const relayerPrivateKey = process.env.NEAR_RELAYER_PRIVATE_KEY || '';
+  return {
+    enabled: liveFinanceEnabled && !!relayerAccountId && !!relayerPrivateKey,
+    feature,
+    liveFinanceEnabled,
+    hasRelayerAccountId: !!relayerAccountId,
+    hasRelayerPrivateKey: !!relayerPrivateKey,
+  };
+}
+
+export function getLiveFinanceModeStatusForFeature(feature: string = 'generic') {
+  return getLiveFinanceModeStatus(feature);
+}
+
+export function assertLiveFinanceEnabled(feature: string = 'live finance') {
+  const status = getLiveFinanceModeStatus(feature);
+  if (!status.enabled) {
+    throw new Error(`${feature} is disabled. Set ENABLE_NEAR_MPC=true and configure NEAR_RELAYER_ACCOUNT_ID + NEAR_RELAYER_PRIVATE_KEY before enabling live blockchain execution.`);
+  }
+  return status;
+}
 
 let relayerKeyCounter = 0;
 
 function getRelayerPrivateKey(): string {
-  const keysStr = process.env.NEAR_RELAYER_PRIVATE_KEYS;
+  const keysStr = process.env.NEAR_RELAYER_PRIVATE_KEYS || process.env.NEAR_RELAYER_PRIVATE_KEY || '';
   if (keysStr) {
     const keys = keysStr.split(',').map(k => k.trim().replace(/^"/, '').replace(/"$/, '')).filter(Boolean);
     if (keys.length > 0) {
@@ -54,13 +78,15 @@ function getRelayerPrivateKey(): string {
       return selectedKey;
     }
   }
-  return process.env.NEAR_RELAYER_PRIVATE_KEY || 'ed25519:3D4YufUqDrmPwhb594UqYpve2r78qX6Xq643b9Xj8Wd8x7b8w7y1a9b2c3d4e5f6';
+  const privateKey = process.env.NEAR_RELAYER_PRIVATE_KEY || '';
+  if (!privateKey) throw new Error('NEAR_RELAYER_PRIVATE_KEY is required for live MPC operations');
+  return privateKey;
 }
 
 
 async function getNamedAccountKeyPair(accountId: string): Promise<any> {
   const secret = process.env.NEAR_NAMED_ACCOUNT_SECRET || process.env.NEAR_RELAYER_PRIVATE_KEY || '';
-  if (!secret) throw new Error('NEAR_NAMED_ACCOUNT_SECRET is required for named-account transfers');
+  if (!secret) throw new Error('NEAR_NAMED_ACCOUNT_SECRET or NEAR_RELAYER_PRIVATE_KEY is required for named-account transfers');
   const seed = createHash('sha256').update(`${secret}:${accountId}`).digest();
   const { ed25519 } = await import('@noble/curves/ed25519');
   const KeyPair = await getNearKeyPair();
@@ -100,12 +126,13 @@ export function buildDerivationPath(userIdentifier: string, context: "personal" 
  * Using dynamic import to avoid type conflicts
  */
 async function getChainSignatureContract() {
+  assertLiveFinanceEnabled('Chain signature signing');
   const relayerId = getRelayerAccountId();
   const relayerKey = getRelayerPrivateKey();
 
   if (!relayerId || !relayerKey) {
     throw new Error(
-      "NEAR_RELAYER_ACCOUNT_ID and NEAR_RELAYER_PRIVATE_KEY must be set in environment"
+      "NEAR_RELAYER_ACCOUNT_ID and NEAR_RELAYER_PRIVATE_KEY must be set in environment when live finance is enabled"
     );
   }
 
@@ -113,9 +140,10 @@ async function getChainSignatureContract() {
     throw new Error('Production NEAR MPC requires mainnet contract v1.signer.');
   }
 
-  const nearApi: any = await import('near-api-js');
-  const { provider, rpcUrl } = await getNearProvider();
-  const signerAccount = new nearApi.Account(relayerId, provider || rpcUrl, relayerKey);
+const nearApi: any = await import('near-api-js');
+    const { provider, rpcUrl } = await getNearProvider();
+    const keyPair = getRelayerPrivateKey() ? await getNearKeyPair() : undefined;
+    const signerAccount = keyPair ? new nearApi.Account(relayerId, provider || rpcUrl, keyPair.getPublicKey()) : new nearApi.Account(relayerId, provider || rpcUrl);
 
   const chainsig = await import('chainsig.js');
   const ContractClass = (chainsig as any).contracts?.ChainSignatureContract || (chainsig as any).ChainSignatureContract;
@@ -389,10 +417,7 @@ export async function deriveUserAddresses(
         evmAddress = res.address;
         publicKey = res.publicKey;
       } catch (err: any) {
-        console.warn(`[EVM Derivation warning]:`, err.message);
-        const hash = createHash('sha256').update(`${relayerId}:${path}`).digest('hex');
-        evmAddress = ethers.getAddress('0x' + hash.slice(0, 40));
-        publicKey = '0x04' + hash.repeat(2).slice(0, 128);
+        throw new Error(`EVM MPC derivation failed: ${err.message}`);
       }
 
       let solanaAddress = '';
@@ -403,9 +428,7 @@ export async function deriveUserAddresses(
           solanaAddress = derivedSol.address || '';
         }
       } catch (err: any) {
-        console.warn(`[Solana Derivation warning]:`, err.message);
-        const solHash = createHash('sha256').update(`sol:${relayerId}:${path}`).digest();
-        solanaAddress = encodeBase58(solHash);
+        throw new Error(`Solana MPC derivation failed: ${err.message}`);
       }
 
       let btcAddress = '';
@@ -416,9 +439,7 @@ export async function deriveUserAddresses(
           btcAddress = derivedBtc.address || '';
         }
       } catch (err: any) {
-        console.warn(`[BTC Derivation warning]:`, err.message);
-        const btcHash = createHash('sha256').update(`btc:${relayerId}:${path}`).digest('hex');
-        btcAddress = `bc1q${btcHash.slice(0, 38)}`;
+        throw new Error(`Bitcoin MPC derivation failed: ${err.message}`);
       }
 
       let aptosAddress = '';
@@ -428,9 +449,8 @@ export async function deriveUserAddresses(
           const derivedAptos = await aptosChain.deriveAddressAndPublicKey(relayerId, path);
           aptosAddress = derivedAptos.address || '';
         }
-      } catch {
-        const aptosHash = createHash('sha256').update(`aptos:${relayerId}:${path}`).digest('hex');
-        aptosAddress = `0x${aptosHash}`;
+      } catch (err: any) {
+        throw new Error(`Aptos MPC derivation failed: ${err.message}`);
       }
 
       let suiAddress = '';
@@ -440,9 +460,8 @@ export async function deriveUserAddresses(
           const derivedSui = await suiChain.deriveAddressAndPublicKey(relayerId, path);
           suiAddress = derivedSui.address || '';
         }
-      } catch {
-        const suiHash = createHash('sha256').update(`sui:${relayerId}:${path}`).digest('hex');
-        suiAddress = `0x${suiHash}`;
+      } catch (err: any) {
+        throw new Error(`Sui MPC derivation failed: ${err.message}`);
       }
 
       let cosmosAddress = '';
@@ -452,9 +471,8 @@ export async function deriveUserAddresses(
           const derivedCosmos = await cosmosChain.deriveAddressAndPublicKey(relayerId, path);
           cosmosAddress = derivedCosmos.address || '';
         }
-      } catch {
-        const cosmosHash = createHash('sha256').update(`cosmos:${relayerId}:${path}`).digest('hex');
-        cosmosAddress = `cosmos1${cosmosHash.slice(0, 38)}`;
+      } catch (err: any) {
+        throw new Error(`Cosmos MPC derivation failed: ${err.message}`);
       }
 
       let xrpAddress = '';
@@ -464,18 +482,12 @@ export async function deriveUserAddresses(
           const derivedXrp = await xrpChain.deriveAddressAndPublicKey(relayerId, path);
           xrpAddress = derivedXrp.address || '';
         }
-      } catch {
-        const xrpHash = createHash('sha256').update(`xrp:${relayerId}:${path}`).digest();
-        xrpAddress = 'r' + encodeBase58(xrpHash).slice(0, 33);
+      } catch (err: any) {
+        throw new Error(`XRP MPC derivation failed: ${err.message}`);
       }
 
-      // TRON (Base58 address starting with T)
-      const tronHash = createHash('sha256').update(`tron:${relayerId}:${path}`).digest();
-      const tronAddress = 'T' + encodeBase58(tronHash).slice(0, 33);
-
-      // TON (User-friendly address starting with UQ)
-      const tonHash = createHash('sha256').update(`ton:${relayerId}:${path}`).digest('hex');
-      const tonAddress = `UQ${tonHash.slice(0, 46)}`;
+      const tronAddress = '';
+      const tonAddress = '';
 
       console.log(`[NEAR MPC MAINNET] ✅ Live 10-Chain MPC derivation ready for ${userIdentifier} (${context}): EVM=${evmAddress}, NEAR=${nearNamedAddress}, SOL=${solanaAddress}, BTC=${btcAddress}`);
       return {
@@ -532,8 +544,8 @@ export const deriveUserAddress = deriveUserAddresses;
 /**
  * Sign and submit individual transactions using chainsig.js with NEAR MPC
  * 
- * ⚠️ INDIVIDUAL SIGNING (Non-Atomic): Does NOT meet Pods' atomic batching requirement
- * Waiting for chainsig.js EIP-7702 support per user decision
+ * ⚠️ INDIVIDUAL SIGNING (Non-Atomic): Does NOT meet Pods' atomic batching requirement.
+ * Fails fast if a leg cannot be submitted; already-confirmed legs cannot be rolled back.
  * 
  * This is REAL signing (not simulated) using NEAR MPC with ethers.js
  * Transactions are submitted individually to the blockchain
@@ -546,9 +558,24 @@ export async function signAndSubmitTransaction(params: {
   targetRpcUrl?: string;
 }) {
   console.log(`🔐 Real NEAR MPC Signing with ethers.js (individual, non-atomic)`);
-  console.log(`⚠️  Does NOT meet Pods' atomic batching requirement (EIP-7702 not supported by chainsig.js)`);
+  console.log(`⚠️  Does NOT meet Pods' atomic batching requirement; failing legs stop further submission`);
   console.log(`📝 Processing ${params.bytecode.length} transaction legs individually`);
   console.log(`🌐 Target chain: ${params.targetChain || 'base'}`);
+
+  const chainIdsByName = {
+    base: 8453,
+    bsc: 56,
+    ethereum: 1,
+    polygon: 137,
+    arbitrum: 42161,
+    optimism: 10,
+  } as const;
+  const targetChain = params.targetChain || 'base';
+  const expectedChainId = chainIdsByName[targetChain];
+  const invalidLeg = params.bytecode.find((leg) => leg.chainId !== 0 && leg.chainId !== expectedChainId);
+  if (invalidLeg) {
+    throw new Error(`Transaction leg chain ${invalidLeg.chainId} does not match target chain ${targetChain} (${expectedChainId})`);
+  }
   
   const contract = await getChainSignatureContract();
   
@@ -589,7 +616,7 @@ export async function signAndSubmitTransaction(params: {
         from: address.toLowerCase() as any,
         to: leg.to.toLowerCase() as any,
         data: leg.data as any,
-        value: ethers.parseEther(leg.value || '0'),
+        value: ethers.parseUnits(leg.value || '0', 18),
       });
       
       console.log(`🔐 Requesting NEAR MPC signature for leg ${leg.to}`);
@@ -610,7 +637,7 @@ export async function signAndSubmitTransaction(params: {
         rsvSignatures: [signature],
       });
       
-      console.log(`📡 Broadcasting to ${params.targetChain || 'base'} (chainId ${leg.chainId})`);
+      console.log(`📡 Broadcasting to ${targetChain} (chainId ${leg.chainId || expectedChainId})`);
       
       // Broadcast to target chain using ethers.js
       const txResponse = await provider.broadcastTransaction(signedTx);
@@ -633,15 +660,8 @@ export async function signAndSubmitTransaction(params: {
         error: error.message,
         chain: params.targetChain || 'base',
       });
+      throw new Error(`MPC transaction submission stopped after ${results.length - 1} successful leg(s): ${leg.to}: ${error.message}`);
     }
-  }
-  
-  // Check if all legs succeeded
-  const allSuccess = results.every(r => r.success);
-  if (!allSuccess) {
-    const failed = results.filter(r => !r.success).map(r => `${r.leg || 'unknown'}: ${r.error || 'unknown error'}`).join('; ');
-    console.warn(`⚠️  Some transaction legs failed. Atomicity not guaranteed: ${failed}`);
-    throw new Error(`MPC transaction submission incomplete: ${failed}`);
   }
   
   return results;
@@ -664,7 +684,7 @@ export async function signAndSubmitNativeGasTransfer(params: {
   });
   const result = results[0];
   if (!result?.success || !result.txHash) {
-    throw new Error(result?.error || 'Gas treasury transfer failed');
+    throw new Error('Gas treasury transfer failed');
   }
   return result.txHash;
 }

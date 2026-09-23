@@ -22,6 +22,7 @@ declare module 'fastify' {
 
 const PUBLIC_PREFIXES = [
   '/health',
+  '/api/config',
   '/favicon.ico',
   '/api/auth/',
   '/webhooks/',
@@ -104,9 +105,20 @@ export async function requireAuthHook(request: FastifyRequest, reply: FastifyRep
     userEntityIds,
   };
 
+  const query = request.query as Record<string, any> | undefined;
+  const body = request.body as Record<string, any> | undefined;
+  const requestedUserId = body?.userId || query?.userId;
+  if (requestedUserId && requestedUserId !== payload.userId) {
+    return reply.status(403).send({ error: 'The requested user does not match the authenticated session' });
+  }
+
+  const requestedEntityId = body?.entityId || query?.entityId;
+  if (requestedEntityId && !userEntityIds.includes(String(requestedEntityId))) {
+    return reply.status(403).send({ error: 'The requested entity does not belong to the authenticated session' });
+  }
+
   // Protect against client-supplied session injection in request body
-  if (request.body && typeof request.body === 'object') {
-    const body = request.body as Record<string, any>;
+  if (body) {
     delete body.session;
     delete body.userId;
     delete body.userEntityIds;

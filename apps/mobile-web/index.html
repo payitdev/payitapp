@@ -10,7 +10,7 @@
     <meta name="description" content="Proxim — The modern global payment and treasury platform for individuals and businesses." />
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://auth.privy.io https://challenges.cloudflare.com;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://auth.privy.io https://challenges.cloudflare.com https://telegram.org;
       frame-src 'self' https://auth.privy.io https://challenges.cloudflare.com;
       connect-src 'self' http://localhost:4000 https://*.onrender.com https://api.proximfi.xyz https://auth.privy.io wss://auth.privy.io https://api.privy.io https://explorer-api.walletconnect.com https://*.walletconnect.com wss://*.walletconnect.com https://*.walletlink.org wss://*.walletlink.org https://*.near.org https://rpc.mainnet.near.org https://rpc.testnet.near.org https://api.mainnet-beta.solana.com;
       img-src 'self' data: blob: https://*.privy.io https://mintcdn.com https://api.qrserver.com;
@@ -19,6 +19,7 @@
     " />
     <link rel="preconnect" href="https://api.fontshare.com">
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap" rel="stylesheet">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body style="background: #061B18;">
     <div id="root"></div>

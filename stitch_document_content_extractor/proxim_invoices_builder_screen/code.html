@@ -1,0 +1,312 @@
+<!DOCTYPE html><html class="dark" lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100%;margin:0;padding:0;background-color:#050811;}body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}*{-ms-overflow-style:none;scrollbar-width:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-elevated": "#0B2924", "on-tertiary-container": "#724700", "status-success": "#10B981", "background-teal": "#061B18", "on-surface": "#dce2f9", "surface-container-high": "#232a3b", "surface-bright": "#32394b", "on-secondary-container": "#b3acff", "on-primary-fixed-variant": "#00504c", "on-secondary-fixed-variant": "#3d27c0", "on-tertiary-fixed-variant": "#653e00", "inverse-surface": "#dce2f9", "primary-fixed": "#61f9ef", "tertiary-container": "#ffb552", "status-warning": "#F59E0B", "border-hairline": "rgba(255, 255, 255, 0.06)", "secondary": "#c6c0ff", "outline-variant": "#3c4948", "surface-dim": "#0c1323", "secondary-fixed": "#e4dfff", "status-danger": "#EF4444", "tertiary-fixed": "#ffddb7", "surface-container-highest": "#2e3446", "on-error-container": "#ffdad6", "surface-container": "#181f30", "tertiary": "#ffd9af", "outline": "#859492", "border-interactive": "rgba(255, 255, 255, 0.12)", "background-void": "#050811", "on-background": "#dce2f9", "on-primary-fixed": "#00201e", "secondary-fixed-dim": "#c6c0ff", "error-container": "#93000a", "on-secondary-fixed": "#150066", "surface-container-lowest": "#070e1e", "primary": "#5df6ec", "surface-tint": "#3adcd3", "error": "#ffb4ab", "secondary-container": "#3d27c0", "tertiary-fixed-dim": "#ffb95d", "primary-fixed-dim": "#3adcd3", "on-error": "#690005", "on-surface-variant": "#bacac7", "on-tertiary-fixed": "#2a1700", "inverse-primary": "#006a65", "on-tertiary": "#462a00", "surface-variant": "#2e3446", "on-secondary": "#2600a1", "surface-container-low": "#141b2c", "background": "#0c1323", "primary-container": "#35d9d0", "on-primary": "#003734", "surface": "#0c1323", "inverse-on-surface": "#293041", "on-primary-container": "#005b57" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "gutter-lg": "16px", "gutter-xs": "4px", "gutter-md": "12px", "gutter-3xl": "32px", "gutter-xl": "20px", "gutter-2xl": "24px", "gutter-sm": "8px", "bottom-nav-clearance": "96px" }, "fontFamily": { "body-sm": ["Inter"], "label-md": ["Inter"], "body-lg": ["Inter"], "headline-md": ["Plus Jakarta Sans"], "display-lg": ["Plus Jakarta Sans"], "label-sm": ["Inter"], "headline-sm": ["Plus Jakarta Sans"], "body-md": ["Inter"], "label-xs": ["Inter"], "headline-lg": ["Plus Jakarta Sans"], "display-lg-mobile": ["Plus Jakarta Sans"], "display-xl": ["Plus Jakarta Sans"] }, "fontSize": { "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "display-lg": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.025em", "fontWeight": "700" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }], "headline-sm": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "body-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "label-xs": ["10px", { "lineHeight": "12px", "letterSpacing": "0.06em", "fontWeight": "700" }], "headline-lg": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "display-lg-mobile": ["28px", { "lineHeight": "34px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "display-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.03em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background-void text-on-surface font-body-md flex justify-center min-h-screen"><div class="w-full max-w-[440px] relative flex flex-col min-h-screen bg-surface-container-lowest shadow-2xl"><header class="fixed top-0 w-full max-w-[440px] z-50 pt-safe bg-surface-container-lowest/80 backdrop-blur-xl"><div class="h-16 px-gutter-lg flex items-center justify-between"><div class="flex items-center gap-gutter-sm"><button aria-label="Go Back" class="w-11 h-11 -ml-2 flex items-center justify-center text-on-surface hover:text-primary transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="Geometric modern Proxim fintech logo icon featuring an abstract dynamic continuous ribbon / infinity nexus glowing with cyan teal (#35D9D0) and electric indigo (#7567F8) aurora gradient on a dark background.. Brand logo. - Primary color: #35d9d0
+- Font: bricolageGrotesque
+- Mode: dark
+- Roundness: rounded-full
+" class="h-7 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UZfODKzMdbibPAjkazGcwwNTrJuneuf4jeClxFR89RbtqJOJF2i7Cxxqr3NfMqGa-JigHN88jy2OlpQPvzxxNab_BIG7IeEvqQ8yVBzDMm_1iPihWW9eICTPIfQAg4XViwa7yil0PivZ1QN8luepWiL8BZl1_IsLBa1tAIS9uRcaTK30CRAY2Kazv6NQx9Xy06c7ETM1pINpgvwliI1P6o22iJJsUdpM-zCuHpmps5nK3wP0VO221QoRI"></div><h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight text-center truncate px-2">Transfer Execution</h1><div class="flex items-center gap-gutter-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/AEtjO1UDHqM_3qWhfGpdvaXl0llJKUGc7k3qnRuKyoPoogcwQ1ajlCPbE8wgfo-7kUYcUiGzCYYQBDZoKJ0oQIWnEY1503htWisN7ipu2e_yWQxtzErM7_nKhbC41boglkCqvWTIOEPapMCSUbwL6zcvcJOPm9RVVn7xUgUkJ_k6jb_c1fXRAKW79h8LvhA7v7R2nfZ69FtLwRe_-4825OfjQ0NGkf6DI1y-TyXRpIJgMQGUip1UdvBYArO70RM"></div></div></header><main class="flex-1 flex flex-col w-full pt-16 pb-safe bg-surface-container-lowest px-gutter-lg"><div class="flex flex-col w-full pb-bottom-nav-clearance">
+<!-- Eyebrow & Top Bar Action -->
+<div class="flex items-end justify-between pt-2 pb-4">
+<div class="flex flex-col">
+<span class="font-label-xs text-label-xs text-primary uppercase tracking-widest flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+        Treasury Billing
+      </span>
+<h2 class="font-headline-lg text-headline-lg text-on-surface font-bold tracking-tight mt-0.5">Invoices</h2>
+</div>
+<button class="relative group overflow-hidden px-3.5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary text-surface-container-lowest font-label-md text-label-md font-semibold shadow-lg shadow-primary/20 flex items-center gap-1.5 active:scale-95 transition-transform" id="quick-create-btn" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>New Invoice</span>
+</button>
+</div>
+<!-- Treasury Summary Cockpit Card -->
+<div class="relative overflow-hidden rounded-2xl bg-surface-container-low p-4 shadow-xl mb-5">
+<div class="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-primary/10 blur-2xl pointer-events-none"></div>
+<div class="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-secondary/10 blur-xl pointer-events-none"></div>
+<div class="relative flex items-center justify-between gap-3">
+<div class="flex-1 pr-3">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>
+<span class="font-label-xs text-label-xs text-on-surface-variant uppercase tracking-wider">Outstanding</span>
+</div>
+<div class="font-display-lg-mobile text-display-lg-mobile text-on-surface tracking-tight font-bold tabular-nums">
+          $34,500<span class="text-on-surface-variant font-medium text-headline-sm">.00</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-on-surface-variant font-label-xs text-label-xs">
+<span class="material-symbols-outlined text-[13px] text-status-warning">schedule</span>
+<span>2 pending treasury links</span>
+</div>
+</div>
+<div class="w-px h-12 bg-surface-container-highest"></div>
+<div class="flex-1 pl-3">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+<span class="font-label-xs text-label-xs text-on-surface-variant uppercase tracking-wider">Paid This Month</span>
+</div>
+<div class="font-display-lg-mobile text-display-lg-mobile text-primary tracking-tight font-bold tabular-nums">
+          $82,100<span class="text-primary-fixed-dim font-medium text-headline-sm">.00</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-status-success font-label-xs text-label-xs">
+<span class="material-symbols-outlined text-[13px]">trending_up</span>
+<span>+14.2% vs last cycle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Filter Pills -->
+<div class="flex items-center gap-2 overflow-x-auto pb-1 mb-5" role="tablist">
+<button class="px-3.5 py-1.5 rounded-full bg-primary text-on-primary font-label-sm text-label-sm font-semibold shadow-sm whitespace-nowrap transition-all" type="button">
+      All (14)
+    </button>
+<button class="px-3.5 py-1.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm hover:text-on-surface whitespace-nowrap transition-all" type="button">
+      Drafts (3)
+    </button>
+<button class="px-3.5 py-1.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm hover:text-on-surface whitespace-nowrap transition-all flex items-center gap-1.5" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>
+      Sent (Pending)
+    </button>
+<button class="px-3.5 py-1.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm hover:text-on-surface whitespace-nowrap transition-all flex items-center gap-1.5" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+      Paid (9)
+    </button>
+</div>
+<!-- Interactive Invoice Builder Wizard Module -->
+<div class="relative rounded-2xl bg-surface-container-low p-4 mb-6 shadow-2xl">
+<!-- Top Glowing Gradient Bar -->
+<div class="absolute top-0 inset-x-0 h-1 rounded-t-2xl bg-gradient-to-r from-primary via-secondary to-primary-container"></div>
+<!-- Wizard Header & Progress -->
+<div class="pt-1 pb-3">
+<div class="flex items-center justify-between mb-2">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">instant_mix</span>
+          Instant Flow Builder
+        </span>
+<span class="font-label-xs text-label-xs uppercase px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
+          Draft #INV-2026-095
+        </span>
+</div>
+<!-- Step Indicator Bar -->
+<div class="grid grid-cols-3 gap-1.5 mt-2">
+<div class="flex flex-col gap-1">
+<div class="h-1 rounded-full bg-primary"></div>
+<span class="font-label-xs text-label-xs text-primary font-semibold truncate">1. Client &amp; Details</span>
+</div>
+<div class="flex flex-col gap-1">
+<div class="h-1 rounded-full bg-primary"></div>
+<span class="font-label-xs text-label-xs text-primary font-semibold truncate">2. FX Rate Lock</span>
+</div>
+<div class="flex flex-col gap-1">
+<div class="h-1 rounded-full bg-surface-container-highest"></div>
+<span class="font-label-xs text-label-xs text-on-surface-variant truncate">3. Rail &amp; Settle</span>
+</div>
+</div>
+</div>
+<!-- Interactive Builder Form Sheet -->
+<form class="flex flex-col gap-3.5 mt-2" id="invoice-preview-form" onsubmit="event.preventDefault();">
+<!-- Client Selector -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label-xs text-label-xs text-on-surface-variant font-medium">Billed Enterprise</label>
+<div class="flex items-center justify-between p-3 rounded-xl bg-surface-container hover:bg-surface-container-high transition-colors cursor-pointer">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-surface-elevated flex items-center justify-center text-primary font-headline-sm font-bold flex-shrink-0">
+              A
+            </div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-lg text-body-lg text-on-surface font-semibold truncate leading-tight">Acme Corp</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">acme@acmecorp.com</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">unfold_more</span>
+</div>
+</div>
+<!-- Amount & Guaranteed FX Rate Container -->
+<div class="p-3.5 rounded-xl bg-surface-container flex flex-col gap-2.5">
+<div class="flex items-center justify-between">
+<span class="font-label-xs text-label-xs text-on-surface-variant font-medium">Invoice Amount</span>
+<span class="font-label-xs text-label-xs text-primary font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">lock_clock</span>
+            15m Guaranteed FX Lock
+          </span>
+</div>
+<div class="flex items-baseline justify-between">
+<div class="font-display-lg-mobile text-display-lg-mobile font-bold text-on-surface tracking-tight tabular-nums">
+            $12,500<span class="text-on-surface-variant text-headline-md">.00</span>
+</div>
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-highest text-primary font-label-sm text-label-sm font-semibold">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+            USDC
+          </div>
+</div>
+<!-- FX Conversion Band -->
+<div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-surface-elevated/70 text-on-surface-variant font-label-xs text-label-xs">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px] text-primary">sync_alt</span>
+            1 USDC = 1.00 USD
+          </span>
+<span class="text-primary font-medium">~ 19,750,000 NGN Settle</span>
+</div>
+</div>
+<!-- Accepted Payment Rails (Multi-Select Chips) -->
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<label class="font-label-xs text-label-xs text-on-surface-variant font-medium">Accepted Settlement Rails</label>
+<span class="font-label-xs text-label-xs text-status-success font-medium">3 active</span>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<!-- Rail 1 -->
+<button class="p-2 rounded-xl bg-surface-elevated text-primary flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-center" type="button">
+<span class="material-symbols-outlined text-[20px]">bolt</span>
+<span class="font-label-xs text-label-xs font-semibold leading-tight">Solana USDC</span>
+</button>
+<!-- Rail 2 -->
+<button class="p-2 rounded-xl bg-surface-elevated text-primary flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-center" type="button">
+<span class="material-symbols-outlined text-[20px]">layers</span>
+<span class="font-label-xs text-label-xs font-semibold leading-tight">Base USDC</span>
+</button>
+<!-- Rail 3 -->
+<button class="p-2 rounded-xl bg-surface-container text-on-surface-variant hover:text-on-surface flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-center" type="button">
+<span class="material-symbols-outlined text-[20px]">account_balance</span>
+<span class="font-label-xs text-label-xs font-semibold leading-tight">Direct Wire</span>
+</button>
+</div>
+</div>
+<!-- Due Date & Treasury Terms -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-surface-container">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">calendar_today</span>
+<span class="font-label-xs text-label-xs text-on-surface-variant">Payment Terms</span>
+</div>
+<span class="font-label-sm text-label-sm font-semibold text-on-surface bg-surface-container-high px-2 py-1 rounded-md">
+          Net 15 (Oct 12, 2026)
+        </span>
+</div>
+<!-- Action Button -->
+<button class="w-full mt-1 py-3.5 px-4 rounded-xl bg-gradient-to-r from-primary to-secondary text-surface-container-lowest font-body-lg text-body-lg font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform" id="send-link-btn" type="button">
+<span class="material-symbols-outlined text-[20px]">send</span>
+<span>Generate &amp; Send Payment Link</span>
+</button>
+</form>
+</div>
+<!-- Recent Invoices List Section -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-2">
+<h3 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Recent Treasury Activity</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-xs text-label-xs font-medium">Live</span>
+</div>
+<button class="font-label-xs text-label-xs text-primary hover:underline" type="button">View Ledger</button>
+</div>
+<!-- Invoice Item 1 -->
+<div class="p-3.5 rounded-2xl bg-surface-container-low hover:bg-surface-container transition-all flex flex-col gap-2.5 shadow-sm">
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">corporate_fare</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate">Stripe Inc</span>
+<span class="font-label-xs text-label-xs text-on-surface-variant">#INV-2026-089</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Processed Sep 08 • High-speed vault</span>
+</div>
+</div>
+<div class="flex flex-col items-end flex-shrink-0">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface tabular-nums">$18,500.00</span>
+<span class="font-label-xs text-label-xs text-primary font-medium">USDC</span>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 border-t border-hairline">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-status-success/15 text-status-success font-label-xs text-label-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+          Paid • Instant Settled
+        </div>
+<div class="flex items-center gap-1 text-on-surface-variant hover:text-on-surface font-label-xs text-label-xs cursor-pointer">
+<span>Audit receipt</span>
+<span class="material-symbols-outlined text-[14px]">arrow_outward</span>
+</div>
+</div>
+</div>
+<!-- Invoice Item 2 -->
+<div class="p-3.5 rounded-2xl bg-surface-container-low hover:bg-surface-container transition-all flex flex-col gap-2.5 shadow-sm">
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">smart_toy</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate">Scale AI</span>
+<span class="font-label-xs text-label-xs text-on-surface-variant">#INV-2026-092</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Due in 4 days • Net 15 Auto-followup</span>
+</div>
+</div>
+<div class="flex flex-col items-end flex-shrink-0">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface tabular-nums">$16,000.00</span>
+<span class="font-label-xs text-label-xs text-primary font-medium">USDC</span>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 border-t border-hairline">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-status-warning/15 text-status-warning font-label-xs text-label-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning animate-pulse"></span>
+          Pending • View Link
+        </div>
+<button class="flex items-center gap-1 text-primary hover:text-primary-fixed font-label-xs text-label-xs font-semibold cursor-pointer" type="button">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+<span>Copy Direct Rail</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Toast Micro-feedback on Generation -->
+<div class="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[390px] p-3 rounded-2xl bg-surface-elevated/95 backdrop-blur-md text-on-surface shadow-2xl flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-all duration-300 z-50" id="toast-notify">
+<div class="flex items-center gap-2 min-w-0">
+<span class="material-symbols-outlined text-primary text-[20px]">check_circle</span>
+<span class="font-body-sm text-body-sm font-semibold truncate">Payment link generated &amp; dispatched!</span>
+</div>
+<span class="font-label-xs text-label-xs text-primary font-bold uppercase">15m FX Active</span>
+</div>
+</div>
+<script>
+  // Simple interaction for UX delight
+  (function() {
+    const sendBtn = document.getElementById('send-link-btn');
+    const toast = document.getElementById('toast-notify');
+    const quickBtn = document.getElementById('quick-create-btn');
+
+    function triggerToast(message) {
+      if (!toast) return;
+      if (message) {
+        const textSpan = toast.querySelector('.text-body-sm');
+        if (textSpan) textSpan.textContent = message;
+      }
+      toast.classList.remove('opacity-0', 'pointer-events-none');
+      toast.classList.add('opacity-100');
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'pointer-events-none');
+        toast.classList.remove('opacity-100');
+      }, 3200);
+    }
+
+    if (sendBtn) {
+      sendBtn.addEventListener('click', () => {
+        sendBtn.classList.add('scale-95');
+        setTimeout(() => sendBtn.classList.remove('scale-95'), 150);
+        triggerToast('Payment link generated & dispatched to Acme Corp!');
+      });
+    }
+
+    if (quickBtn) {
+      quickBtn.addEventListener('click', () => {
+        window.scrollTo({ top: 120, behavior: 'smooth' });
+        triggerToast('Drafting fresh invoice on Solana / Base rails');
+      });
+    }
+  })();
+</script></main></div></body></html>

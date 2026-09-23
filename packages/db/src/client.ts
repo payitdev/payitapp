@@ -3,7 +3,8 @@ import postgres from 'postgres';
 import * as schema from './schema.js';
 
 export function createDbClient(connectionString?: string) {
-  const url = connectionString || process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_FzVIWi01hden@ep-frosty-lab-ay6rqcus.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require';
+  const url = connectionString || process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is required. Pass a connection string or set DATABASE_URL environment variable.');
   
   // Create postgres connection client with SSL, keepalive & auto-retry for Neon DB serverless proxy
   const queryClient = postgres(url, {

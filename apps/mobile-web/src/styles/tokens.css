@@ -1,0 +1,113 @@
+/**
+ * Proxim design tokens.
+ * Binding specification from proxim-design-system.md
+ */
+
+:root {
+  /* ---- Surfaces ---- */
+  --bg-app: #061B18;        /* page background, theme-color in index.html */
+  --bg-deep: #050811;       /* modal / sheet backdrop, deepest layer */
+  --surface: #0D1424;       /* card and panel surface */
+  --surface-alt: #0B2924;   /* secondary surface, teal-tinted */
+
+  /* ---- Elevation & Borders ---- */
+  --hairline: rgba(255, 255, 255, 0.06); /* the only border color in the app */
+
+  /* ---- Text ---- */
+  --text-primary: #F7F8F4;      /* primary reading text */
+  --text-on-surface: #FFFFFF;   /* text on solid/dark card fills */
+  --text-muted: #94A3B8;        /* secondary/meta text */
+  --text-inverse: #061B18;      /* text on light/accent-filled chips */
+
+  /* ---- Brand accent (aurora) ---- */
+  --accent-teal: #35D9D0;       /* primary interactive accent */
+  --accent-teal-deep: #16C7B7;  /* verified/success chip fill */
+  --accent-cyan: #2DD4BF;       /* gradient stop, icons */
+  --accent-indigo: #7567F8;     /* gradient stop */
+  --accent-blue: #4A8CFF;       /* secondary informational accent */
+  --accent-pink: #FF5DA8;       /* highlight accent */
+
+  /* ---- Semantic ---- */
+  --success: #4ADE80;
+  --warning: #D6B65A;           /* pending/in-review states */
+  --warning-strong: #FACC15;
+  --danger: #FF4D4D;
+  --danger-soft: #FF8A8A;
+
+  /* ---- Gradients ---- */
+  --gradient-aurora: linear-gradient(135deg, var(--accent-teal), var(--accent-indigo));
+  --gradient-verify-bg: linear-gradient(135deg, rgba(45, 212, 191, 0.07), rgba(129, 140, 248, 0.07));
+
+  /* ---- Typography ---- */
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-body: 'Satoshi', sans-serif;
+
+  /* ---- Fixed Type Scale ---- */
+  --type-11: 11px;
+  --type-13: 13px;
+  --type-15: 15px;
+  --type-20: 20px;
+  --type-24: 24px;
+  --type-34: 34px;
+  --type-42: 42px;
+
+  /* ---- Spacing (4px base unit) ---- */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+
+  /* ---- Radius ---- */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-sheet: 24px;
+  --radius-pill: 999px;
+}
+
+/* Global utility classes following the design system */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Screen container */
+.screen-container {
+  min-height: 100vh;
+  background-color: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 0 0 96px 0; /* space for floating bottom nav */
+}
+
+/* Aurora sweep animation */
+.aurora-bar {
+  display: flex;
+  gap: 4px;
+  height: 4px;
+  width: 100%;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.aurora-bar .segment {
+  flex: 1;
+  height: 100%;
+}
+
+.aurora-bar .segment.teal { background: var(--accent-teal); }
+.aurora-bar .segment.cyan { background: var(--accent-cyan); }
+.aurora-bar .segment.blue { background: var(--accent-indigo); }

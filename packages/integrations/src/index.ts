@@ -2,6 +2,8 @@ export * from './easeIdClient.js';
 export { EaseIDClient, easeIdClient } from './easeIdClient.js';
 export * from './brailsClient.js';
 export { BrailsClient } from './brailsClient.js';
+export * from './kycSchemaRegistry.js';
+export { getKycSchema, getProviderForAccountType } from './kycSchemaRegistry.js';
 export * from './feeService.js';
 export * from './liquidationService.js';
 export * from './podsClient.js';

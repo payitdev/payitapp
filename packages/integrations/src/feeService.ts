@@ -228,7 +228,7 @@ export class FeeService {
     const totalFixedFee = recipientCount * fixedFeePerRecipient;
     const percentageFee = totalAmount * this.schedule.payrollBatchPercent;
     const feeAmount = totalFixedFee + percentageFee;
-    const netAmount = totalAmount + feeAmount;
+    const netAmount = Math.max(0, totalAmount - feeAmount);
 
     return {
       grossAmount: Number(totalAmount.toFixed(2)),

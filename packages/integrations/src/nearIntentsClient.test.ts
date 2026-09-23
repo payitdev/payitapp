@@ -63,6 +63,36 @@ describe('NEARIntentsClient Integration Test', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('accepts native Polygon MATIC deposits by canonicalizing the asset alias', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/v0/tokens')) {
+        return new Response(JSON.stringify([
+          { assetId: 'polygon-native-matic', blockchain: 'polygon', symbol: 'MATIC', decimals: 18 },
+          { assetId: 'base-usdc', blockchain: 'base', symbol: 'USDC', decimals: 6 },
+        ]), { status: 200 });
+      }
+      assert.strictEqual(url, 'https://1click.chaindefuser.com/v0/quote');
+      const body = JSON.parse(String(init?.body));
+      assert.strictEqual(body.originAsset, 'polygon-native-matic');
+      assert.strictEqual(body.destinationAsset, 'base-usdc');
+      return new Response(JSON.stringify({ quote: { depositAddress: 'deposit_polygon_native_123' } }), { status: 200 });
+    }) as typeof fetch;
+
+    const intent = await client.generateIntentForSigning({
+      originAsset: 'polygon:matic',
+      destinationAsset: 'base:usdc',
+      amount: '1',
+      recipientAddress: '11111111111111111111111111111111',
+    });
+    globalThis.fetch = originalFetch;
+
+    assert.ok(intent);
+    assert.strictEqual(intent.success, true);
+    assert.strictEqual(intent.depositAddress, 'deposit_polygon_native_123');
+  });
+
   it('should reject status lookup for an unknown deposit address', async () => {
     await assert.rejects(() => client.checkSwapExecutionStatus('intent_test_999'));
   });

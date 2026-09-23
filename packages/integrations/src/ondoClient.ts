@@ -1,8 +1,11 @@
 /**
  * Ondo Global Markets Client for Proxim Stock/ETF Trading
- * 
+ *
  * Integrates Pods Finance's Ondo Global Markets for tokenized stocks & ETFs
  * Operates on BSC for positions, with Base funding and payout support
+ *
+ * Signing: NEAR MPC wallet only (via signAndSubmitTransaction in chainSignaturesBackend)
+ * Stocks:  Ondo Global Markets only (no Pods Finance for stocks)
  */
 
 import axios, { AxiosInstance } from 'axios';
@@ -160,107 +163,71 @@ export interface OndoActionStatus {
 }
 
 // ============================================================
-// VERIFIED CURATED ONDO STOCK CATALOG (RESILIENT DISCOVERY)
+// POLYGON.IO PRICE ENRICHMENT
 // ============================================================
 
-export const VERIFIED_ONDO_STOCKS: OndoToken[] = [
-  {
-    symbol: 'AAPLon',
-    name: 'Apple Inc.',
-    address: '0x111111111117dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['stock', 'tech'],
-    priceInUSD: '228.45',
-    id: 'ondo-aaplon-bsc',
-  },
-  {
-    symbol: 'NVDAon',
-    name: 'NVIDIA Corporation',
-    address: '0x333333333337dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['stock', 'tech', 'semiconductor'],
-    priceInUSD: '128.90',
-    id: 'ondo-nvdaon-bsc',
-  },
-  {
-    symbol: 'MSFTon',
-    name: 'Microsoft Corporation',
-    address: '0x444444444447dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['stock', 'tech', 'cloud'],
-    priceInUSD: '448.20',
-    id: 'ondo-msfton-bsc',
-  },
-  {
-    symbol: 'TSLAon',
-    name: 'Tesla, Inc.',
-    address: '0x222222222227dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['stock', 'ev', 'tech'],
-    priceInUSD: '215.60',
-    id: 'ondo-tslaon-bsc',
-  },
-  {
-    symbol: 'SPYon',
-    name: 'SPDR S&P 500 ETF Trust',
-    address: '0x555555555557dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['etf', 'index'],
-    priceInUSD: '552.80',
-    id: 'ondo-spyon-bsc',
-  },
-  {
-    symbol: 'QQQon',
-    name: 'Invesco QQQ Trust (Nasdaq-100)',
-    address: '0x666666666667dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['etf', 'tech', 'index'],
-    priceInUSD: '485.10',
-    id: 'ondo-qqqon-bsc',
-  },
-  {
-    symbol: 'USDY',
-    name: 'Ondo US Dollar Yield Token',
-    address: '0x777777777777dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['yield', 'treasury'],
-    priceInUSD: '1.05',
-    id: 'ondo-usdy-bsc',
-  },
-  {
-    symbol: 'OUSG',
-    name: 'Ondo Short-Term US Government Bond Fund',
-    address: '0x888888888888dC0aa78b770fA6A738034120C302',
-    decimals: 18,
-    chainId: 56,
-    category: ['treasury', 'etf'],
-    priceInUSD: '107.40',
-    id: 'ondo-ousg-bsc',
-  },
-];
+/**
+ * Fetch live stock prices from Polygon.io for a batch of tickers.
+ * Returns a map of ticker → USD price string.
+ */
+async function fetchPolygonPrices(symbols: string[]): Promise<Map<string, string>> {
+  const priceMap = new Map<string, string>();
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey || symbols.length === 0) return priceMap;
+
+  // Normalize symbols: strip 'on' suffix (e.g. AAPLon → AAPL)
+  const normalized = symbols.map(s => s.replace(/on$/i, '').toUpperCase());
+  const tickerList = normalized.join(',');
+
+  try {
+    const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${encodeURIComponent(tickerList)}&apiKey=${apiKey}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!response.ok) {
+      console.warn(`[Polygon.io] Price fetch failed: ${response.status} ${response.statusText}`);
+      return priceMap;
+    }
+    const data = await response.json() as { tickers?: Array<{ ticker: string; day?: { c?: number }; lastTrade?: { p?: number } }> };
+    for (const ticker of data.tickers || []) {
+      const price = ticker.day?.c || ticker.lastTrade?.p;
+      if (price && price > 0) {
+        // Map back: both the raw ticker and the 'on' version
+        priceMap.set(ticker.ticker.toUpperCase(), price.toFixed(4));
+        priceMap.set(`${ticker.ticker.toLowerCase()}on`, price.toFixed(4));
+        priceMap.set(`${ticker.ticker.toUpperCase()}on`, price.toFixed(4));
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Polygon.io] Live price enrichment unavailable:', err.message);
+  }
+
+  return priceMap;
+}
 
 // ============================================================
 // MAIN CLIENT CLASS
 // ============================================================
 
 export class OndoClient {
-  private client: AxiosInstance;
+  private _client: AxiosInstance | null = null;
   private apiKey: string;
   private baseURL: string;
 
   constructor(apiKey?: string) {
+    // Store credentials without validating — defer validation to first API call
+    // This allows the ondo.ts route guard to deny requests cleanly when ENABLE_ONDO_FINANCE=false
     this.apiKey = apiKey || process.env.PODS_API_KEY || '';
     this.baseURL = process.env.PODS_BASE_URL || process.env.PODS_API_BASE_URL || '';
-    if (!this.apiKey || !this.baseURL) throw new Error('Ondo provider API configuration is required');
+  }
 
-    this.client = axios.create({
+  /**
+   * Lazily initialise and return the Axios client.
+   * Throws a clear error if credentials are missing at the point of first use.
+   */
+  private getClient(): AxiosInstance {
+    if (this._client) return this._client;
+    if (!this.apiKey) throw new Error('Ondo provider API key is not configured. Set PODS_API_KEY.');
+    if (!this.baseURL) throw new Error('Ondo provider base URL is not configured. Set PODS_BASE_URL or PODS_API_BASE_URL.');
+    this._client = axios.create({
       baseURL: this.baseURL,
       headers: {
         'x-api-key': this.apiKey,
@@ -268,6 +235,7 @@ export class OndoClient {
       },
       timeout: 8000,
     });
+    return this._client;
   }
 
   /**
@@ -276,18 +244,17 @@ export class OndoClient {
    */
   private checkUsMarketHours(): boolean {
     const now = new Date();
-    // Convert to US Eastern Time (UTC-4 / UTC-5)
     const estString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
     const estDate = new Date(estString);
-    const day = estDate.getDay(); // 0 = Sunday, 6 = Saturday
+    const day = estDate.getDay();
     const hours = estDate.getHours();
     const minutes = estDate.getMinutes();
 
-    if (day === 0 || day === 6) return false; // Weekend
+    if (day === 0 || day === 6) return false;
 
     const timeInMinutes = hours * 60 + minutes;
-    const marketOpen = 9 * 60 + 30; // 9:30 AM
-    const marketClose = 16 * 60; // 4:00 PM
+    const marketOpen = 9 * 60 + 30;
+    const marketClose = 16 * 60;
 
     return timeInMinutes >= marketOpen && timeInMinutes < marketClose;
   }
@@ -297,7 +264,7 @@ export class OndoClient {
    */
   async getMarketStatus(symbol: string): Promise<OndoMarketStatus> {
     try {
-      const { data } = await this.client.get<OndoMarketStatus>(`/ondo/stocks/market-status`, {
+      const { data } = await this.getClient().get<OndoMarketStatus>(`/ondo/stocks/market-status`, {
         params: { symbol: symbol.toLowerCase() },
       });
       return data;
@@ -307,29 +274,43 @@ export class OndoClient {
   }
 
   /**
-   * STEP 2: List available stocks/ETFs on BSC
+   * STEP 2: List available stocks/ETFs on BSC with live Polygon.io price enrichment.
+   * Throws if the live API is unavailable — no fallback to a stale catalog.
    */
   async listStocksAndETFs(): Promise<OndoToken[]> {
-    try {
-      const { data } = await this.client.get<{ data?: { tokens?: OndoToken[] }; tokens?: OndoToken[] }>('/tokens', {
-        params: {
-          chainId: 56, // BSC
-          limit: 300,
-        },
-      });
+    const { data } = await this.getClient().get<{ data?: { tokens?: OndoToken[] }; tokens?: OndoToken[] }>('/tokens', {
+      params: {
+        chainId: 56, // BSC
+        limit: 300,
+      },
+    });
 
-      const tokens = data?.data?.tokens || data?.tokens || [];
-      if (Array.isArray(tokens) && tokens.length > 0) {
-        const baseStocks = tokens.filter(token =>
-          (token.category || []).includes('stock') || (token.category || []).includes('etf') || (token.category || []).includes('rwa')
-        );
-        if (baseStocks.length > 0) return baseStocks;
-      }
-    } catch (error: any) {
-      console.warn('[OndoClient] Live stock discovery unavailable:', error.message);
-      throw new Error(`Ondo stock discovery unavailable: ${error.message}`);
+    const tokens = data?.data?.tokens || data?.tokens || [];
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+      throw new Error('Ondo returned no live stock assets');
     }
-    throw new Error('Ondo returned no live stock assets');
+
+    const liveTokens = tokens.filter(token =>
+      (token.category || []).includes('stock') ||
+      (token.category || []).includes('etf') ||
+      (token.category || []).includes('rwa')
+    );
+
+    if (liveTokens.length === 0) {
+      throw new Error('Ondo returned no stock or ETF assets');
+    }
+
+    // Enrich with live Polygon.io prices
+    const symbols = liveTokens.map(t => t.symbol);
+    const polygonPrices = await fetchPolygonPrices(symbols);
+
+    return liveTokens.map(token => {
+      const livePrice = polygonPrices.get(token.symbol.toUpperCase()) || polygonPrices.get(token.symbol);
+      return {
+        ...token,
+        priceInUSD: livePrice || token.priceInUSD || '0.00',
+      };
+    });
   }
 
   /**
@@ -337,27 +318,27 @@ export class OndoClient {
    */
   async resolveStrategyId(tokenAddress: string): Promise<string | null> {
     try {
-      const { data } = await this.client.get<{ data: OndoStrategy[] }>('/strategies', {
+      const { data } = await this.getClient().get<{ data: OndoStrategy[] }>('/strategies', {
         params: {
           protocol: 'Ondo',
           network: 'bsc',
         },
       });
 
-      const strategy = data?.data?.find(s => 
+      const strategy = data?.data?.find(s =>
         s.asset.toLowerCase() === tokenAddress.toLowerCase()
       );
 
       if (strategy) return strategy.id;
     } catch (error: any) {
-      console.warn('[OndoClient] Live strategy resolution fallback:', error.message);
+      console.warn('[OndoClient] Live strategy resolution failed:', error.message);
     }
 
     return null;
   }
 
   /**
-   * STEP 3: Buy stock (request-lend)
+   * STEP 3: Buy stock (request-lend) — returns EVM bytecode for NEAR MPC signing
    */
   async buyStock(params: {
     strategyId: string;
@@ -367,7 +348,7 @@ export class OndoClient {
     try {
       const amount = Math.floor(params.usdAmount * 1_000_000).toString();
 
-      const { data } = await this.client.get<OndoBytecodeResponse>(
+      const { data } = await this.getClient().get<OndoBytecodeResponse>(
         `/strategies/${params.strategyId}/bytecode`,
         {
           params: {
@@ -387,7 +368,7 @@ export class OndoClient {
   }
 
   /**
-   * STEP 4: Sell stock (request-withdraw)
+   * STEP 4: Sell stock (request-withdraw) — returns EVM bytecode for NEAR MPC signing
    */
   async sellStock(params: {
     strategyId: string;
@@ -395,7 +376,7 @@ export class OndoClient {
     userWallet: string;
   }): Promise<OndoBytecodeResponse> {
     try {
-      const { data } = await this.client.get<OndoBytecodeResponse>(
+      const { data } = await this.getClient().get<OndoBytecodeResponse>(
         `/strategies/${params.strategyId}/bytecode`,
         {
           params: {
@@ -419,7 +400,7 @@ export class OndoClient {
    */
   async getActionStatus(actionId: string): Promise<OndoActionStatus> {
     try {
-      const { data } = await this.client.get<OndoActionStatus>(`/actions/${actionId}`);
+      const { data } = await this.getClient().get<OndoActionStatus>(`/actions/${actionId}`);
       return data;
     } catch (error: any) {
       throw new Error(`Ondo action status unavailable: ${error.message}`);
@@ -431,7 +412,7 @@ export class OndoClient {
    */
   async getUserStockPositions(walletAddress: string): Promise<OndoPosition[]> {
     try {
-      const { data } = await this.client.get<{
+      const { data } = await this.getClient().get<{
         earn: {
           positions: OndoPosition[];
         };

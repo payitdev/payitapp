@@ -1,7 +1,40 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../apiClient';
 
 interface Props { apiBaseUrl: string; entityId: string; kind: 'PERSONAL' | 'BUSINESS'; }
+
+interface KycSchemaField {
+  name: string;
+  type: string;
+  label: string;
+  required?: boolean;
+  placeholder?: string;
+  pattern?: string;
+  help?: string;
+  options?: Array<{ value: string; label: string }>;
+  maxLength?: number;
+  accept?: string;
+}
+
+interface KycSchemaSection {
+  id: string;
+  title: string;
+  description?: string;
+  fields: KycSchemaField[];
+}
+
+interface KycSchemaResponse {
+  success: boolean;
+  accountType: string;
+  provider: string;
+  schema: {
+    title: string;
+    description: string;
+    estimatedTimeMinutes: number;
+    currenciesSupported: string[];
+    sections: KycSchemaSection[];
+  };
+}
 
 const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -10,34 +43,191 @@ const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const normalizeInputs = (schema: KycSchemaResponse['schema']) => {
+  const values: Record<string, string> = {};
+  for (const section of schema.sections) {
+    for (const field of section.fields) {
+      if (field.type === 'file') {
+        values[field.name] = '';
+      } else {
+        values[field.name] = '';
+      }
+    }
+  }
+  return values;
+};
+
 export const NuvionOnboardingForm: React.FC<Props> = ({ apiBaseUrl, entityId, kind }) => {
-  const [values, setValues] = useState<Record<string, string>>({ firstName: '', lastName: '', email: '', dob: '', nationality: 'NG', gender: 'm', phone: '', documentNumber: '', country: 'NG', line1: '', city: '', state: '', postalCode: '', legalName: '', registrationNumber: '', industry: '', description: '', incorporationYear: '', incorporationMonth: '' });
-  const [identityFile, setIdentityFile] = useState<File>();
-  const [addressFile, setAddressFile] = useState<File>();
+  const [schema, setSchema] = useState<KycSchemaResponse['schema'] | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, File | null>>({});
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
-  const update = (key: string, value: string) => setValues((current) => ({ ...current, [key]: value }));
-  const input = (key: string, label: string, type = 'text') => <label style={{ display: 'grid', gap: 5, color: '#dce9e6', fontSize: 12 }}>{label}<input required value={values[key] || ''} type={type} onChange={(event) => update(key, event.target.value)} style={{ padding: 9, borderRadius: 8, border: '1px solid #38534f', background: '#071512', color: '#fff' }} /></label>;
+
+  useEffect(() => {
+    const loadSchema = async () => {
+      try {
+        const accountType = kind === 'PERSONAL' ? 'personal' : 'business';
+        const response = await apiFetch(`${apiBaseUrl}/api/kyc/schema?accountType=${accountType}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load KYC form schema.');
+        setSchema(data.schema);
+        setValues(normalizeInputs(data.schema));
+      } catch (error: any) {
+        setMessage(error.message || 'Unable to load KYC form schema.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSchema();
+  }, [apiBaseUrl, kind]);
+
+  const fieldEntries = useMemo(() => schema ? schema.sections.flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title }))) : [], [schema]);
+
+  const updateValue = (key: string, value: string) => setValues((current) => ({ ...current, [key]: value }));
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setMessage('Submitting information to Nuvion...');
+    if (!schema) return;
+
+    setSubmitting(true);
+    setMessage('Submitting verification to the provider...');
+
     try {
-      const payload = kind === 'PERSONAL' ? { name: `${values.firstName} ${values.lastName}`, person: { first_name: values.firstName, last_name: values.lastName, email: values.email, date_of_birth: values.dob, nationality: values.nationality, gender: values.gender, phonenumber: values.phone, identification: { document: { type: 'international_passport', number: values.documentNumber, issuing_country: values.nationality }, proof_of_address: { type: 'utility_bill' } } }, address: { line_1: values.line1, city: values.city, state: values.state, postal_code: values.postalCode, country_code: values.country } } : { name: values.legalName, business: { legal_name: values.legalName, registration_number: values.registrationNumber, industry: values.industry, email: values.email, type: 'llc', description: values.description, incorporation_meta: { year: Number(values.incorporationYear), month: Number(values.incorporationMonth), country: values.country, state: values.state } }, address: { line_1: values.line1, city: values.city, state: values.state, postal_code: values.postalCode, country_code: values.country }, business_officers: [{ job_title: 'Director', is_control_person: true, is_beneficial_owner: true, ownership_percentage: 100, person: { first_name: values.firstName, last_name: values.lastName, email: values.email, date_of_birth: values.dob, nationality: values.nationality, gender: values.gender, phonenumber: values.phone, identification: { document: { type: 'international_passport', number: values.documentNumber, issuing_country: values.nationality }, proof_of_address: { type: 'utility_bill' } }, address: { line_1: values.line1, city: values.city, state: values.state, postal_code: values.postalCode, country_code: values.country } } }] };
-      const createResponse = await apiFetch(`${apiBaseUrl}/api/nuvion/entities/${kind === 'PERSONAL' ? 'individual' : 'business'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, payload }) });
-      const created = await createResponse.json();
-      if (!createResponse.ok) throw new Error(created.error || 'Nuvion entity creation failed');
-      if (!identityFile || !addressFile) throw new Error('Both identity and proof-of-address files are required');
-      for (const item of [{ file: identityFile, key: 'identity', description: 'Government-issued identity document' }, { file: addressFile, key: 'proof_of_address', description: 'Proof of residential address' }]) {
-        const upload = await apiFetch(`${apiBaseUrl}/api/nuvion/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEntityId: entityId, payload: { key: item.key, description: item.description, file: await fileToBase64(item.file), meta: { file_type: item.file.type }, link_to_identity: created.personId ? { person_id: created.personId } : undefined } }) });
-        const uploaded = await upload.json();
-        if (!upload.ok) throw new Error(uploaded.error || 'Nuvion document upload failed');
+      const formData: Record<string, any> = {};
+
+      for (const field of fieldEntries) {
+        if (field.type === 'file') {
+          const file = files[field.name];
+          if (field.required && !file) {
+            throw new Error(`Please upload: ${field.label}`);
+          }
+          if (file) {
+            formData[field.name] = await fileToBase64(file);
+          }
+          continue;
+        }
+
+        const value = (values[field.name] || '').trim();
+        if (field.required && !value) {
+          throw new Error(`Please complete: ${field.label}`);
+        }
+        if (value) {
+          formData[field.name] = value;
+        }
       }
-      const review = await apiFetch(`${apiBaseUrl}/api/nuvion/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEntityId: entityId }) });
-      const reviewed = await review.json();
-      if (!review.ok) throw new Error(reviewed.error || 'Nuvion review submission failed');
-      setMessage('Submitted to Nuvion. Verification is pending.');
-    } catch (error: any) { setMessage(error.message || 'Nuvion onboarding failed'); }
+
+      const response = await apiFetch(`${apiBaseUrl}/api/kyc/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entityId,
+          accountType: kind === 'PERSONAL' ? 'personal' : 'business',
+          formData,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'KYC verification submission failed.');
+      setMessage(data.message || 'KYC verification submitted successfully.');
+    } catch (error: any) {
+      setMessage(error.message || 'KYC verification failed.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  return <form onSubmit={submit} style={{ display: 'grid', gap: 12, margin: '18px 0', padding: 18, borderRadius: 14, background: '#0b211d', border: '1px solid #315a50' }}><strong style={{ color: '#fff' }}>Direct Nuvion {kind === 'PERSONAL' ? 'KYC' : 'KYB'} onboarding</strong><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>{input('firstName', 'First name')}{input('lastName', 'Last name')}{input('email', 'Email', 'email')}{input('dob', 'Date of birth', 'date')}{input('phone', 'Phone')}{input('documentNumber', 'Document number')}{kind === 'BUSINESS' && <>{input('legalName', 'Legal name')}{input('registrationNumber', 'Registration number')}{input('industry', 'Industry')}{input('description', 'Business description')}{input('incorporationYear', 'Incorporation year', 'number')}{input('incorporationMonth', 'Incorporation month', 'number')}</>}{input('line1', 'Address line 1')}{input('city', 'City')}{input('state', 'State')}{input('postalCode', 'Postal code')}</div><label style={{ color: '#dce9e6', fontSize: 12 }}>Identity document<input required type="file" accept="image/*,.pdf" onChange={(event) => setIdentityFile(event.target.files?.[0])} /></label><label style={{ color: '#dce9e6', fontSize: 12 }}>Proof of address<input required type="file" accept="image/*,.pdf" onChange={(event) => setAddressFile(event.target.files?.[0])} /></label><button type="submit" style={{ padding: 11, border: 0, borderRadius: 8, background: '#d6b65a', color: '#061b18', fontWeight: 800 }}>Submit to Nuvion</button>{message && <div style={{ color: '#9fe3cb', fontSize: 13 }}>{message}</div>}</form>;
+  if (loading) {
+    return <div style={{ color: '#dce9e6', margin: '18px 0' }}>Loading KYC form…</div>;
+  }
+
+  if (!schema) {
+    return <div style={{ color: '#fca5a5', margin: '18px 0' }}>{message || 'Unable to load the verification form.'}</div>;
+  }
+
+  return (
+    <form onSubmit={submit} style={{ display: 'grid', gap: 12, margin: '18px 0', padding: 18, borderRadius: 14, background: '#0b211d', border: '1px solid #315a50' }}>
+      <strong style={{ color: '#fff' }}>{schema.title}</strong>
+      <div style={{ color: '#9fe3cb', fontSize: 12 }}>{schema.description}</div>
+      {schema.sections.map((section) => (
+        <div key={section.id} style={{ display: 'grid', gap: 10, padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ color: '#f0fdf4', fontWeight: 700, fontSize: 13 }}>{section.title}</div>
+          {section.description && <div style={{ color: '#9fb4b0', fontSize: 11 }}>{section.description}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+            {section.fields.map((field) => {
+              if (field.type === 'file') {
+                return (
+                  <label key={field.name} style={{ display: 'grid', gap: 5, color: '#dce9e6', fontSize: 12 }}>
+                    {field.label}
+                    <input
+                      type="file"
+                      accept={field.accept || 'image/*,.pdf'}
+                      required={Boolean(field.required)}
+                      onChange={(event) => setFiles((current) => ({ ...current, [field.name]: event.target.files?.[0] || null }))}
+                    />
+                  </label>
+                );
+              }
+
+              if (field.type === 'select') {
+                return (
+                  <label key={field.name} style={{ display: 'grid', gap: 5, color: '#dce9e6', fontSize: 12 }}>
+                    {field.label}
+                    <select
+                      value={values[field.name] || ''}
+                      required={Boolean(field.required)}
+                      onChange={(event) => updateValue(field.name, event.target.value)}
+                      style={{ padding: 9, borderRadius: 8, border: '1px solid #38534f', background: '#071512', color: '#fff' }}
+                    >
+                      <option value="">Select…</option>
+                      {field.options?.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              }
+
+              if (field.type === 'textarea') {
+                return (
+                  <label key={field.name} style={{ display: 'grid', gap: 5, color: '#dce9e6', fontSize: 12, gridColumn: '1 / -1' }}>
+                    {field.label}
+                    <textarea
+                      value={values[field.name] || ''}
+                      required={Boolean(field.required)}
+                      placeholder={field.placeholder}
+                      onChange={(event) => updateValue(field.name, event.target.value)}
+                      rows={3}
+                      style={{ padding: 9, borderRadius: 8, border: '1px solid #38534f', background: '#071512', color: '#fff' }}
+                    />
+                  </label>
+                );
+              }
+
+              return (
+                <label key={field.name} style={{ display: 'grid', gap: 5, color: '#dce9e6', fontSize: 12 }}>
+                  {field.label}
+                  <input
+                    value={values[field.name] || ''}
+                    type={field.type === 'email' ? 'email' : field.type === 'tel' ? 'tel' : field.type === 'date' ? 'date' : 'text'}
+                    required={Boolean(field.required)}
+                    placeholder={field.placeholder}
+                    pattern={field.pattern}
+                    maxLength={field.maxLength}
+                    onChange={(event) => updateValue(field.name, event.target.value)}
+                    style={{ padding: 9, borderRadius: 8, border: '1px solid #38534f', background: '#071512', color: '#fff' }}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <button type="submit" disabled={submitting} style={{ padding: 11, border: 0, borderRadius: 8, background: '#d6b65a', color: '#061b18', fontWeight: 800, opacity: submitting ? 0.7 : 1 }}>
+        {submitting ? 'Submitting…' : 'Submit verification'}
+      </button>
+      {message && <div style={{ color: '#9fe3cb', fontSize: 13 }}>{message}</div>}
+    </form>
+  );
 };

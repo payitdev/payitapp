@@ -2,13 +2,13 @@ import { FastifyInstance } from 'fastify';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createDbClient, eq, and } from '@payit/db';
-import { entities, termVaults, intentSwaps, feeLedger, trustedDevices, users } from '@payit/db/schema';
+import { automationPolicies, entities, termVaults, intentSwaps, feeLedger, trustedDevices, users } from '@payit/db/schema';
 import { kaminoClient, PrivyNEARBridge, NEARIntentsClient, signAndSubmitSolanaTransaction, signAndSubmitSolanaTokenTransfer, waitForSolanaFinalization, toBaseUnits } from '@payit/integrations';
 import { ulid } from 'ulid';
 import { env } from '../env.js';
 
-const db = createDbClient();
-const nearIntentsClient = new NEARIntentsClient();
+const db = createDbClient(env.DATABASE_URL);
+const nearIntentsClient = new NEARIntentsClient({ oneClickApiKey: env.NEAR_INTENT_1CLICK_API_KEY, explorerApiKey: env.NEAR_INTENT_EXPLORER_API_KEY, baseUrl: env.NEAR_INTENT_BASE_URL });
 
 const normalizeApy = (value: unknown): number => {
   const numeric = Number(value);
@@ -35,6 +35,31 @@ async function requirePasscode(request: any, passcode?: string): Promise<string 
 }
 
 export async function kaminoRoutes(server: FastifyInstance) {
+
+  server.get('/api/kamino/auto-save', async (request, reply) => {
+    const entityId = (request.query as { entityId?: string }).entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Authenticated entity is required' });
+    const rows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, request.session.userId))).limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: 'Entity not found' });
+    return reply.send({ enabled: rows[0].autoSaveEnabled === 1, liquidBufferUsd: Number(rows[0].autoSaveLiquidBufferUsd), strategyId: rows[0].autoSaveStrategyId });
+  });
+
+  server.post('/api/kamino/auto-save', async (request, reply) => {
+    const body = request.body as { entityId?: string; enabled?: boolean; liquidBufferUsd?: number; strategyId?: string };
+    const entityId = body.entityId || request.session?.activeEntityId;
+    if (!entityId || !request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Authenticated entity is required' });
+    if (typeof body.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled must be boolean' });
+    const liquidBufferUsd = body.liquidBufferUsd ?? 50;
+    if (!Number.isFinite(liquidBufferUsd) || liquidBufferUsd < 0) return reply.status(400).send({ error: 'liquidBufferUsd must be non-negative' });
+    await db.update(entities).set({ autoSaveEnabled: body.enabled ? 1 : 0, autoSaveLiquidBufferUsd: liquidBufferUsd.toFixed(2), autoSaveIdleSince: body.enabled ? new Date() : null, autoSaveStrategyId: body.strategyId || null }).where(and(eq(entities.id, entityId), eq(entities.userId, request.session.userId)));
+    const expiresAt = new Date(Date.now() + 365 * 86400000);
+    if (body.enabled) {
+      await db.insert(automationPolicies).values({ id: `policy_${ulid()}`, entityId, maxPerTransactionUsd: '1000.00', maxDailyUsd: '2500.00', maxMonthlyUsd: '10000.00', expiresAt }).onConflictDoUpdate({ target: automationPolicies.entityId, set: { status: 'ACTIVE', expiresAt, updatedAt: new Date(), revokedAt: null } });
+    } else {
+      await db.update(automationPolicies).set({ status: 'REVOKED', revokedAt: new Date(), updatedAt: new Date() }).where(eq(automationPolicies.entityId, entityId));
+    }
+    return reply.send({ success: true, enabled: body.enabled, liquidBufferUsd, strategyId: body.strategyId || null, authorizationStatus: body.enabled ? 'ACTIVE' : 'REVOKED' });
+  });
 
   /**
    * GET /api/kamino/vaults
@@ -431,6 +456,46 @@ export async function kaminoRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       return reply.status(500).send({ error: 'Early unlock failed', details: err.message });
+    }
+  });
+
+  server.post('/api/kamino/withdraw', async (request, reply) => {
+    const { termVaultId, entityId, passcode } = request.body as { termVaultId: string; entityId: string; passcode?: string };
+    if (!termVaultId || !entityId) return reply.status(400).send({ error: 'termVaultId and entityId are required' });
+
+    const userId = await requirePasscode(request, passcode);
+    if (!userId) return reply.status(401).send({ error: 'A valid 6-digit transaction PIN is required' });
+
+    const entity = (await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, userId))).limit(1))[0];
+    const vault = (await db.select().from(termVaults).where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId))).limit(1))[0];
+    if (!entity || !vault) return reply.status(404).send({ error: 'Savings position not found' });
+    if (!vault.sharesMinted || !vault.vaultName) return reply.status(409).send({ error: 'No verified on-chain Kamino shares are available to withdraw.' });
+    if (new Date(vault.unlockDate) > new Date()) return reply.status(409).send({ error: 'This savings position has not reached maturity.' });
+    if (!['LOCKED', 'MATURED'].includes(vault.status)) return reply.status(409).send({ error: 'This savings position is no longer withdrawable.' });
+
+    try {
+      const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+      if (!user?.privyUserId) return reply.status(409).send({ error: 'User does not have a Privy MPC identity' });
+      const context = entity.kind === 'BUSINESS' ? 'business' : 'personal';
+      const derivation = await PrivyNEARBridge.deriveAddress(user.privyUserId, context, user.email);
+      if (!derivation.solanaAddress) return reply.status(409).send({ error: 'No Solana MPC address is available for this entity' });
+      const vaultAddress = vault.vaultName.match(/\(([^)]+)\)$/)?.[1] || vault.vaultName;
+      const instructions = await kaminoClient.getWithdrawInstructions(derivation.solanaAddress, vaultAddress, String(vault.sharesMinted));
+      const withdrawal = await signAndSubmitSolanaTransaction({
+        userIdentifier: `privy-${user.privyUserId}`,
+        context,
+        to: vaultAddress,
+        amount: 0n,
+        instructions: instructions.instructions as any,
+      });
+      await waitForSolanaFinalization(withdrawal.txHash);
+
+      const updated = await db.update(termVaults).set({ status: 'WITHDRAWN_EXTERNAL', withdrawalTxHash: withdrawal.txHash, onChainSyncTimestamp: new Date() })
+        .where(and(eq(termVaults.id, termVaultId), eq(termVaults.entityId, entityId), eq(termVaults.status, vault.status))).returning({ id: termVaults.id });
+      if (updated.length === 0) return reply.status(409).send({ error: 'This savings position has already started withdrawing.' });
+      return reply.send({ success: true, termVaultId, entityId, withdrawalTxHash: withdrawal.txHash, status: 'WITHDRAWN_EXTERNAL' });
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Kamino maturity withdrawal failed', details: err.message });
     }
   });
 

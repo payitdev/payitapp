@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, FileSpreadsheet, X, Calendar, DollarSign, Users, TrendingUp, AlertCircle, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { apiFetch } from '../apiClient';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
@@ -23,14 +24,15 @@ export const BusinessBalanceSheetModal: React.FC<Props> = ({ entityId, onClose, 
     setIsLoading(true);
     setError(null);
     try {
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`${API_BASE_URL}/api/reports/balance-sheet?entityId=${encodeURIComponent(entityId)}&period=${encodeURIComponent(selectedPeriod)}`, {
-        headers,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate financial statement.');
+      const res = await apiFetch(`${API_BASE_URL}/api/reports/balance-sheet?entityId=${encodeURIComponent(entityId)}&period=${encodeURIComponent(selectedPeriod)}`);
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { error: 'Unable to generate financial statement.' };
+      }
+      if (!res.ok) throw new Error(data.error || 'Financial statement is temporarily unavailable.');
       setReport(data.report);
     } catch (err: any) {
       setError(err.message || 'Unable to fetch report.');
