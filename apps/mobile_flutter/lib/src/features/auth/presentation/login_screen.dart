@@ -102,10 +102,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     await ref.read(authProvider.notifier).loginWithGoogle();
   }
 
-  Future<void> _loginDemo() async {
-    await ref.read(authProvider.notifier).loginDemo();
-  }
-
   void _showPasswordlessSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -202,8 +198,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Enter your email for passwordless sign in. If you\'re new, '
-          'verifying your email creates your account automatically.',
+          'Sign in with your email — no password needed.',
           style: ProximTextStyles.bodyMd(),
           textAlign: TextAlign.center,
         ),
@@ -397,8 +392,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
-                                'Forgot your password? Tap to learn how '
-                                'passwordless recovery works.',
+                                'Forgot your password?',
                                 style: ProximTextStyles.bodySm(),
                                 textAlign: TextAlign.center,
                               ),
@@ -415,83 +409,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         const SizedBox(height: 24),
 
-        // Trust banner
-        Column(
+        // Trust line
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.verified_user,
-                  size: 16,
-                  color: ProximColors.primary,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    'Protected by Privy cryptographic vaults & 256-bit encryption '
-                    '• Instant cross-chain & fiat settlement',
-                    style: ProximTextStyles.labelXs().copyWith(height: 1.4),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
+            const Icon(
+              Icons.verified_user,
+              size: 14,
+              color: ProximColors.primary,
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _trustChip(Icons.key, 'Non-Custodial', ProximColors.primary),
-                _dot(),
-                _trustChip(Icons.bolt, 'Sub-second Auth', ProximColors.statusSuccess),
-                _dot(),
-                _trustChip(Icons.token, 'Multi-Chain', ProximColors.secondary),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: isBusy ? null : _loginDemo,
-              child: Text(
-                'Explore the demo account',
-                style: ProximTextStyles.bodySm(color: ProximColors.primary),
-              ),
+            const SizedBox(width: 6),
+            Text(
+              'Protected by Privy',
+              style: ProximTextStyles.labelXs(),
             ),
           ],
         ),
       ],
-    );
-  }
-
-  Widget _trustChip(IconData icon, String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: ProximTextStyles.labelXs().copyWith(
-            color: ProximColors.onSurfaceVariant.withValues(alpha: 0.6),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _dot() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Container(
-        width: 3,
-        height: 3,
-        decoration: const BoxDecoration(
-          color: ProximColors.surfaceContainerHighest,
-          shape: BoxShape.circle,
-        ),
-      ),
     );
   }
 
@@ -1150,6 +1084,16 @@ class _ErrorBanner extends StatelessWidget {
   final String message;
   const _ErrorBanner({required this.message});
 
+  /// Strip SDK noise so users see the plain cause, not
+  /// "Exception: Authentication failed: PrivyApiError: …".
+  static String _sanitize(String raw) {
+    var text = raw;
+    for (final prefix in ['Exception: ', 'Authentication failed: ', 'PrivyApiError: ', 'Exception ']) {
+      if (text.startsWith(prefix)) text = text.substring(prefix.length);
+    }
+    return text.trim();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1160,7 +1104,7 @@ class _ErrorBanner extends StatelessWidget {
         border: Border.all(color: ProximColors.statusDanger.withValues(alpha: 0.4)),
       ),
       child: Text(
-        message,
+        _sanitize(message),
         style: ProximTextStyles.bodySm(color: ProximColors.error),
       ),
     );

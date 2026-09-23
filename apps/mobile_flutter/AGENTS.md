@@ -53,8 +53,8 @@ the backend auto-registers first-time emails (login = sign-up).
   every state change; go_router redirects unauthenticated users to `/login`
   (except public `/checkout/*`).
 - "Forgot password" UX = resend a one-time code (no passwords exist).
-- Demo account remains reachable via "Explore the demo account" on the login
-  screen (still calls the real `POST /api/auth/demo`).
+- The demo endpoint (`POST /api/auth/demo`) still exists on the backend, but
+  there is intentionally no demo button on the login screen.
 
 ### Starting the full local stack
 ```bash
