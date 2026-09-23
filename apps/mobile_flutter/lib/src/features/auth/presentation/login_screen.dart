@@ -1094,6 +1094,16 @@ class _ErrorBanner extends StatelessWidget {
     return text.trim();
   }
 
+  /// Turn known provider errors into actionable copy.
+  static String friendly(String raw) {
+    final text = _sanitize(raw);
+    if (text.contains('Origin not allowed')) {
+      return "This site's URL isn't registered with the sign-in provider yet. "
+          'Add it in the Privy dashboard under Allowed origins.';
+    }
+    return text;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1104,7 +1114,7 @@ class _ErrorBanner extends StatelessWidget {
         border: Border.all(color: ProximColors.statusDanger.withValues(alpha: 0.4)),
       ),
       child: Text(
-        _sanitize(message),
+        _ErrorBanner.friendly(message),
         style: ProximTextStyles.bodySm(color: ProximColors.error),
       ),
     );
