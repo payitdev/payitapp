@@ -129,7 +129,7 @@ services:
   # 5. PayIT Flutter Web App
   # ---------------------------------------------------------------------------
   - type: web
-    name: payit-flutter-web
+    name: payitapp-flutter-web-app
     env: static
     rootDir: apps/mobile_flutter
     buildCommand: git clone https://github.com/flutter/flutter.git -b stable --depth 1 && export PATH="$PWD/flutter/bin:$PATH" && flutter pub get && flutter build web --release --dart-define=API_URL=https://payit-backend-td53.onrender.com

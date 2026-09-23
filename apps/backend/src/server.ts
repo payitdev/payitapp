@@ -48,6 +48,7 @@ export function buildServer() {
   const defaultOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
+    'https://payitapp-flutter-web-app.onrender.com',
     'https://payit-flutter-web.onrender.com',
     'https://payit-mobile-web.onrender.com',
   ];
