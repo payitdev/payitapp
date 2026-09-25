@@ -32,13 +32,28 @@ window.proximPrivy = {
     await privy.auth.email.sendCode(email);
   },
 
+  // The login screen is only reachable when the stored Privy session was not
+  // usable (restore found none or the backend rejected it). If a stale
+  // session for a *different* user lingers in storage, Privy treats an OTP /
+  // OAuth login as an account-link attempt and rejects it with "already
+  // linked to another account". Clearing the session first makes every login
+  // a fresh login into whichever account owns the credential.
+  async _logoutIfSession() {
+    try {
+      const { user } = await privy.user.get();
+      if (user) await privy.auth.logout({ userId: user.id });
+    } catch (_) {}
+  },
+
   async loginWithCode(email, code) {
+    await window.proximPrivy._logoutIfSession();
     const session = await privy.auth.email.loginWithCode(email, code);
     const user = session.user ?? session;
     return { userId: user.id, accessToken: await privy.getAccessToken() };
   },
 
   async loginWithGoogle() {
+    await window.proximPrivy._logoutIfSession();
     const oauth = privy.auth.oauth;
     if (!oauth || typeof oauth.loginWithPopup !== 'function') {
       throw new Error('Google sign-in is not available in this browser.');
