@@ -531,7 +531,12 @@ export async function authRoutes(server: FastifyInstance) {
           return reply.status(409).send({ error: 'Telegram account is already linked to another Privy identity' });
         }
         if (userRows[0].privyUserId && userRows[0].privyUserId !== privyUserId) {
-          return reply.status(409).send({ error: 'This email is already linked to another Privy identity' });
+          // The email on this record was just server-verified via Privy (the
+          // bearer token is valid and its email matches), so the caller owns
+          // it. Users can accumulate multiple Privy identities for the same
+          // email across social/email login paths — re-associate the account
+          // to the freshly verified identity instead of locking them out.
+          await db.update(users).set({ privyUserId }).where(eq(users.id, userId));
         }
         if (!userRows[0].privyUserId) {
           await db.update(users).set({ privyUserId }).where(eq(users.id, userId));
