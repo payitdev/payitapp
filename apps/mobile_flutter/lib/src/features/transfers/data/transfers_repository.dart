@@ -158,6 +158,30 @@ class TransfersRepository {
     }
   }
 
+  /// Fetch active virtual/fiat accounts for an entity — path: GET /api/transfers/accounts
+  Future<List<DepositAccount>> getAccounts({required String entityId}) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/transfers/accounts',
+        queryParameters: {'entityId': entityId},
+      );
+
+      final data = response.data;
+      if (data != null && data['accounts'] is List) {
+        return (data['accounts'] as List)
+            .map((a) => DepositAccount.fromJson(a as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        debugPrint('[TransfersRepository] Demo mode: using mock deposit accounts.');
+        return _demoAccounts();
+      }
+      rethrow;
+    }
+  }
+
   /// Fetch consolidated balance across all currencies
   Future<TransfersBalance> getBalance() async {
     try {
@@ -178,6 +202,18 @@ class TransfersRepository {
       rethrow;
     }
   }
+
+  static List<DepositAccount> _demoAccounts() => [
+        const DepositAccount(
+          id: 'acct_demo_ngn',
+          accountNumber: '0123984571',
+          bankName: 'Proxim Demo Bank',
+          accountHolderName: 'Proxim Demo Entity',
+          currency: 'NGN',
+          rail: 'nip',
+          status: 'active',
+        ),
+      ];
 
   static List<TransferHistoryItem> _demoHistory() => [
         TransferHistoryItem(

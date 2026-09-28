@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/network/api_config.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../domain/transfers_models.dart';
 import 'transfers_provider.dart';
 
 class SwapConvertScreen extends ConsumerStatefulWidget {
@@ -17,9 +19,8 @@ class SwapConvertScreen extends ConsumerStatefulWidget {
 
 class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
   final TextEditingController _payController = TextEditingController(text: '2,500.00');
-  static const double _rate = 1595.20;
   bool _isUsdToNgn = true;
-  int _secondsLeft = 285;
+  int _secondsLeft = 0;
   Timer? _timer;
   bool _isExecuting = false;
   bool _isSuccess = false;
@@ -61,31 +62,53 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     return double.tryParse(clean) ?? 0.0;
   }
 
-  String get _calculatedReceive {
+  String _calculatedReceive(double? rate) {
     final pay = _payAmount;
+    if (rate == null) return '—';
     final numberFormat = NumberFormat('#,##0.00', 'en_US');
     if (_isUsdToNgn) {
-      return numberFormat.format(pay * _rate);
+      return numberFormat.format(pay * rate);
     } else {
-      return numberFormat.format(pay / _rate);
+      return numberFormat.format(pay / rate);
     }
   }
 
-  void _flipCurrencies() {
+  String _balanceLabel(TransfersBalance? balance) {
+    if (balance == null) return 'Bal: —';
+    final amount = balance.byCurrency[_isUsdToNgn ? 'USD' : 'NGN'] ?? 0.0;
+    final symbol = _isUsdToNgn ? '\$' : '₦';
+    return 'Bal: $symbol${NumberFormat('#,##0.00', 'en_US').format(amount)}';
+  }
+
+  void _fillMax(TransfersBalance? balance) {
+    final amount = balance?.byCurrency[_isUsdToNgn ? 'USD' : 'NGN'];
+    if (amount == null) return;
     setState(() {
-      _isUsdToNgn = !_isUsdToNgn;
+      _payController.text = NumberFormat('#,##0.00', 'en_US').format(amount);
     });
   }
 
-  Future<void> _handleExecute() async {
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _handleExecute(FxQuote? liveQuote) async {
     if (_isExecuting || _isSuccess) return;
-    setState(() => _isExecuting = true);
 
     final fromCurr = _isUsdToNgn ? 'USD' : 'NGN';
     final toCurr = _isUsdToNgn ? 'NGN' : 'USD';
     final pay = _payAmount;
-    final receive = _isUsdToNgn ? pay * _rate : pay / _rate;
 
+    final quote = liveQuote ?? ref.read(fxQuoteProvider((from: fromCurr, to: toCurr, amount: pay))).value;
+    if (quote == null || pay <= 0) {
+      _showError("We couldn't lock in a live rate. Please try again.");
+      return;
+    }
+    final receive = _isUsdToNgn ? pay * quote.rate : pay / quote.rate;
+
+    setState(() => _isExecuting = true);
     try {
       await ref.read(transfersRepositoryProvider).internalConvert(
             fromCurrency: fromCurr,
@@ -93,7 +116,14 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
             fromAmount: pay,
             toAmount: receive,
           );
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isExecuting = false);
+      _showError(e is ProximException
+          ? e.message
+          : "We couldn't complete your conversion. Please try again.");
+      return;
+    }
 
     if (!mounted) return;
     setState(() {
@@ -102,8 +132,28 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     });
   }
 
+  void _flipCurrencies() {
+    setState(() {
+      _isUsdToNgn = !_isUsdToNgn;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fromCurr = _isUsdToNgn ? 'USD' : 'NGN';
+    final toCurr = _isUsdToNgn ? 'NGN' : 'USD';
+    final quoteArg = (from: fromCurr, to: toCurr, amount: _payAmount);
+    final quoteAsync = ref.watch(fxQuoteProvider(quoteArg));
+    final balanceAsync = ref.watch(transfersBalanceProvider);
+
+    ref.listen(fxQuoteProvider(quoteArg), (previous, next) {
+      next.whenData((quote) {
+        if (mounted && quote.validForSeconds != _secondsLeft) {
+          setState(() => _secondsLeft = quote.validForSeconds);
+        }
+      });
+    });
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -119,15 +169,15 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                     children: [
                       _buildHeader(),
                       const SizedBox(height: 16),
-                      _buildSwapModule(),
+                      _buildSwapModule(quoteAsync.value?.rate, balanceAsync.value),
                       const SizedBox(height: 16),
-                      _buildFxRateCapsule(),
+                      _buildFxRateCapsule(quoteAsync, fromCurr, toCurr),
                       const SizedBox(height: 16),
                       _buildRouteVisualization(),
                       const SizedBox(height: 16),
                       _buildExecutionLedger(),
                       const SizedBox(height: 20),
-                      _buildExecuteCta(),
+                      _buildExecuteCta(quoteAsync.value),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -212,7 +262,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     );
   }
 
-  Widget _buildSwapModule() {
+  Widget _buildSwapModule(double? rate, TransfersBalance? balance) {
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -241,7 +291,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
-                                _isUsdToNgn ? 'Bal: \$24,100.00' : 'Bal: ₦38,420,000',
+                                _balanceLabel(balance),
                                 style: ProximTextStyles.bodySm(),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -251,11 +301,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                       ),
                       const SizedBox(width: 6),
                       GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _payController.text = _isUsdToNgn ? '24,100.00' : '38,420,000.00';
-                          });
-                        },
+                        onTap: () => _fillMax(balance),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
@@ -386,7 +432,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                _calculatedReceive,
+                                _calculatedReceive(rate),
                                 style: ProximTextStyles.headlineLg(color: ProximColors.primary).copyWith(
                                   fontFeatures: const [FontFeature.tabularFigures()],
                                 ),
@@ -475,7 +521,19 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     );
   }
 
-  Widget _buildFxRateCapsule() {
+  Widget _buildFxRateCapsule(AsyncValue<FxQuote> quoteAsync, String fromCurr, String toCurr) {
+    final rateText = quoteAsync.when(
+      loading: () => 'Fetching live rate…',
+      error: (error, _) => "Rate unavailable",
+      data: (quote) =>
+          '1 $fromCurr = ${NumberFormat('#,##0.00', 'en_US').format(quote.rate)} $toCurr',
+    );
+    final subtitle = quoteAsync.when(
+      loading: () => 'Locking a guaranteed OTC quote',
+      error: (error, _) => 'Please check your connection and retry',
+      data: (quote) => 'Zero slippage • Direct OTC treasury rail',
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -489,21 +547,28 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
           Flexible(
             child: Row(
               children: [
-                const Icon(Icons.lock_outline, size: 16, color: ProximColors.primary),
+                if (quoteAsync.isLoading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                  )
+                else
+                  const Icon(Icons.lock_outline, size: 16, color: ProximColors.primary),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '1 USD = 1,595.20 NGN',
+                        rateText,
                         overflow: TextOverflow.ellipsis,
                         style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       Text(
-                        'Zero slippage • Direct OTC treasury rail',
+                        subtitle,
                         overflow: TextOverflow.ellipsis,
                         style: ProximTextStyles.labelXs(),
                       ),
@@ -514,27 +579,28 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: ProximColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.timer_outlined, size: 12, color: ProximColors.primary),
-                const SizedBox(width: 4),
-                Text(
-                  _formatTimer(),
-                  style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.w700,
+          if (quoteAsync.hasValue)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: ProximColors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.timer_outlined, size: 12, color: ProximColors.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatTimer(),
+                    style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -680,11 +746,11 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     );
   }
 
-  Widget _buildExecuteCta() {
+  Widget _buildExecuteCta(FxQuote? liveQuote) {
     return Column(
       children: [
         GestureDetector(
-          onTap: _handleExecute,
+          onTap: () => _handleExecute(liveQuote),
           child: Container(
             width: double.infinity,
             height: 52,

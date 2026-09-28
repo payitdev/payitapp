@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
+import '../../../core/network/api_config.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../domain/transfers_models.dart';
 import 'transfers_provider.dart';
 
 class SendPayoutScreen extends ConsumerStatefulWidget {
@@ -15,9 +18,10 @@ class SendPayoutScreen extends ConsumerStatefulWidget {
 }
 
 class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
-  final TextEditingController _amountController = TextEditingController(text: '5,000.00');
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _recipientController = TextEditingController();
   int _selectedRail = 0; // 0: Nuvion African, 1: Multi-chain, 2: Bank Wire
-  int _countdownSeconds = 298;
+  int _countdownSeconds = 0;
   Timer? _timer;
   bool _isAuthorizing = false;
   bool _isDispatched = false;
@@ -32,9 +36,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
-        if (_countdownSeconds <= 1) {
-          _countdownSeconds = 300;
-        } else {
+        if (_countdownSeconds > 0) {
           _countdownSeconds--;
         }
       });
@@ -45,6 +47,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
   void dispose() {
     _timer?.cancel();
     _amountController.dispose();
+    _recipientController.dispose();
     super.dispose();
   }
 
@@ -54,23 +57,62 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  Future<void> _handleAuthorize() async {
-    if (_isAuthorizing || _isDispatched) return;
-    setState(() => _isAuthorizing = true);
+  double get _amount {
+    return double.tryParse(_amountController.text.replaceAll(',', '').trim()) ?? 0.0;
+  }
 
-    final cleanAmount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 5000.0;
+  String get _recipientInitials {
+    final parts = _recipientController.text.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    if (parts.isEmpty) return '?';
+    return parts.take(2).map((p) => p[0].toUpperCase()).join();
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _handleAuthorize(FxQuote? liveQuote) async {
+    if (_isAuthorizing || _isDispatched) return;
+
+    final recipientName = _recipientController.text.trim();
+    final cleanAmount = _amount;
+    if (recipientName.isEmpty) {
+      _showError('Please enter a recipient name.');
+      return;
+    }
+    if (cleanAmount <= 0) {
+      _showError('Please enter an amount to send.');
+      return;
+    }
+
+    final quote = liveQuote ?? ref.read(fxQuoteProvider((from: 'USD', to: 'NGN', amount: cleanAmount))).value;
+    if (quote == null) {
+      _showError("We couldn't lock in a live rate. Please try again.");
+      return;
+    }
+
     final railName = _selectedRail == 0
         ? 'Nuvion African Payout Rail'
         : (_selectedRail == 1 ? 'Multi-Chain Digital Rail' : 'Global Bank Wire');
 
+    setState(() => _isAuthorizing = true);
     try {
       await ref.read(transfersRepositoryProvider).sendTransfer(
-            recipientName: 'Brails Technology Ltd',
+            recipientName: recipientName,
             amount: cleanAmount,
             currency: 'USD',
             rail: railName,
           );
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isAuthorizing = false);
+      _showError(e is ProximException
+          ? e.message
+          : "We couldn't complete your payment. Please try again.");
+      return;
+    }
 
     if (!mounted) return;
     setState(() {
@@ -81,6 +123,17 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final quoteAsync = ref.watch(fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)));
+    final balanceAsync = ref.watch(transfersBalanceProvider);
+
+    ref.listen(fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)), (previous, next) {
+      next.whenData((quote) {
+        if (mounted && quote.validForSeconds != _countdownSeconds) {
+          setState(() => _countdownSeconds = quote.validForSeconds);
+        }
+      });
+    });
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -102,7 +155,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       const SizedBox(height: 16),
 
                       // Amount Input Card
-                      _buildAmountCard(),
+                      _buildAmountCard(balanceAsync.value),
                       const SizedBox(height: 16),
 
                       // Settlement Rails
@@ -110,11 +163,11 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       const SizedBox(height: 16),
 
                       // Cross-border Settlement Preview Card
-                      _buildPreviewCard(),
+                      _buildPreviewCard(quoteAsync),
                       const SizedBox(height: 20),
 
                       // Action CTA
-                      _buildActionCta(),
+                      _buildActionCta(quoteAsync.value),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -242,7 +295,8 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     );
   }
 
-  Widget _buildAmountCard() {
+  Widget _buildAmountCard(TransfersBalance? balance) {
+    final available = balance?.byCurrency['USD'] ?? 0.0;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -268,14 +322,16 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 children: [
                   Text('Avail: ', style: ProximTextStyles.labelSm()),
                   Text(
-                    '\$48,250.00',
+                    '\$${NumberFormat('#,##0.00', 'en_US').format(available)}',
                     style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(width: 6),
                   GestureDetector(
-                    onTap: () => setState(() => _amountController.text = '48,250.00'),
+                    onTap: () => setState(
+                      () => _amountController.text = NumberFormat('#,##0.00', 'en_US').format(available),
+                    ),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
@@ -307,6 +363,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       child: TextField(
                         controller: _amountController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        onChanged: (_) => setState(() {}),
                         style: ProximTextStyles.headlineLg().copyWith(
                           color: ProximColors.onSurface,
                           fontFeatures: const [FontFeature.tabularFigures()],
@@ -534,7 +591,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     );
   }
 
-  Widget _buildPreviewCard() {
+  Widget _buildPreviewCard(AsyncValue<FxQuote> quoteAsync) {
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainer,
@@ -567,10 +624,10 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                         shape: BoxShape.circle,
                         color: ProximColors.surfaceContainerHighest,
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Text(
-                          'BT',
-                          style: TextStyle(
+                          _recipientInitials,
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: ProximColors.primary,
@@ -583,27 +640,25 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  'Brails Technology Ltd',
-                                  style: ProximTextStyles.headlineSm(),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                          Text('RECIPIENT', style: ProximTextStyles.labelXs()),
+                          TextField(
+                            controller: _recipientController,
+                            onChanged: (_) => setState(() {}),
+                            style: ProximTextStyles.headlineSm(),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              hintText: 'Enter recipient name',
+                              hintStyle: ProximTextStyles.headlineSm(
+                                color: ProximColors.onSurfaceVariant,
                               ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.verified, size: 16, color: ProximColors.primary),
-                            ],
+                            ),
                           ),
                           const SizedBox(height: 2),
-                          Text('Lagos, Nigeria • Commercial Entity', style: ProximTextStyles.bodySm()),
+                          Text('Cross-border payout beneficiary', style: ProximTextStyles.bodySm()),
                         ],
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18, color: ProximColors.onSurfaceVariant),
-                      onPressed: () {},
                     ),
                   ],
                 ),
@@ -622,7 +677,14 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       Flexible(
                         child: Row(
                           children: [
-                            const Icon(Icons.lock_clock, size: 18, color: ProximColors.primary),
+                            if (quoteAsync.isLoading)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                              )
+                            else
+                              const Icon(Icons.lock_clock, size: 18, color: ProximColors.primary),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Column(
@@ -630,7 +692,13 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                                 children: [
                                   Text('GUARANTEED LIVE FX', style: ProximTextStyles.labelXs()),
                                   Text(
-                                    '1 USD = 1,595.20 NGN',
+                                    quoteAsync.when(
+                                      loading: () => 'Fetching live rate…',
+                                      error: (error, _) =>
+                                          _amount <= 0 ? 'Enter an amount to see the live rate' : 'Rate unavailable',
+                                      data: (quote) =>
+                                          '1 USD = ${NumberFormat('#,##0.00', 'en_US').format(quote.rate)} NGN',
+                                    ),
                                     overflow: TextOverflow.ellipsis,
                                     style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(
                                       fontWeight: FontWeight.w600,
@@ -643,20 +711,21 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: ProximColors.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _formatTimer(),
-                          style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            fontWeight: FontWeight.w700,
+                      if (quoteAsync.hasValue)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: ProximColors.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _formatTimer(),
+                            style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -682,7 +751,16 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                           textBaseline: TextBaseline.alphabetic,
                           children: [
                             Text(
-                              '₦7,976,000.00',
+                              quoteAsync.when(
+                                loading: () => '—',
+                                error: (error, _) => '—',
+                                data: (quote) => _amount <= 0
+                                    ? '—'
+                                    : NumberFormat(
+                                        '#,##0.00',
+                                        'en_US',
+                                      ).format(_amount * quote.rate),
+                              ),
                               style: ProximTextStyles.headlineLg(color: ProximColors.primary).copyWith(
                                 fontFeatures: const [FontFeature.tabularFigures()],
                               ),
@@ -698,8 +776,6 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 const SizedBox(height: 14),
 
                 // Breakdown Items
-                _buildBreakdownRow('Destination Account', 'First Bank of Nigeria •••• 9012'),
-                const SizedBox(height: 8),
                 _buildBreakdownRow('Routing Rail', 'Instant Clearing (~3 mins)', isStatus: true),
                 const SizedBox(height: 8),
                 _buildBreakdownRow('Transfer Fee', '\$0.00 (Zero Fee Subsidized)', isHighlight: true),
@@ -756,11 +832,11 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     );
   }
 
-  Widget _buildActionCta() {
+  Widget _buildActionCta(FxQuote? liveQuote) {
     return Column(
       children: [
         GestureDetector(
-          onTap: _handleAuthorize,
+          onTap: () => _handleAuthorize(liveQuote),
           child: Container(
             width: double.infinity,
             height: 52,

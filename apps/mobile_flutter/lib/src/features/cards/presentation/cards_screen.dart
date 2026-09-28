@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/transaction_tile.dart';
-import '../data/cards_repository.dart';
 import '../domain/card_models.dart';
 import 'cards_provider.dart';
 
@@ -61,7 +60,7 @@ class CardsScreen extends ConsumerWidget {
               }
               return _CardsBody(cards: cards);
             },
-            loading: () => _CardsBody(cards: CardsRepository.demoCards()),
+            loading: () => const _CardsLoadingSkeleton(),
             error: (err, _) => _CardsError(onRetry: () => ref.invalidate(cardsListProvider)),
           ),
         ],
@@ -170,9 +169,9 @@ class _CardsBodyState extends ConsumerState<_CardsBody> {
                 ],
               ),
               Text(
-                _showDetails
-                    ? card.maskedNumber.replaceAll('••••  ••••  ••••', '4829  5512  9041')
-                    : card.maskedNumber,
+                // The API only exposes the redacted number + last4 — never
+                // fabricate full PAN digits.
+                card.maskedNumber,
                 style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -341,6 +340,56 @@ class _CardsBodyState extends ConsumerState<_CardsBody> {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '${months[dt.month - 1]} ${dt.day}, $h:$m';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loading skeleton — shown while GET /api/cards is in flight
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CardsLoadingSkeleton extends StatelessWidget {
+  const _CardsLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          height: 210,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: ProximColors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: ProximColors.hairlineBorder),
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2, value: 0.8),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            for (int i = 0; i < 4; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: ProximColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: ProximColors.hairlineBorder),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
   }
 }
 

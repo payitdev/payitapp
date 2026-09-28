@@ -42,6 +42,7 @@ dependencies:
   url_launcher: ^6.3.2
   google_fonts: ^8.2.1
   privy_flutter: ^0.10.2
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

@@ -11,6 +11,8 @@ import '../../../core/widgets/transaction_tile.dart';
 import '../../auth/presentation/auth_provider.dart';
 import '../../transfers/presentation/transfers_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
+import '../../vault/presentation/vault_provider.dart';
+import 'kyc_provider.dart';
 
 /// Dynamic Home Screen — Business mode shows Treasury Dashboard,
 /// Personal mode shows the consumer banking view with live balance + activity.
@@ -35,10 +37,12 @@ class _PersonalHomeView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
-    final userName = user?.fullName ?? 'Alex Rivera';
+    final userName = user?.fullName ?? '';
 
     final balanceAsync = ref.watch(transfersBalanceProvider);
     final historyAsync = ref.watch(transfersHistoryProvider);
+    final kycAsync = ref.watch(kycStatusProvider);
+    final savingsAsync = ref.watch(savingsSummaryProvider);
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -58,7 +62,10 @@ class _PersonalHomeView extends ConsumerWidget {
                     style: ProximTextStyles.labelSm().copyWith(letterSpacing: 0.8),
                   ),
                   const SizedBox(height: 2),
-                  Text(userName, style: ProximTextStyles.headlineLg()),
+                  Text(
+                    userName.isEmpty ? 'Welcome' : userName,
+                    style: ProximTextStyles.headlineLg(),
+                  ),
                 ],
               ),
               GestureDetector(
@@ -127,8 +134,17 @@ class _PersonalHomeView extends ConsumerWidget {
           const QuickActionButtons(),
           const SizedBox(height: 20),
 
-          // 4. KYC Banner
-          const KycBanner(),
+          // 4. KYC Banner — real status; hidden once verified, fail-quiet on error
+          kycAsync.when(
+            data: (status) {
+              if (status == null || status.isApproved) return const SizedBox.shrink();
+              return KycBanner(
+                status: status.isPending ? KycBannerState.pending : KycBannerState.unverified,
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
+          ),
           const SizedBox(height: 24),
 
           // 5. Savings Overview
@@ -167,10 +183,22 @@ class _PersonalHomeView extends ConsumerWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              'Earning up to 11.2% APY',
-                              style: ProximTextStyles.labelXs(color: ProximColors.tertiary),
-                              overflow: TextOverflow.ellipsis,
+                            savingsAsync.when(
+                              data: (summary) {
+                                final bestApy = summary.strategies.isEmpty
+                                    ? summary.apyPercent
+                                    : summary.strategies
+                                        .map((s) => s.apyPercent)
+                                        .reduce((a, b) => a > b ? a : b);
+                                if (bestApy <= 0) return const SizedBox.shrink();
+                                return Text(
+                                  'Earning up to ${bestApy.toStringAsFixed(1)}% APY',
+                                  style: ProximTextStyles.labelXs(color: ProximColors.tertiary),
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              },
+                              loading: () => const SizedBox.shrink(),
+                              error: (_, _) => const SizedBox.shrink(),
                             ),
                           ],
                         ),

@@ -24,8 +24,8 @@ class FxQuote {
       fromCurrency: json['fromCurrency'] as String? ?? 'USD',
       toCurrency: json['toCurrency'] as String? ?? 'NGN',
       fromAmount: (json['fromAmount'] as num?)?.toDouble() ?? 1.0,
-      toAmount: (json['toAmount'] as num?)?.toDouble() ?? 1595.20,
-      rate: (json['rate'] as num?)?.toDouble() ?? 1595.20,
+      toAmount: (json['toAmount'] as num).toDouble(),
+      rate: (json['rate'] as num).toDouble(),
       validForSeconds: json['validForSeconds'] as int? ?? 15,
       feeAmount: (json['feeAmount'] as num?)?.toDouble() ?? 0.0,
       rail: json['rail'] as String? ?? 'DEEP_OTC',
@@ -137,6 +137,44 @@ class TransferHistoryItem {
                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
     }
+  }
+}
+
+/// A single fiat/virtual account from GET /api/transfers/accounts
+class DepositAccount {
+  final String id;
+  final String accountNumber;
+  final String? routingNumber;
+  final String bankName;
+  final String accountHolderName;
+  final String currency;
+  final String rail;
+  final String status;
+
+  const DepositAccount({
+    required this.id,
+    required this.accountNumber,
+    this.routingNumber,
+    required this.bankName,
+    required this.accountHolderName,
+    required this.currency,
+    required this.rail,
+    required this.status,
+  });
+
+  factory DepositAccount.fromJson(Map<String, dynamic> json) {
+    return DepositAccount(
+      id: json['id'] as String? ?? '',
+      accountNumber: json['accountNumber'] as String? ?? json['account_number'] as String? ?? '',
+      routingNumber: json['routingNumber'] as String? ?? json['routing_number'] as String?,
+      bankName: json['bankName'] as String? ?? json['bank_name'] as String? ?? '',
+      accountHolderName: json['accountHolderName'] as String? ??
+          json['account_holder_name'] as String? ??
+          'Proxim Account',
+      currency: json['currency'] as String? ?? 'NGN',
+      rail: json['rail'] as String? ?? 'bank_transfer',
+      status: json['status'] as String? ?? 'active',
+    );
   }
 }
 
