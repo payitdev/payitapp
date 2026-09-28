@@ -9,6 +9,9 @@ import 'package:proxim_app/src/features/auth/domain/auth_models.dart';
 import 'package:proxim_app/src/features/auth/presentation/auth_provider.dart';
 import 'package:proxim_app/src/features/cards/domain/card_models.dart';
 import 'package:proxim_app/src/features/cards/presentation/cards_provider.dart';
+import 'package:proxim_app/src/features/treasury/domain/treasury_metrics.dart';
+import 'package:proxim_app/src/features/treasury/domain/treasury_models.dart';
+import 'package:proxim_app/src/features/treasury/presentation/treasury_provider.dart';
 
 /// Auth notifier that stays inert (no session restore, no Privy calls) but
 /// provides a realistic two-entity user so screens render their real,
@@ -69,6 +72,85 @@ Future<void> pumpProximApp(WidgetTester tester) {
   return tester.pumpWidget(
     ProviderScope(
       overrides: [authProvider.overrideWith(() => _FakeAuthNotifier())],
+      child: const ProximApp(),
+    ),
+  );
+}
+
+/// Canned dashboard data — the treasury screen must render exactly these
+/// provider-driven values, proving the old hardcoded constants are gone.
+const _cannedMetrics = TreasuryMetrics(
+  balance: 482950.00,
+  currency: 'USD',
+  ngnEquivalent: 770305250.0,
+  vaultCount: 4,
+  monthlyBurn: 34200.0,
+  burnIsEstimate: true,
+  runwayMonths: 14.1,
+  runwayTier: 'Safe',
+  inflowLast30d: 68400.0,
+  inflowMomPct: 18.4,
+);
+
+final _cannedHistory = <TreasuryTransaction>[
+  const TreasuryTransaction(
+    id: 'tx_1',
+    type: 'INBOUND',
+    title: 'Received from Stripe Inc',
+    subtitle: 'Payment received · Completed',
+    amount: 45000.00,
+    symbol: '\$',
+    currency: 'USD',
+    date: '9/28/2026',
+    time: '02:24 PM',
+    mode: 'fiat',
+    senderAccount: 'External Sender',
+    recipientAccount: 'Proxim Balance',
+    reference: 'tx_1',
+  ),
+  const TreasuryTransaction(
+    id: 'tx_2',
+    type: 'OUTBOUND',
+    title: 'Sent to Batch Payroll',
+    subtitle: 'Payment sent · Completed',
+    amount: 18450.00,
+    symbol: '\$',
+    currency: 'USD',
+    date: '9/27/2026',
+    time: '11:02 AM',
+    mode: 'fiat',
+    senderAccount: 'Proxim Balance',
+    recipientAccount: 'External Account',
+    reference: 'tx_2',
+  ),
+];
+
+const _cannedApproval = PendingApproval(
+  id: 'ap_1',
+  title: 'AWS Cloud & Nodes',
+  amount: 24500.00,
+  currency: 'USDC',
+  description: 'AWS Cloud & Nodes',
+  signedCount: 1,
+  requiredSignatures: 2,
+);
+
+/// ProviderScope must be pumped once — Riverpod rejects changing the
+/// override count on rebuild — so each dashboard test builds its own scope.
+Future<void> pumpDashboardWith({
+  required WidgetTester tester,
+  required TreasuryMetrics metrics,
+  required List<TreasuryTransaction> history,
+  required List<PendingApproval> approvals,
+}) {
+  return tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        authProvider.overrideWith(() => _FakeAuthNotifier()),
+        treasuryMetricsProvider.overrideWith((ref) => Future.value(metrics)),
+        treasuryHistoryProvider.overrideWith((ref) => Future.value(history)),
+        pendingApprovalsProvider.overrideWith((ref) => Future.value(approvals)),
+      ],
       child: const ProximApp(),
     ),
   );
@@ -220,5 +302,84 @@ void main() {
     expect(find.text('Transfer Execution'), findsOneWidget);
     expect(find.text('TREASURY TRANSFER'), findsOneWidget);
     expect(find.text('Send & Payout'), findsOneWidget);
+  });
+
+  testWidgets('Treasury hero card renders provider-driven balance and metrics', (tester) async {
+    await pumpDashboardWith(
+      tester: tester,
+      metrics: _cannedMetrics,
+      history: _cannedHistory,
+      approvals: const [],
+    );
+    await tester.pumpAndSettle();
+
+    // Live balance + FX-converted equivalent + connected vault count
+    expect(find.text('\$482,950.00'), findsOneWidget);
+    expect(find.text('≈ ₦770,305,250.00 NGN  •  4 Connected Vaults'), findsOneWidget);
+
+    // Derived burn rate / runway / inflow tiles
+    expect(find.text('-\$34,200.00'), findsOneWidget);
+    expect(find.text('Estimated avg'), findsOneWidget);
+    expect(find.text('14.1 Mo'), findsOneWidget);
+    expect(find.text('Safe tier'), findsOneWidget);
+    expect(find.text('+\$68,400.00'), findsOneWidget);
+    expect(find.text('↑ 18.4% MoM'), findsOneWidget);
+
+    // Recent dispatches are rendered from the history provider
+    expect(find.text('Received from Stripe Inc'), findsOneWidget);
+    expect(find.text('+\$45,000.00'), findsOneWidget);
+    expect(find.text('Sent to Batch Payroll'), findsOneWidget);
+    expect(find.text('-\$18,450.00'), findsOneWidget);
+
+    // No pending approvals → banner hidden
+    expect(find.text('Review Queue'), findsNothing);
+  });
+
+  testWidgets('Balance visibility toggle masks the live balance', (tester) async {
+    await pumpDashboardWith(
+      tester: tester,
+      metrics: _cannedMetrics,
+      history: _cannedHistory,
+      approvals: const [],
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('\$482,950.00'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.visibility));
+    await tester.pumpAndSettle();
+
+    expect(find.text('••••••••'), findsOneWidget);
+    expect(find.text('\$482,950.00'), findsNothing);
+  });
+
+  testWidgets('Multi-sig banner renders pending approvals from the provider', (tester) async {
+    await pumpDashboardWith(
+      tester: tester,
+      metrics: _cannedMetrics,
+      history: _cannedHistory,
+      approvals: const [_cannedApproval],
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 Pending Executive Approval'), findsOneWidget);
+    expect(find.text('\$24,500.00 USDC • AWS Cloud & Nodes'), findsOneWidget);
+    expect(find.text('1 of 2 Signed'), findsOneWidget);
+    expect(find.text('Threshold: 2 signatures required'), findsOneWidget);
+    expect(find.text('Review Queue'), findsOneWidget);
+  });
+
+  testWidgets('Multi-sig banner stays hidden when there are no pending approvals',
+      (tester) async {
+    await pumpDashboardWith(
+      tester: tester,
+      metrics: _cannedMetrics,
+      history: _cannedHistory,
+      approvals: const [],
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Pending Executive Approval'), findsNothing);
+    expect(find.text('Review Queue'), findsNothing);
   });
 }

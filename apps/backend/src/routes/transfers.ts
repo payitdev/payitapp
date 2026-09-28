@@ -1374,6 +1374,7 @@ export async function transferRoutes(server: FastifyInstance) {
   server.get('/api/transfers/history', async (request, reply) => {
     const { entityId } = request.query as { entityId: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
     const now = Date.now();
     const lastSync = lastSyncTimestamps.get(entityId) || 0;

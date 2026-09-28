@@ -1,5 +1,7 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_config.dart';
+import '../../transfers/domain/transfers_models.dart';
+import '../domain/treasury_models.dart';
 
 class BalanceSheetData {
   final double netOperatingSurplus;
@@ -77,6 +79,93 @@ class TreasuryRepository {
     } catch (e) {
       if (ApiConfig.isDemoMode) return BalanceSheetData.demo;
       rethrow;
+    }
+  }
+
+  /// Consolidated live balance for an entity — GET /api/transfers/balance
+  Future<TreasuryBalance> getBalance({required String entityId}) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/api/transfers/balance',
+      queryParameters: {'entityId': entityId},
+    );
+
+    final data = response.data;
+    if (data != null && data['success'] == true) {
+      return TreasuryBalance.fromJson(data);
+    }
+    throw const ProximException('Unable to load balance. Please try again.');
+  }
+
+  /// Formatted transfer history (newest first, capped at [limit]) —
+  /// GET /api/transfers/history
+  Future<List<TreasuryTransaction>> getHistory({
+    required String entityId,
+    int limit = 30,
+  }) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/api/transfers/history',
+      queryParameters: {'entityId': entityId, 'limit': limit},
+    );
+
+    final data = response.data;
+    if (data != null && data['transactions'] is List) {
+      return (data['transactions'] as List)
+          .map((t) => TreasuryTransaction.fromJson(t as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Connected deposit accounts for an entity — GET /api/transfers/accounts
+  Future<List<DepositAccount>> getAccounts({required String entityId}) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/api/transfers/accounts',
+      queryParameters: {'entityId': entityId},
+    );
+
+    final data = response.data;
+    if (data != null && data['accounts'] is List) {
+      return (data['accounts'] as List)
+          .map((a) => DepositAccount.fromJson(a as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Live FX rates — GET /api/fx/rates
+  Future<List<FxRate>> getFxRates() async {
+    final response = await _apiClient.get<Map<String, dynamic>>('/api/fx/rates');
+
+    final data = response.data;
+    if (data != null && data['rates'] is List) {
+      return (data['rates'] as List)
+          .map((r) => FxRate.fromJson(r as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Pending executive approvals — GET /api/approvals/pending.
+  ///
+  /// The backend endpoint has not shipped yet. A missing or failing
+  /// approvals service means there is nothing to surface, so any error is
+  /// treated as an empty list rather than propagating to the UI.
+  Future<List<PendingApproval>> getPendingApprovals({required String entityId}) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/approvals/pending',
+        queryParameters: {'entityId': entityId},
+      );
+
+      final data = response.data;
+      if (data != null && data['approvals'] is List) {
+        return (data['approvals'] as List)
+            .map((a) => PendingApproval.fromJson(a as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
     }
   }
 }
