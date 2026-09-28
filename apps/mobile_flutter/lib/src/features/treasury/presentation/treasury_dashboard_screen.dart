@@ -49,9 +49,10 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
 
   Widget _buildCompanyBanner() {
     final activeEntity = ref.watch(activeEntityProvider);
-    final companyName = activeEntity?.legalName ?? 'Acme Global Technologies Ltd';
-    final companyId = activeEntity?.businessTag != null ? 'ID: ${activeEntity!.businessTag}' : 'ID: ACM-884920-CORP';
-    final kybTier = activeEntity?.kybTier != null ? 'KYB Tier ${activeEntity!.kybTier}' : 'KYB Tier 3';
+    final companyName = activeEntity?.legalName ?? 'Business Account';
+    final businessTag = activeEntity?.businessTag;
+    final isVerified = activeEntity?.isKycApproved ?? false;
+    final verificationLabel = activeEntity?.isBusiness == true ? 'KYB Tier 2' : 'KYC Tier 1';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -109,24 +110,28 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
                 const SizedBox(height: 3),
                 Row(
                   children: [
-                    Flexible(
-                      child: Text(
-                        companyId,
-                        style: ProximTextStyles.labelXs(),
-                        overflow: TextOverflow.ellipsis,
+                    if (businessTag != null) ...[
+                      Flexible(
+                        child: Text(
+                          'ID: $businessTag',
+                          style: ProximTextStyles.labelXs(),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Text('•', style: TextStyle(fontSize: 10, color: ProximColors.outline)),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.verified, size: 12, color: ProximColors.statusSuccess),
-                    const SizedBox(width: 3),
-                    Text(
-                      kybTier,
-                      style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess).copyWith(
-                        fontWeight: FontWeight.w600,
+                      const SizedBox(width: 6),
+                      const Text('•', style: TextStyle(fontSize: 10, color: ProximColors.outline)),
+                      const SizedBox(width: 6),
+                    ],
+                    if (isVerified) ...[
+                      const Icon(Icons.verified, size: 12, color: ProximColors.statusSuccess),
+                      const SizedBox(width: 3),
+                      Text(
+                        verificationLabel,
+                        style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess).copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ],

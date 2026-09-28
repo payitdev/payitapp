@@ -1,24 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/presentation/auth_provider.dart';
+import '../domain/transfers_models.dart';
+import 'transfers_provider.dart';
 
-class ReceiveDepositScreen extends StatefulWidget {
+class ReceiveDepositScreen extends ConsumerStatefulWidget {
   const ReceiveDepositScreen({super.key});
 
   @override
-  State<ReceiveDepositScreen> createState() => _ReceiveDepositScreenState();
+  ConsumerState<ReceiveDepositScreen> createState() => _ReceiveDepositScreenState();
 }
 
-class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
+class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   int _selectedTab = 0; // 0: Crypto, 1: Bank (NGN), 2: MoMo
   int _selectedChain = 0; // 0: Base, 1: Solana, 2: Ethereum, 3: Arbitrum, 4: Polygon
 
   static const _chains = ['Base', 'Solana', 'Ethereum', 'Arbitrum', 'Polygon'];
-  static const _cryptoAddress = '0x742d35Cc6634C0532925a3b844Bc454e4438f2b6';
-  static const _bankAccountNum = '0123984571';
 
   void _copyToClipboard(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
@@ -31,8 +34,27 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
     );
   }
 
+  /// Deposit address for the currently selected chain, from the active entity.
+  String? get _cryptoAddress {
+    final entity = ref.read(activeEntityProvider);
+    if (entity == null) return null;
+    if (_chains[_selectedChain] == 'Solana') return entity.solanaDepositAddress;
+    return entity.evmDepositAddress;
+  }
+
+  /// The deposit detail relevant to the selected tab (address or account number).
+  String? _activeDepositDetail(String? cryptoAddress, DepositAccount? fiatAccount) {
+    if (_selectedTab == 1) return fiatAccount?.accountNumber;
+    return cryptoAddress;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final entity = ref.watch(activeEntityProvider);
+    final accountsAsync = entity == null ? null : ref.watch(depositAccountsProvider(entity.id));
+    final cryptoAddress = _cryptoAddress;
+    final fiatAccount = _primaryFiatAccount(accountsAsync?.value);
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -53,18 +75,18 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                       if (_selectedTab == 0) ...[
                         _buildChainSelector(),
                         const SizedBox(height: 14),
-                        _buildQrVaultCard(),
+                        _buildQrVaultCard(cryptoAddress),
                       ] else if (_selectedTab == 1) ...[
-                        _buildVirtualBankCard(),
+                        _buildVirtualBankCard(accountsAsync),
                       ] else ...[
                         _buildMoMoCard(),
                       ],
                       const SizedBox(height: 16),
-                      if (_selectedTab != 1) _buildVirtualBankCard(),
+                      if (_selectedTab != 1) _buildVirtualBankCard(accountsAsync),
                       const SizedBox(height: 16),
                       _buildMoMoSection(),
                       const SizedBox(height: 20),
-                      _buildActionButtons(),
+                      _buildActionButtons(cryptoAddress, fiatAccount),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -75,6 +97,14 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
         ),
       ),
     );
+  }
+
+  DepositAccount? _primaryFiatAccount(List<DepositAccount>? accounts) {
+    if (accounts == null || accounts.isEmpty) return null;
+    for (final account in accounts) {
+      if (account.currency == 'NGN') return account;
+    }
+    return accounts.first;
   }
 
   Widget _buildTopBar(BuildContext context) {
@@ -238,7 +268,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
     );
   }
 
-  Widget _buildQrVaultCard() {
+  Widget _buildQrVaultCard(String? address) {
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLow,
@@ -395,42 +425,48 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                         ),
                       ),
 
-                      // QR Matrix Graphic
-                      Container(
-                        width: 150,
-                        height: 150,
-                        decoration: BoxDecoration(
-                          color: ProximColors.surfaceContainer,
+                      // QR encoding the real deposit address
+                      if (address != null && address.isNotEmpty)
+                        ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Center(
+                          child: QrImageView(
+                            data: address,
+                            size: 150,
+                            backgroundColor: Colors.white,
+                            eyeStyle: const QrEyeStyle(
+                              eyeShape: QrEyeShape.square,
+                              color: ProximColors.surfaceContainerLowest,
+                            ),
+                            dataModuleStyle: const QrDataModuleStyle(
+                              dataModuleShape: QrDataModuleShape.square,
+                              color: ProximColors.surfaceContainerLowest,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 150,
+                          height: 150,
+                          decoration: BoxDecoration(
+                            color: ProximColors.surfaceContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: ProximColors.auroraGradient,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: ProximColors.primary.withValues(alpha: 0.4),
-                                      blurRadius: 14,
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(Icons.qr_code_2, size: 28, color: Colors.white),
-                              ),
+                              const Icon(Icons.hourglass_top, size: 28, color: ProximColors.onSurfaceVariant),
                               const SizedBox(height: 8),
-                              Text(
-                                'Proxim Optical QR',
-                                style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  'Deposit address not available yet',
+                                  textAlign: TextAlign.center,
+                                  style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -451,75 +487,90 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: ProximColors.statusSuccess,
+                        if (address != null && address.isNotEmpty)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: ProximColors.statusSuccess,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Verified Route',
-                              style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
-                            ),
-                          ],
-                        ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Verified Route',
+                                style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: ProximColors.surfaceContainerLowest,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.account_balance_wallet_outlined, size: 18, color: ProximColors.primary),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text(
-                              _cryptoAddress,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                color: ProximColors.onSurface,
+                    if (address != null && address.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: ProximColors.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.account_balance_wallet_outlined, size: 18, color: ProximColors.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                address,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                  color: ProximColors.onSurface,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () => _copyToClipboard(_cryptoAddress, 'Deposit Account ID'),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: ProximColors.surfaceContainerHigh,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.copy, size: 12, color: ProximColors.primary),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Copy',
-                                    style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                                      fontWeight: FontWeight.w700,
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => _copyToClipboard(address, 'Deposit Account ID'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: ProximColors.surfaceContainerHigh,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.copy, size: 12, color: ProximColors.primary),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Copy',
+                                      style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: ProximColors.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Your deposit address isn\'t available yet. It is generated once your account is set up.',
+                          style: ProximTextStyles.bodySm(),
+                        ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -552,8 +603,147 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
     );
   }
 
-  Widget _buildVirtualBankCard() {
+  Widget _buildVirtualBankCard(AsyncValue<List<DepositAccount>>? accountsAsync) {
+    final account = _primaryFiatAccount(accountsAsync?.value);
+
+    if (accountsAsync == null || accountsAsync.isLoading) {
+      return _buildBankCardShell(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Center(
+            child: Column(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                ),
+                const SizedBox(height: 10),
+                Text('Loading your virtual account…', style: ProximTextStyles.bodySm()),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (accountsAsync.hasError) {
+      return _buildBankCardShell(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Row(
+            children: [
+              const Icon(Icons.error_outline, size: 18, color: ProximColors.statusWarning),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  "We couldn't load your virtual account. Please try again.",
+                  style: ProximTextStyles.bodySm(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (account == null) {
+      return _buildBankCardShell(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Row(
+            children: [
+              const Icon(Icons.hourglass_top, size: 18, color: ProximColors.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'No virtual account yet. It is provisioned once your account is verified.',
+                  style: ProximTextStyles.bodySm(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final accountNumber = account.accountNumber;
+    return _buildBankCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // QR encoding the real account number
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: QrImageView(
+                data: accountNumber,
+                size: 130,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: ProximColors.surfaceContainerLowest,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: ProximColors.surfaceContainerLowest,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Bank Name
+          _buildDetailRow('BANK NAME', account.bankName),
+          const SizedBox(height: 8),
+
+          // Account Number
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: ProximColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ACCOUNT NUMBER', style: ProximTextStyles.labelXs()),
+                    const SizedBox(height: 2),
+                    Text(
+                      accountNumber,
+                      style: ProximTextStyles.headlineSm(color: ProximColors.primary).copyWith(
+                        letterSpacing: 1.2,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18, color: ProximColors.onSurfaceVariant),
+                  onPressed: () => _copyToClipboard(accountNumber, 'Account number'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Account Name
+          _buildDetailRow(
+            'ACCOUNT NAME',
+            account.accountHolderName,
+            statusBadge: account.status.toUpperCase() == 'ACTIVE' ? 'Active' : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBankCardShell({required Widget child}) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLow,
@@ -603,46 +793,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
             ],
           ),
           const SizedBox(height: 12),
-
-          // Bank Name
-          _buildDetailRow('BANK NAME', 'Wema Bank / First Bank PLC'),
-          const SizedBox(height: 8),
-
-          // Account Number
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: ProximColors.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('ACCOUNT NUMBER', style: ProximTextStyles.labelXs()),
-                    const SizedBox(height: 2),
-                    Text(
-                      _bankAccountNum,
-                      style: ProximTextStyles.headlineSm(color: ProximColors.primary).copyWith(
-                        letterSpacing: 1.2,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ],
-                ),
-                IconButton(
-                  icon: const Icon(Icons.copy, size: 18, color: ProximColors.onSurfaceVariant),
-                  onPressed: () => _copyToClipboard(_bankAccountNum, 'Account number'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Account Name
-          _buildDetailRow('ACCOUNT NAME', 'Proxim / Alex Rivera', statusBadge: 'Active'),
+          child,
         ],
       ),
     );
@@ -753,11 +904,23 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
     );
   }
 
-  Widget _buildActionButtons() {
+  Widget _buildActionButtons(String? cryptoAddress, DepositAccount? fiatAccount) {
+    final depositDetail = _activeDepositDetail(cryptoAddress, fiatAccount);
+
+    void shareDepositDetails() {
+      if (depositDetail == null || depositDetail.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No deposit details available yet.')),
+        );
+        return;
+      }
+      _copyToClipboard(depositDetail, 'Deposit details');
+    }
+
     return Column(
       children: [
         GestureDetector(
-          onTap: () => _copyToClipboard('proxim.app/pay/alex-rivera', 'Payment link'),
+          onTap: shareDepositDetails,
           child: Container(
             width: double.infinity,
             height: 50,
@@ -796,11 +959,7 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
           children: [
             Expanded(
               child: GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('QR Code saved to photos')),
-                  );
-                },
+                onTap: shareDepositDetails,
                 child: Container(
                   height: 42,
                   decoration: BoxDecoration(
@@ -811,9 +970,9 @@ class _ReceiveDepositScreenState extends State<ReceiveDepositScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.download, size: 16, color: ProximColors.onSurface),
+                      const Icon(Icons.copy, size: 16, color: ProximColors.onSurface),
                       const SizedBox(width: 6),
-                      Text('Save QR Code', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
+                      Text('Copy Details', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
                     ],
                   ),
                 ),

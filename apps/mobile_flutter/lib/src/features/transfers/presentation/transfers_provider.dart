@@ -25,6 +25,13 @@ final transfersBalanceProvider = FutureProvider.autoDispose<TransfersBalance>((r
   return repo.getBalance();
 });
 
+/// Fiat/virtual deposit accounts for an entity (receive & deposit screen)
+final depositAccountsProvider = FutureProvider.autoDispose
+    .family<List<DepositAccount>, String>((ref, entityId) async {
+  final repo = ref.watch(transfersRepositoryProvider);
+  return repo.getAccounts(entityId: entityId);
+});
+
 /// Paginated transfer history for the activity feed
 final transfersHistoryProvider =
     FutureProvider.autoDispose<List<TransferHistoryItem>>((ref) async {

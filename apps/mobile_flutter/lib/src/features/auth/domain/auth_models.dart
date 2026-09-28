@@ -99,8 +99,16 @@ class ProximEntity {
 
   bool get isBusiness => kind == 'BUSINESS';
   bool get isPersonal => kind == 'PERSONAL';
-  String get kybTier => 'Tier 3';
-  String get kybStatus => dueStatus ?? 'Tier 3';
+
+  /// KYC tier label derived from the entity's verification status.
+  /// Mirrors GET /api/kyc/status: unverified until approved, then Tier 1
+  /// (personal) or Tier 2 (business).
+  bool get isKycApproved => dueStatus == 'approved';
+
+  String get kycTierLabel {
+    if (isKycApproved) return isBusiness ? 'Tier 2' : 'Tier 1';
+    return 'Unverified';
+  }
 
   factory ProximEntity.fromJson(Map<String, dynamic> json) {
     final rawAccounts = json['fiatAccounts'] as List<dynamic>? ?? [];

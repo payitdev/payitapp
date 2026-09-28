@@ -76,9 +76,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final mode = ref.watch(accountModeProvider);
     final user = ref.watch(currentUserProvider);
-    final displayName = user?.fullName ?? 'Alex Rivera';
-    final email = user?.email ?? 'alex.rivera@proxim.app';
+    final entity = ref.watch(activeEntityProvider);
+    final displayName = user?.fullName ?? '';
+    final email = user?.email ?? '';
     final isBusiness = mode == AccountMode.business;
+    final dueStatus = entity?.dueStatus;
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -117,14 +119,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     border: Border.all(color: ProximColors.primary.withValues(alpha: 0.4)),
                   ),
                   child: Center(
-                    child: Text(
-                      displayName.isNotEmpty ? displayName[0].toUpperCase() : 'A',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: displayName.isNotEmpty
+                        ? Text(
+                            displayName[0].toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.person_outline, size: 24, color: ProximColors.onSurfaceVariant),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -135,15 +139,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Row(
                         children: [
                           Flexible(
-                            child: Text(
-                              displayName,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
+                            child: displayName.isEmpty
+                                ? _placeholderBar(width: 120, height: 14)
+                                : Text(
+                                    displayName,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                           ),
                           const SizedBox(width: 6),
                           Container(
@@ -171,14 +177,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        email,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: ProximColors.onSurfaceVariant,
-                        ),
-                      ),
+                      email.isEmpty
+                          ? _placeholderBar(width: 170, height: 10)
+                          : Text(
+                              email,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: ProximColors.onSurfaceVariant,
+                              ),
+                            ),
                     ],
                   ),
                 ),
@@ -232,21 +240,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             _buildSettingsTile(
               icon: Icons.verified_user_outlined,
               title: 'Identity Verification',
-              subtitle: 'Tier 1 · Verified Account',
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: ProximColors.statusSuccess.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(9999),
-                ),
-                child: Text(
-                  'Verified',
-                  style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
-                ),
-              ),
+              subtitle: _verificationSubtitle(dueStatus, entity?.kycTierLabel),
+              trailing: _verificationChip(dueStatus),
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Identity verified. All features unlocked.')),
+                  SnackBar(
+                    content: Text(
+                      dueStatus == 'approved'
+                          ? 'Identity verified. All features unlocked.'
+                          : 'Identity verification is coming soon.',
+                    ),
+                  ),
                 );
               },
             ),
@@ -295,12 +299,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           const SizedBox(height: 10),
           _buildSettingsGroup([
-            _buildSettingsTile(
-              icon: Icons.currency_exchange,
-              title: 'Default Currency',
-              subtitle: 'USD (\$)',
-              onTap: () {},
-            ),
             _buildSwitchTile(
               icon: Icons.notifications_none,
               title: 'Payment Alerts',
@@ -331,23 +329,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             _buildSettingsTile(
               icon: Icons.send,
               title: 'Telegram Account',
-              subtitle: 'Connected as @alex_rivera',
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: ProximColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(9999),
-                ),
-                child: const Text(
-                  'Linked',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: ProximColors.primary,
-                  ),
-                ),
-              ),
-              onTap: () {},
+              subtitle: 'Not connected',
             ),
             _buildSettingsTile(
               icon: Icons.code,
@@ -390,10 +372,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             width: double.infinity,
             height: 48,
             child: OutlinedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("You've been signed out.")),
-                );
+              onPressed: () async {
+                await ref.read(authProvider.notifier).logout();
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: ProximColors.error,
@@ -421,6 +401,46 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  // Loading placeholder bar shown while the session / profile is still loading —
+  // never a fabricated name or email.
+  Widget _placeholderBar({required double width, required double height}) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+  }
+
+  String _verificationSubtitle(String? dueStatus, String? tierLabel) {
+    return switch (dueStatus) {
+      'approved' => '${tierLabel ?? 'Verified'} · Verified Account',
+      'pending' || 'under_review' => 'Verification in review',
+      'rejected' => 'Verification rejected',
+      _ => 'Not verified',
+    };
+  }
+
+  Widget? _verificationChip(String? dueStatus) {
+    Widget chip({required Color color, required String label}) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(9999),
+          ),
+          child: Text(label, style: ProximTextStyles.labelXs(color: color)),
+        );
+
+    return switch (dueStatus) {
+      'approved' => chip(color: ProximColors.statusSuccess, label: 'Verified'),
+      'pending' || 'under_review' => chip(color: ProximColors.statusWarning, label: 'In review'),
+      'rejected' => chip(color: ProximColors.error, label: 'Rejected'),
+      _ => null,
+    };
   }
 
   Widget _buildSettingsGroup(List<Widget> children) {
