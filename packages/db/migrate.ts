@@ -495,6 +495,13 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_brails_cards_entity_status ON brails_cards(entity_id, status);
       CREATE INDEX IF NOT EXISTS idx_brails_cards_user_account_kind ON brails_cards(user_id, account_kind);
 
+      -- Patch older brails_cards tables created before these columns existed
+      -- (CREATE TABLE IF NOT EXISTS does not upgrade an existing table).
+      ALTER TABLE brails_cards ADD COLUMN IF NOT EXISTS account_kind TEXT NOT NULL DEFAULT 'PERSONAL' CHECK (account_kind IN ('PERSONAL', 'BUSINESS'));
+      ALTER TABLE brails_cards ADD COLUMN IF NOT EXISTS provider_card_user_id TEXT;
+      ALTER TABLE brails_cards ADD COLUMN IF NOT EXISTS provider_metadata JSONB;
+      ALTER TABLE brails_cards ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(18,4) NOT NULL DEFAULT 0;
+
       CREATE TABLE IF NOT EXISTS automation_policies (
         id TEXT PRIMARY KEY,
         entity_id TEXT NOT NULL REFERENCES entities(id),
