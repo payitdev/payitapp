@@ -717,6 +717,246 @@ async function runMigrations() {
       ALTER TABLE school_applications ADD COLUMN IF NOT EXISTS brails_status TEXT;
       ALTER TABLE school_applications ADD COLUMN IF NOT EXISTS brails_payload JSONB;
       ALTER TABLE school_applications ADD COLUMN IF NOT EXISTS application_data JSONB;
+
+      -- Developer console tables (API keys, webhooks, request logs, error logs)
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        name TEXT NOT NULL,
+        key_prefix TEXT NOT NULL,
+        hashed_key TEXT NOT NULL UNIQUE,
+        environment TEXT NOT NULL DEFAULT 'live' CHECK (environment IN ('live', 'test')),
+        scopes TEXT NOT NULL DEFAULT '["invoices:all","wallets:all","payouts:all","reports:all","treasury:all"]',
+        last_used_at TIMESTAMP,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS webhook_endpoints (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        url TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        events TEXT NOT NULL DEFAULT '["invoice.paid","payout.completed","deposit.detected","treasury.swept"]',
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS api_logs (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        api_key_id TEXT,
+        method TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        ip_address TEXT,
+        duration_ms INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        webhook_endpoint_id TEXT NOT NULL REFERENCES webhook_endpoints(id),
+        event TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DELIVERED', 'FAILED', 'RETRYING')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        last_attempt_at TIMESTAMP,
+        next_attempt_at TIMESTAMP,
+        response_status INTEGER,
+        response_body TEXT,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS error_logs (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        context TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+        timestamp TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      -- Core transfer rail
+      CREATE TABLE IF NOT EXISTS transfers (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        due_transfer_id TEXT UNIQUE,
+        source_currency TEXT NOT NULL,
+        target_currency TEXT NOT NULL,
+        source_amount NUMERIC(28,18) NOT NULL,
+        target_amount NUMERIC(28,18) NOT NULL,
+        fee_amount NUMERIC(28,18) NOT NULL DEFAULT 0,
+        direction TEXT NOT NULL DEFAULT 'CREDIT' CHECK (direction IN ('CREDIT', 'DEBIT')),
+        payment_instructions TEXT,
+        settlement_status TEXT NOT NULL DEFAULT 'RECEIVED' CHECK (settlement_status IN ('RECEIVED', 'QUOTED', 'SOURCE_SUBMITTED', 'INTENT_DEPOSITED', 'SETTLED_ON_BASE', 'LEDGER_CREDITED', 'FAILED', 'REFUNDED', 'MANUAL_REVIEW')),
+        intent_swap_id TEXT,
+        source_tx_hash TEXT,
+        intent_funding_tx_hash TEXT,
+        destination_tx_hash TEXT,
+        settled_asset TEXT,
+        settled_amount NUMERIC(28,8),
+        settlement_error TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed', 'expired', 'reversed')),
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_transfers_entity_created ON transfers(entity_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS waitlist (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        persona TEXT NOT NULL CHECK (persona IN ('freelancer', 'founder', 'sme', 'interested')),
+        preferred_platform TEXT NOT NULL DEFAULT 'webapp' CHECK (preferred_platform IN ('webapp', 'telegram', 'both')),
+        source TEXT NOT NULL DEFAULT 'website',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS savings_goals (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        name TEXT NOT NULL,
+        target_amount NUMERIC(18,2) NOT NULL,
+        current_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        strategy_id TEXT,
+        lock_period_end TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS idempotency_keys (
+        key TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        request_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED')),
+        response_payload TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        expires_at TIMESTAMP NOT NULL
+      );
+
+      -- Nuvion provider tables
+      CREATE TABLE IF NOT EXISTS nuvion_counterparties (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        nuvion_entity_id TEXT NOT NULL,
+        counterparty_id TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK (type IN ('individual', 'business')),
+        nickname TEXT,
+        profile JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_nuvion_counterparties_entity ON nuvion_counterparties(local_entity_id, nuvion_entity_id);
+
+      CREATE TABLE IF NOT EXISTS nuvion_payment_details (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        counterparty_id TEXT NOT NULL REFERENCES nuvion_counterparties(counterparty_id),
+        payment_detail_id TEXT NOT NULL UNIQUE,
+        payment_method TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        country TEXT NOT NULL,
+        account_holder_name TEXT NOT NULL,
+        account_number TEXT,
+        routing_number TEXT,
+        iban TEXT,
+        sort_code TEXT,
+        swift_bic TEXT,
+        bank_code TEXT,
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS nuvion_transfers (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        nuvion_entity_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        transfer_id TEXT NOT NULL UNIQUE,
+        counterparty_id TEXT NOT NULL,
+        payment_detail_id TEXT NOT NULL,
+        amount_minor NUMERIC(28,0) NOT NULL,
+        currency TEXT NOT NULL,
+        payment_type TEXT NOT NULL,
+        narration TEXT NOT NULL,
+        unique_reference TEXT NOT NULL UNIQUE,
+        fee_minor NUMERIC(28,0) NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+        status_reason TEXT,
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_nuvion_transfers_entity ON nuvion_transfers(local_entity_id, status);
+
+      CREATE TABLE IF NOT EXISTS nuvion_cards (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        nuvion_entity_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        card_id TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK (type IN ('debit', 'prepaid', 'virtual')),
+        display_name TEXT,
+        cardholder_name TEXT NOT NULL,
+        brand TEXT NOT NULL DEFAULT 'VISA',
+        last_four TEXT NOT NULL,
+        expiry TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'issued', 'active', 'blocked', 'cancelled')),
+        spending_limits JSONB,
+        international_spending BOOLEAN NOT NULL DEFAULT TRUE,
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_nuvion_cards_entity ON nuvion_cards(local_entity_id, status);
+
+      CREATE TABLE IF NOT EXISTS nuvion_funding_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        nuvion_entity_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        funding_session_id TEXT NOT NULL UNIQUE,
+        funding_type TEXT NOT NULL CHECK (funding_type IN ('open-banking', 'momo', 'crypto')),
+        amount_minor NUMERIC(28,0) NOT NULL,
+        currency TEXT NOT NULL,
+        unique_reference TEXT NOT NULL UNIQUE,
+        checkout_url TEXT,
+        checkout_id TEXT,
+        status TEXT NOT NULL DEFAULT 'awaiting_user' CHECK (status IN ('awaiting_user', 'processing', 'settled', 'failed', 'expired')),
+        failure_code TEXT,
+        failure_message TEXT,
+        expires_at TIMESTAMP,
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_nuvion_funding_entity ON nuvion_funding_sessions(local_entity_id, status);
+
+      CREATE TABLE IF NOT EXISTS nuvion_savings_goals (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        local_entity_id TEXT NOT NULL REFERENCES entities(id),
+        nuvion_entity_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        goal_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        target_amount_minor NUMERIC(28,0) NOT NULL,
+        current_amount_minor NUMERIC(28,0) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        target_date TIMESTAMP,
+        interest_rate NUMERIC(5,2),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled')),
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
     `);
 
     console.log('✅ All PayIT tables created/verified in Neon PostgreSQL.');
