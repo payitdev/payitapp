@@ -90,8 +90,8 @@ class TransferHistoryItem {
     required this.timestamp,
   });
 
-  bool get isSent => type == 'SENT' || type == 'SWAP';
-  bool get isReceived => type == 'RECEIVED' || type == 'YIELD';
+  bool get isSent => type == 'SENT' || type == 'SWAP' || type == 'OUTBOUND';
+  bool get isReceived => type == 'RECEIVED' || type == 'YIELD' || type == 'INBOUND';
 
   factory TransferHistoryItem.fromJson(Map<String, dynamic> json) {
     final ts = json['timestamp'] != null

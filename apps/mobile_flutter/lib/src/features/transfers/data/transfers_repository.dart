@@ -135,16 +135,16 @@ class TransfersRepository {
   }
 
   /// Fetch paginated transfer history
-  Future<List<TransferHistoryItem>> getHistory({int limit = 20, int offset = 0}) async {
+  Future<List<TransferHistoryItem>> getHistory({required String entityId, int limit = 20, int offset = 0}) async {
     try {
       final response = await _apiClient.get<Map<String, dynamic>>(
         '/api/transfers/history',
-        queryParameters: {'limit': limit, 'offset': offset},
+        queryParameters: {'entityId': entityId, 'limit': limit, 'offset': offset},
       );
 
       final data = response.data;
-      if (data != null && data['transfers'] is List) {
-        return (data['transfers'] as List)
+      if (data != null && data['transactions'] is List) {
+        return (data['transactions'] as List)
             .map((t) => TransferHistoryItem.fromJson(t as Map<String, dynamic>))
             .toList();
       }
@@ -183,9 +183,12 @@ class TransfersRepository {
   }
 
   /// Fetch consolidated balance across all currencies
-  Future<TransfersBalance> getBalance() async {
+  Future<TransfersBalance> getBalance({required String entityId}) async {
     try {
-      final response = await _apiClient.get<Map<String, dynamic>>('/api/transfers/balance');
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/transfers/balance',
+        queryParameters: {'entityId': entityId},
+      );
       final data = response.data;
       if (data != null) {
         return TransfersBalance.fromJson(data);

@@ -21,8 +21,10 @@ final fxQuoteProvider = FutureProvider.autoDispose
 
 /// Consolidated balance for the home screen balance card
 final transfersBalanceProvider = FutureProvider.autoDispose<TransfersBalance>((ref) async {
+  final entity = ref.watch(activeEntityProvider);
+  if (entity == null) throw StateError('No active entity');
   final repo = ref.watch(transfersRepositoryProvider);
-  return repo.getBalance();
+  return repo.getBalance(entityId: entity.id);
 });
 
 /// Fiat/virtual deposit accounts for an entity (receive & deposit screen)
@@ -35,6 +37,8 @@ final depositAccountsProvider = FutureProvider.autoDispose
 /// Paginated transfer history for the activity feed
 final transfersHistoryProvider =
     FutureProvider.autoDispose<List<TransferHistoryItem>>((ref) async {
+  final entity = ref.watch(activeEntityProvider);
+  if (entity == null) throw StateError('No active entity');
   final repo = ref.watch(transfersRepositoryProvider);
-  return repo.getHistory(limit: 30);
+  return repo.getHistory(entityId: entity.id, limit: 30);
 });

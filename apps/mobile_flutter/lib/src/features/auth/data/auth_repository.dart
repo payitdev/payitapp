@@ -135,7 +135,7 @@ class AuthRepository {
     try {
       await _apiClient.post<Map<String, dynamic>>(
         '/api/entities/switch-context',
-        data: {'entityId': entityId},
+        data: {'targetEntityId': entityId},
       );
     } catch (e) {
       // Best-effort — local state still switches even if the call fails
