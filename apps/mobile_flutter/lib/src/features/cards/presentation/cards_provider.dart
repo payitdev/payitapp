@@ -10,8 +10,10 @@ final cardsRepositoryProvider = Provider<CardsRepository>((ref) {
 
 /// All cards for the active entity
 final cardsListProvider = FutureProvider.autoDispose<List<ProximCard>>((ref) async {
+  final entity = ref.watch(activeEntityProvider);
+  if (entity == null) throw StateError('No active entity');
   final repo = ref.watch(cardsRepositoryProvider);
-  return repo.getCards();
+  return repo.getCards(entityId: entity.id);
 });
 
 /// Transactions for a specific card
