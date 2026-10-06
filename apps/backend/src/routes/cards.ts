@@ -205,7 +205,9 @@ export async function cardRoutes(server: FastifyInstance) {
       )).orderBy(brailsCards.createdAt);
       return reply.send({ success: true, entityId, accountKind: selectedKind, cards });
     } catch (error: any) {
-      return reply.status(500).send({ error: 'Unable to load cards for this account', details: error.message });
+      const detail = error?.cause?.message || error?.message;
+      request.log.error({ err: error }, 'brails_cards query failed');
+      return reply.status(500).send({ error: 'Unable to load cards for this account', details: detail });
     }
   });
 
