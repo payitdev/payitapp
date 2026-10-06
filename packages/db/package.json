@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "migrate": "node migrate.cjs",
+    "migrate": "tsx migrate.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "tsx": "^4.23.12"
   }
 }
