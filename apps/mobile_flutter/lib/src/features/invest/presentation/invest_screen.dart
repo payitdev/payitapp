@@ -41,25 +41,31 @@ class _InvestScreenState extends ConsumerState<InvestScreen> {
             children: [
               const Text('Invest',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.4)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: ProximColors.tertiary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(9999),
-                  border: Border.all(color: ProximColors.tertiary.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(color: ProximColors.tertiary, shape: BoxShape.circle)),
-                    const SizedBox(width: 6),
-                    const Text('Market Open',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.tertiary)),
-                  ],
-                ),
+              // Only claim the market is open when the watchlist actually loaded.
+              stocksAsync.maybeWhen(
+                data: (stocks) => stocks.isEmpty
+                    ? const SizedBox.shrink()
+                    : Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: ProximColors.tertiary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(9999),
+                          border: Border.all(color: ProximColors.tertiary.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(color: ProximColors.tertiary, shape: BoxShape.circle)),
+                            const SizedBox(width: 6),
+                            const Text('Market Open',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.tertiary)),
+                          ],
+                        ),
+                      ),
+                orElse: () => const SizedBox.shrink(),
               ),
             ],
           ),
