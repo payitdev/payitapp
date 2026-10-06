@@ -25,6 +25,10 @@ class InvestRepository {
       return [];
     } catch (e) {
       if (ApiConfig.isDemoMode) return _demoStocks();
+      // The Ondo routes are feature-flagged off on the backend until live
+      // finance is enabled — treat "route not found" as an empty watchlist
+      // so the screen renders its empty state instead of an error loop.
+      if (_isNotFound(e)) return [];
       rethrow;
     }
   }
@@ -44,9 +48,13 @@ class InvestRepository {
       return [];
     } catch (e) {
       if (ApiConfig.isDemoMode) return _demoPositions();
+      if (_isNotFound(e)) return [];
       rethrow;
     }
   }
+
+  static bool _isNotFound(Object e) =>
+      e is ProximException && e.statusCode == 404;
 
   /// Buy an asset (market order)
   Future<void> buyStock({
