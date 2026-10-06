@@ -8,9 +8,12 @@ class CardsRepository {
   CardsRepository({ProximApiClient? apiClient}) : _apiClient = apiClient ?? ProximApiClient();
 
   /// Fetch all cards for the active entity
-  Future<List<ProximCard>> getCards() async {
+  Future<List<ProximCard>> getCards({required String entityId}) async {
     try {
-      final response = await _apiClient.get<Map<String, dynamic>>('/api/cards');
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/cards',
+        queryParameters: {'entityId': entityId},
+      );
       final data = response.data;
       if (data != null && data['cards'] is List && (data['cards'] as List).isNotEmpty) {
         return (data['cards'] as List)

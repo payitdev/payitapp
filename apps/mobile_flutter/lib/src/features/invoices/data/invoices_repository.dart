@@ -46,9 +46,12 @@ class InvoicesRepository {
 
   InvoicesRepository({ProximApiClient? apiClient}) : _apiClient = apiClient ?? ProximApiClient();
 
-  /// Fetch all invoices
-  Future<List<ProximInvoice>> getInvoices() async {
-    final response = await _apiClient.get<Map<String, dynamic>>('/api/invoices');
+  /// Fetch all invoices for an entity
+  Future<List<ProximInvoice>> getInvoices({required String entityId}) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/api/invoices',
+      queryParameters: {'entityId': entityId},
+    );
     final data = response.data;
     if (data != null && data['invoices'] is List) {
       return (data['invoices'] as List)
