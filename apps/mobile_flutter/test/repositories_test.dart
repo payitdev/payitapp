@@ -6,6 +6,7 @@ import 'package:proxim_app/src/features/auth/data/auth_repository.dart';
 import 'package:proxim_app/src/features/developer/data/developer_repository.dart';
 import 'package:proxim_app/src/features/invoices/data/invoices_repository.dart';
 import 'package:proxim_app/src/features/transfers/data/transfers_repository.dart';
+import 'package:proxim_app/src/features/transfers/domain/transfers_models.dart';
 import 'package:proxim_app/src/features/treasury/data/treasury_repository.dart';
 
 /// API client that serves canned responses instead of hitting the network,
@@ -263,6 +264,54 @@ void main() {
       final rolled = await repo.rollKey('ent-1', 'production');
       expect(rolled, isNotNull);
       expect(rolled.keyPrefix, startsWith('px_live_'));
+    });
+  });
+
+  group('Transfer models parse live backend shapes', () {
+    test('TransfersBalance.fromJson accepts the live endpoint shape', () {
+      // GET /api/transfers/balance returns: {success, balance: "0", currency: "USDC"}
+      final balance = TransfersBalance.fromJson({
+        'success': true,
+        'balance': '48250.75',
+        'currency': 'USDC',
+      });
+      expect(balance.totalUsd, equals(48250.75));
+      expect(balance.byCurrency['USDC'], equals(48250.75));
+    });
+
+    test('TransfersBalance.fromJson accepts numeric balance and balances map', () {
+      final balance = TransfersBalance.fromJson({
+        'success': true,
+        'balance': 100,
+        'currency': 'USD',
+        'balances': {'USD': 100, 'NGN': 150000},
+      });
+      expect(balance.totalUsd, equals(100));
+      expect(balance.byCurrency['NGN'], equals(150000));
+    });
+
+    test('TransferHistoryItem recognizes INBOUND/OUTBOUND directions', () {
+      final inbound = TransferHistoryItem.fromJson({
+        'id': 't1',
+        'type': 'INBOUND',
+        'title': 'Received from Stripe',
+        'subtitle': '10/5/2026, 2:00 PM',
+        'amount': 45000,
+        'currency': 'USDC',
+      });
+      expect(inbound.isReceived, isTrue);
+      expect(inbound.isSent, isFalse);
+
+      final outbound = TransferHistoryItem.fromJson({
+        'id': 't2',
+        'type': 'OUTBOUND',
+        'title': 'Batch Payroll • Eng Sprint',
+        'subtitle': '10/4/2026, 9:00 AM',
+        'amount': 18450,
+        'currency': 'USDC',
+      });
+      expect(outbound.isSent, isTrue);
+      expect(outbound.isReceived, isFalse);
     });
   });
 }

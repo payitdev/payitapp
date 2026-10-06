@@ -186,17 +186,26 @@ class TransfersBalance {
   const TransfersBalance({required this.totalUsd, required this.byCurrency});
 
   factory TransfersBalance.fromJson(Map<String, dynamic> json) {
-    final balances = json['balances'] as Map<String, dynamic>? ??
-        json['balance'] as Map<String, dynamic>? ??
-        {};
-    final byCurrency = balances.map(
-      (k, v) => MapEntry(k, (v as num).toDouble()),
-    );
+    final balances = json['balances'] as Map<String, dynamic>?;
+    final byCurrency = balances?.map(
+          (k, v) => MapEntry(k, (v as num).toDouble()),
+        ) ??
+        const <String, double>{};
+
+    // Live endpoint shape: { success, balance: "0", currency: "USDC" }
+    final rawBalance = json['balance'];
+    final single = rawBalance is num
+        ? rawBalance.toDouble()
+        : rawBalance is String
+            ? (double.tryParse(rawBalance) ?? 0.0)
+            : 0.0;
+    final currency = (json['currency'] as String?) ?? 'USD';
+
     return TransfersBalance(
       totalUsd: (json['totalUsd'] as num?)?.toDouble() ??
           (json['total'] as num?)?.toDouble() ??
-          0.0,
-      byCurrency: byCurrency,
+          ((currency == 'USD' || currency == 'USDC') ? single : 0.0),
+      byCurrency: byCurrency.isNotEmpty ? byCurrency : {currency: single},
     );
   }
 }
