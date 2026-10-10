@@ -42,12 +42,8 @@ class ApiConfig {
       return fromApiUrl;
     }
 
-    // Platform-specific dev defaults — backend runs on port 3001
-    if (kIsWeb) return 'http://localhost:3001';
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:3001';
-    }
-    return 'http://localhost:3001';
+    // Default to Render cloud backend
+    return 'https://payit-backend-td53.onrender.com';
   }
 
   static void _assertNotLocalhostInRelease(String url) {
@@ -58,8 +54,8 @@ class ApiConfig {
     );
   }
 
-  static const Duration connectTimeout = Duration(seconds: 15);
-  static const Duration receiveTimeout = Duration(seconds: 30);
+  static const Duration connectTimeout = Duration(seconds: 45);
+  static const Duration receiveTimeout = Duration(seconds: 45);
 }
 
 class ProximException implements Exception {

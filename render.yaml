@@ -61,6 +61,12 @@ services:
         sync: false
       - key: TELEGRAM_MINI_APP_URL
         value: https://payit-mobile-web.onrender.com
+      - key: ENABLE_LIVE_FINANCE
+        value: "true"
+      - key: ENABLE_ONDO_FINANCE
+        value: "true"
+      - key: ENABLE_PODS_FINANCE
+        value: "true"
       # Configure this exact URL in Brails:
       # https://payit-backend-td53.onrender.com/webhooks/brails
 

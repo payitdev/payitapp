@@ -124,7 +124,12 @@ class ProximApiClient {
     Options? options,
   }) async {
     try {
-      return await _dio.post<T>(path, data: data, queryParameters: queryParameters, options: options);
+      return await _dio.post<T>(
+        path,
+        data: data ?? const <String, dynamic>{},
+        queryParameters: queryParameters,
+        options: options,
+      );
     } on DioException catch (e) {
       throw _unwrapError(e);
     }
@@ -137,7 +142,12 @@ class ProximApiClient {
     Options? options,
   }) async {
     try {
-      return await _dio.put<T>(path, data: data, queryParameters: queryParameters, options: options);
+      return await _dio.put<T>(
+        path,
+        data: data ?? const <String, dynamic>{},
+        queryParameters: queryParameters,
+        options: options,
+      );
     } on DioException catch (e) {
       throw _unwrapError(e);
     }

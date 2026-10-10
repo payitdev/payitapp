@@ -777,6 +777,31 @@ async function runMigrations() {
         timestamp TIMESTAMP DEFAULT NOW() NOT NULL
       );
 
+      -- Corporate multi-sig approvals
+      CREATE TABLE IF NOT EXISTS multi_sig_approvals (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        title TEXT NOT NULL,
+        description TEXT,
+        amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USDC',
+        required_signatures INTEGER NOT NULL DEFAULT 2,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXECUTED', 'EXPIRED')),
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS multi_sig_approval_signers (
+        id TEXT PRIMARY KEY,
+        approval_id TEXT NOT NULL REFERENCES multi_sig_approvals(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        key_note TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SIGNED', 'REJECTED')),
+        signed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_multi_sig_approvals_entity ON multi_sig_approvals(entity_id, status);
+
       -- Core transfer rail
       CREATE TABLE IF NOT EXISTS transfers (
         id TEXT PRIMARY KEY,

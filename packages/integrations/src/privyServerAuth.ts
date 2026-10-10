@@ -47,7 +47,11 @@ export class PrivyServerAuth {
     try {
       const { client } = await PrivyServerAuth.getClient();
       const user = await (client as any).getUser(verified.privyUserId);
-      const email = user?.email?.address || user?.linkedAccounts?.find((account: any) => account.type === 'email')?.address;
+      const email = user?.email?.address ||
+        user?.google?.email ||
+        user?.linkedAccounts?.find((account: any) => account.type === 'email')?.address ||
+        user?.linkedAccounts?.find((account: any) => account.type === 'google_oauth' || account.type === 'google')?.email ||
+        user?.linkedAccounts?.find((account: any) => account.email)?.email;
       if (!email) return { valid: false, error: 'Privy account has no verified email address' };
       return { valid: true, privyUserId: verified.privyUserId, email: String(email).toLowerCase().trim() };
     } catch (err: any) {

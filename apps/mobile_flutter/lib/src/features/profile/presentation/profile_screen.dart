@@ -37,35 +37,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: ProximColors.surfaceContainerLow,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Terms of Service', style: ProximTextStyles.headlineSm()),
-              const SizedBox(height: 12),
-              Text(
-                'Proxim provides multi-currency payments, corporate treasury accounts, yield vaults, and digital asset settlements in compliance with applicable financial regulations.',
-                style: ProximTextStyles.bodySm(),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ProximColors.primary,
-                    foregroundColor: ProximColors.surfaceContainerLowest,
-                  ),
-                  child: const Text('Close'),
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Terms of Service', style: ProximTextStyles.headlineSm()),
+                const SizedBox(height: 12),
+                Text(
+                  'Proxim provides multi-currency payments, corporate treasury accounts, yield vaults, and digital asset settlements in compliance with applicable financial regulations.',
+                  style: ProximTextStyles.bodySm(),
                 ),
-              ),
-            ],
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ProximColors.primary,
+                      foregroundColor: ProximColors.surfaceContainerLowest,
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

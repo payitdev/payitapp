@@ -169,8 +169,16 @@ export async function paymentRoutes(server: FastifyInstance) {
     const { entityId, requestId } = request.body as { entityId: string; requestId: string };
     if (!requestId) return reply.status(400).send({ error: 'requestId is required' });
 
-    if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
-    const reqRows = await db.select().from(paymentRequests).where(and(eq(paymentRequests.id, requestId), eq(paymentRequests.requesterEntityId, entityId))).limit(1);
+    const reqRows = await db
+      .select()
+      .from(paymentRequests)
+      .where(
+        and(
+          eq(paymentRequests.id, requestId),
+          or(eq(paymentRequests.requesterEntityId, entityId), eq(paymentRequests.payerEntityId, entityId)),
+        ),
+      )
+      .limit(1);
     if (reqRows.length === 0) return reply.status(404).send({ error: 'Payment request not found' });
     await db.update(paymentRequests).set({ status: 'DECLINED' }).where(and(eq(paymentRequests.id, requestId), eq(paymentRequests.status, 'PENDING')));
 

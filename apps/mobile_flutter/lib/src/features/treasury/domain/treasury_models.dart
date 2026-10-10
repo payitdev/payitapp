@@ -21,7 +21,9 @@ class TreasuryBalance {
 
 /// A single formatted transaction from GET /api/transfers/history
 /// (the `transactions` array). `date` / `time` are localized strings
-/// produced by the backend — [parsedDate] best-effort recovers a DateTime.
+/// produced by the backend; every item also carries an ISO-8601
+/// `createdAt` — [parsedDate] prefers it and only falls back to parsing
+/// `date` for older payloads.
 class TreasuryTransaction {
   final String id;
   final String type; // 'INBOUND' | 'OUTBOUND'
@@ -36,6 +38,7 @@ class TreasuryTransaction {
   final String senderAccount;
   final String recipientAccount;
   final String reference;
+  final DateTime? createdAt; // ISO-8601, when provided by the backend
 
   const TreasuryTransaction({
     required this.id,
@@ -51,14 +54,18 @@ class TreasuryTransaction {
     required this.senderAccount,
     required this.recipientAccount,
     required this.reference,
+    this.createdAt,
   });
 
   bool get isInbound => type == 'INBOUND';
 
-  /// Best-effort recovery of the transaction timestamp. The backend sends
-  /// `date` as an en-US localized string (e.g. "9/28/2026"); ISO-8601 is
-  /// tried first, then a loose en-US parse. Null when unparseable.
+  /// Best-effort recovery of the transaction timestamp. The ISO-8601
+  /// `createdAt` field is authoritative when present; otherwise `date`
+  /// (an en-US localized string, e.g. "9/28/2026") is tried as ISO-8601
+  /// first, then a loose en-US parse. Null when unparseable.
   DateTime? get parsedDate {
+    final created = createdAt;
+    if (created != null) return created;
     final iso = DateTime.tryParse(date);
     if (iso != null) return iso;
     try {
@@ -69,6 +76,7 @@ class TreasuryTransaction {
   }
 
   factory TreasuryTransaction.fromJson(Map<String, dynamic> json) {
+    final rawCreatedAt = json['createdAt'];
     return TreasuryTransaction(
       id: json['id'] as String? ?? '',
       type: (json['type'] as String? ?? 'OUTBOUND').toUpperCase(),
@@ -83,6 +91,7 @@ class TreasuryTransaction {
       senderAccount: json['senderAccount'] as String? ?? '',
       recipientAccount: json['recipientAccount'] as String? ?? '',
       reference: json['reference'] as String? ?? '',
+      createdAt: rawCreatedAt == null ? null : DateTime.tryParse(rawCreatedAt.toString()),
     );
   }
 }
@@ -114,9 +123,43 @@ class FxRate {
   }
 }
 
-/// A single pending executive approval from GET /api/approvals/pending.
-/// The backend endpoint is not live yet — this model matches the agreed
-/// `{ success, approvals: [...] }` contract so the client is ready for it.
+/// A single signer slot on a multi-sig approval — GET /api/approvals*.
+/// `status` is one of 'PENDING' | 'SIGNED' | 'REJECTED'.
+class ApprovalSigner {
+  final String id;
+  final String label;
+  final String? keyNote;
+  final String status;
+  final DateTime? signedAt;
+
+  const ApprovalSigner({
+    required this.id,
+    required this.label,
+    this.keyNote,
+    this.status = 'PENDING',
+    this.signedAt,
+  });
+
+  bool get isSigned => status == 'SIGNED';
+  bool get isRejected => status == 'REJECTED';
+  bool get isPending => status == 'PENDING';
+
+  factory ApprovalSigner.fromJson(Map<String, dynamic> json) {
+    final rawSignedAt = json['signedAt'];
+    return ApprovalSigner(
+      id: json['id'] as String? ?? '',
+      label: json['label'] as String? ?? 'Signer',
+      keyNote: json['keyNote'] as String?,
+      status: (json['status'] as String? ?? 'PENDING').toUpperCase(),
+      signedAt: rawSignedAt == null ? null : DateTime.tryParse(rawSignedAt.toString()),
+    );
+  }
+}
+
+/// A multi-sig approval from GET /api/approvals (any status) or
+/// GET /api/approvals/pending (PENDING only). Newer fields (`status`,
+/// `createdAt`, `updatedAt`, `signers`) are tolerated as absent so payloads
+/// from before the full shape shipped still parse.
 class PendingApproval {
   final String id;
   final String title;
@@ -125,6 +168,10 @@ class PendingApproval {
   final String? description;
   final int signedCount;
   final int requiredSignatures;
+  final String status; // 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | 'EXPIRED'
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final List<ApprovalSigner> signers;
 
   const PendingApproval({
     required this.id,
@@ -134,9 +181,18 @@ class PendingApproval {
     this.description,
     this.signedCount = 0,
     this.requiredSignatures = 1,
+    this.status = 'PENDING',
+    this.createdAt,
+    this.updatedAt,
+    this.signers = const [],
   });
 
+  bool get isPending => status == 'PENDING';
+
   factory PendingApproval.fromJson(Map<String, dynamic> json) {
+    final rawCreatedAt = json['createdAt'];
+    final rawUpdatedAt = json['updatedAt'];
+    final rawSigners = json['signers'];
     return PendingApproval(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? 'Approval Request',
@@ -145,6 +201,14 @@ class PendingApproval {
       description: json['description'] as String?,
       signedCount: json['signedCount'] as int? ?? 0,
       requiredSignatures: json['requiredSignatures'] as int? ?? 1,
+      status: (json['status'] as String? ?? 'PENDING').toUpperCase(),
+      createdAt: rawCreatedAt == null ? null : DateTime.tryParse(rawCreatedAt.toString()),
+      updatedAt: rawUpdatedAt == null ? null : DateTime.tryParse(rawUpdatedAt.toString()),
+      signers: rawSigners is List
+          ? rawSigners
+              .map((s) => ApprovalSigner.fromJson(s as Map<String, dynamic>))
+              .toList()
+          : const <ApprovalSigner>[],
     );
   }
 }

@@ -46,3 +46,4 @@ packages/**/dist/**/*.test.js
 
 
 
+stitch_document_content_extractor*

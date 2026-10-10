@@ -8,8 +8,11 @@ import 'vault_provider.dart';
 class LockOption {
   final String label;
   final String duration;
-  final double apy;
-  const LockOption({required this.label, required this.duration, required this.apy});
+
+  /// Days key into the yield route's `apyByDuration`, or null for the
+  /// flexible (no-lock) rate.
+  final int? durationKey;
+  const LockOption({required this.label, required this.duration, this.durationKey});
 }
 
 class VaultScreen extends ConsumerStatefulWidget {
@@ -21,20 +24,43 @@ class VaultScreen extends ConsumerStatefulWidget {
 
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   static const List<LockOption> _lockOptions = [
-    LockOption(label: 'Flexible', duration: 'No lock', apy: 8.4),
-    LockOption(label: '30 Days', duration: '1 month', apy: 9.6),
-    LockOption(label: '90 Days', duration: '3 months', apy: 11.2),
-    LockOption(label: '1 Year', duration: '12 months', apy: 13.5),
+    LockOption(label: 'Flexible', duration: 'No lock'),
+    LockOption(label: '30 Days', duration: '1 month', durationKey: 30),
+    LockOption(label: '90 Days', duration: '3 months', durationKey: 90),
+    LockOption(label: '1 Year', duration: '12 months', durationKey: 365),
   ];
 
   int _selectedLockIndex = 2;
   final double _depositAmount = 1000.0;
 
+  /// APY (percent) for a lock option resolved from the live yield routes;
+  /// null when no rate is available for that duration.
+  double? _lockOptionApy(LockOption option, double? flexibleApy, Map<int, double> apyByDuration) {
+    if (option.durationKey == null) return flexibleApy;
+    final fraction = apyByDuration[option.durationKey];
+    if (fraction == null || fraction <= 0) return null;
+    return fraction * 100;
+  }
+
   @override
   Widget build(BuildContext context) {
     final summaryAsync = ref.watch(savingsSummaryProvider);
+    final bestApy = ref.watch(bestVaultApyProvider);
+    final yieldOptionsAsync = ref.watch(vaultYieldOptionsProvider);
+    final autoSaveAsync = ref.watch(autoSaveStatusProvider);
+
+    final yieldOptions = yieldOptionsAsync.value ?? const <VaultYieldOption>[];
+    VaultYieldOption? bestOption;
+    for (final option in yieldOptions) {
+      if (bestOption == null || option.userNetApy > bestOption.userNetApy) {
+        bestOption = option;
+      }
+    }
+    final apyByDuration = bestOption?.apyByDuration ?? const <int, double>{};
+
     final selectedOption = _lockOptions[_selectedLockIndex];
-    final estimatedAnnualYield = _depositAmount * (selectedOption.apy / 100);
+    final selectedApy = _lockOptionApy(selectedOption, bestApy, apyByDuration);
+    final estimatedAnnualYield = selectedApy == null ? null : _depositAmount * (selectedApy / 100);
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -48,8 +74,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
           // ── Live Savings Hero Card ──────────────────────────────────────────
           summaryAsync.when(
-            data: (summary) => _SavingsHeroCard(summary: summary),
-            loading: () => _SavingsHeroCard.placeholder(),
+            data: (summary) => _SavingsHeroCard(summary: summary, bestApy: bestApy),
+            loading: () => _SavingsHeroCard.placeholder(bestApy: bestApy),
             error: (err, _) => _SavingsErrorCard(onRetry: () => ref.invalidate(savingsSummaryProvider)),
           ),
           const SizedBox(height: 16),
@@ -76,27 +102,61 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
                       ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                          color: ProximColors.tertiary.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(9999)),
-                      child: const Text('Active',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.tertiary)),
+                    autoSaveAsync.when(
+                      data: (status) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                            color: (status.enabled ? ProximColors.tertiary : ProximColors.onSurfaceVariant)
+                                .withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(9999)),
+                        child: Text(status.enabled ? 'Active' : 'Off',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: status.enabled ? ProximColors.tertiary : ProximColors.onSurfaceVariant)),
+                      ),
+                      loading: () => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                            color: ProximColors.onSurfaceVariant.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(9999)),
+                        child: const Text('…',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant)),
+                      ),
+                      error: (err, _) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                            color: ProximColors.onSurfaceVariant.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(9999)),
+                        child: const Text('—',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant)),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Automatically moves idle funds above your liquid buffer into high-yield savings.',
-                  style: TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant, height: 1.4),
+                autoSaveAsync.when(
+                  data: (status) => Text(
+                    status.enabled
+                        ? 'Automatically moves idle funds above your \$${status.liquidBufferUsd.toStringAsFixed(0)} liquid buffer into high-yield savings.'
+                        : 'Auto-save is currently off. Enable it to move idle funds into high-yield savings automatically.',
+                    style: const TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant, height: 1.4),
+                  ),
+                  loading: () => const Text(
+                    'Checking your auto-save configuration…',
+                    style: TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant, height: 1.4),
+                  ),
+                  error: (err, _) => const Text(
+                    'Auto-save status is unavailable right now.',
+                    style: TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant, height: 1.4),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 36,
                   child: OutlinedButton(
                     onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Saved idle funds into high-yield strategies.')),
+                      const SnackBar(content: Text('Auto-save moves idle funds automatically — no manual action needed.')),
                     ),
                     style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white,
@@ -172,6 +232,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   itemBuilder: (context, index) {
                     final opt = _lockOptions[index];
                     final isSelected = _selectedLockIndex == index;
+                    final apy = _lockOptionApy(opt, bestApy, apyByDuration);
                     return GestureDetector(
                       onTap: () => setState(() => _selectedLockIndex = index),
                       child: AnimatedContainer(
@@ -194,7 +255,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
                                     color: isSelected ? Colors.white : ProximColors.onSurface)),
-                            Text('${opt.apy}% APY',
+                            Text(apy == null ? 'APY unavailable' : '${apy.toStringAsFixed(1)}% APY',
                                 style: const TextStyle(
                                     fontSize: 11, fontWeight: FontWeight.w600, color: ProximColors.tertiary)),
                           ],
@@ -231,7 +292,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                           const Text('EST. ANNUAL YIELD',
                               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant, letterSpacing: 0.6)),
                           const SizedBox(height: 2),
-                          Text('+\$${estimatedAnnualYield.toStringAsFixed(2)}',
+                          Text(estimatedAnnualYield == null ? '—' : '+\$${estimatedAnnualYield.toStringAsFixed(2)}',
                               style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -362,12 +423,18 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
 class _SavingsHeroCard extends StatelessWidget {
   final SavingsSummary? summary;
-  const _SavingsHeroCard({this.summary});
 
-  factory _SavingsHeroCard.placeholder() => const _SavingsHeroCard();
+  /// Best user-facing rate currently available across the live yield
+  /// routes (GET /api/kamino/yield-options); null when unavailable.
+  final double? bestApy;
+  const _SavingsHeroCard({this.summary, this.bestApy});
+
+  factory _SavingsHeroCard.placeholder({double? bestApy}) =>
+      _SavingsHeroCard(bestApy: bestApy);
 
   @override
   Widget build(BuildContext context) {
+    final bestApy = this.bestApy;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -389,7 +456,7 @@ class _SavingsHeroCard extends StatelessWidget {
                 color: ProximColors.tertiary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(9999)),
             child: Text(
-              summary != null ? '${summary!.apyPercent.toStringAsFixed(1)}% Avg. APY' : '—',
+              bestApy != null ? 'Up to ${bestApy.toStringAsFixed(1)}% APY' : '—',
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: ProximColors.tertiary),
             ),
           ),
@@ -406,13 +473,23 @@ class _SavingsHeroCard extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          summary != null
-              ? 'Earned \$${summary!.earnedToDate.toStringAsFixed(2)} to date across yield routes'
-              : 'Earn up to 11.2% APY across automated yield routes',
+          _subtitle(),
           style: const TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant),
         ),
       ]),
     );
+  }
+
+  String _subtitle() {
+    final summary = this.summary;
+    if (summary != null && summary.earnedToDate > 0) {
+      return 'Earned \$${summary.earnedToDate.toStringAsFixed(2)} to date across yield routes';
+    }
+    final bestApy = this.bestApy;
+    if (bestApy != null) {
+      return 'Earn up to ${bestApy.toStringAsFixed(1)}% APY across automated yield routes';
+    }
+    return '—';
   }
 }
 

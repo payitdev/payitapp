@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../theme/proxim_theme.dart';
 
@@ -18,6 +19,7 @@ class CurrencyOption {
 class AuroraBalanceCard extends StatefulWidget {
   final String? label;
   final double amount;
+  final Map<String, double>? byCurrency;
   final String trendText;
   final bool isPositiveTrend;
   final ValueChanged<CurrencyOption>? onCurrencyChanged;
@@ -26,6 +28,7 @@ class AuroraBalanceCard extends StatefulWidget {
     super.key,
     this.label,
     this.amount = 48250.00,
+    this.byCurrency,
     this.trendText = '+\$340.20 (+0.71%)',
     this.isPositiveTrend = true,
     this.onCurrencyChanged,
@@ -42,6 +45,13 @@ class _AuroraBalanceCardState extends State<AuroraBalanceCard> {
     CurrencyOption(code: 'EUR', flag: '🇪🇺', symbol: '€'),
     CurrencyOption(code: 'GBP', flag: '🇬🇧', symbol: '£'),
   ];
+
+  static const Map<String, double> _fxRatesFromUsd = {
+    'USD': 1.0,
+    'NGN': 1550.0,
+    'EUR': 0.92,
+    'GBP': 0.78,
+  };
 
   int _selectedCurrencyIndex = 0;
 
@@ -132,15 +142,30 @@ class _AuroraBalanceCardState extends State<AuroraBalanceCard> {
                 const SizedBox(height: 14),
 
                 // Numerical Balance Display
-                Text(
-                  '${currency.symbol}${widget.amount.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 38,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: -1.0,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
+                Builder(
+                  builder: (context) {
+                    final displayAmount = widget.byCurrency != null &&
+                            widget.byCurrency!.containsKey(currency.code)
+                        ? widget.byCurrency![currency.code]!
+                        : widget.amount * (_fxRatesFromUsd[currency.code] ?? 1.0);
+                    final formattedAmount =
+                        NumberFormat('#,##0.00', 'en_US').format(displayAmount);
+
+                    return FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${currency.symbol}$formattedAmount',
+                        style: const TextStyle(
+                          fontSize: 38,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -1.0,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
 

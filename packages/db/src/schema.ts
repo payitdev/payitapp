@@ -923,3 +923,29 @@ export const errorLogs = pgTable('error_logs', {
   severity: text('severity', { enum: ['low', 'medium', 'high', 'critical'] }).default('low').notNull(),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
 });
+
+// Corporate Multi-Sig Approval Requests (e.g. treasury wires above threshold)
+export const multiSigApprovals = pgTable('multi_sig_approvals', {
+  id: text('id').primaryKey(),
+  entityId: text('entity_id').notNull().references(() => entities.id),
+  title: text('title').notNull(),
+  description: text('description'),
+  amount: numeric('amount', { precision: 18, scale: 2 }).default('0').notNull(),
+  currency: text('currency').default('USDC').notNull(),
+  requiredSignatures: integer('required_signatures').default(2).notNull(),
+  status: text('status', { enum: ['PENDING', 'APPROVED', 'REJECTED', 'EXECUTED', 'EXPIRED'] }).default('PENDING').notNull(),
+  createdBy: text('created_by'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Individual signer slots on a multi-sig approval
+export const multiSigApprovalSigners = pgTable('multi_sig_approval_signers', {
+  id: text('id').primaryKey(),
+  approvalId: text('approval_id').notNull().references(() => multiSigApprovals.id),
+  label: text('label').notNull(),
+  keyNote: text('key_note'),
+  status: text('status', { enum: ['PENDING', 'SIGNED', 'REJECTED'] }).default('PENDING').notNull(),
+  signedAt: timestamp('signed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

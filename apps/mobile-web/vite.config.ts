@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // Shared local configuration lives at the workspace root. Vite only exposes
+  // `VITE_`-prefixed entries to the browser, so server-only secrets stay private.
+  envDir: '../..',
   plugins: [react()],
   define: {
     'process.env': {},
@@ -35,10 +38,13 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        // Local UI requests are proxied to the deployed API. This keeps the
+        // browser on a same-origin `/api` path during development, avoiding
+        // cross-origin restrictions while exercising the cloud backend.
+        target: 'https://payit-backend-td53.onrender.com',
         changeOrigin: true,
+        secure: true,
       },
     },
   },
 });
-

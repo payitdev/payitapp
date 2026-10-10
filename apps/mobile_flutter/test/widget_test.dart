@@ -9,6 +9,7 @@ import 'package:proxim_app/src/features/auth/domain/auth_models.dart';
 import 'package:proxim_app/src/features/auth/presentation/auth_provider.dart';
 import 'package:proxim_app/src/features/cards/domain/card_models.dart';
 import 'package:proxim_app/src/features/cards/presentation/cards_provider.dart';
+import 'package:proxim_app/src/features/treasury/data/treasury_repository.dart';
 import 'package:proxim_app/src/features/treasury/domain/treasury_metrics.dart';
 import 'package:proxim_app/src/features/treasury/domain/treasury_models.dart';
 import 'package:proxim_app/src/features/treasury/presentation/treasury_provider.dart';
@@ -133,6 +134,149 @@ const _cannedApproval = PendingApproval(
   description: 'AWS Cloud & Nodes',
   signedCount: 1,
   requiredSignatures: 2,
+);
+
+/// In-memory treasury repository for the multi-sig screen tests — the
+/// queue/history come straight from [getApprovals] and [signApproval]
+/// mutates state like the real backend (approval flips to APPROVED once
+/// the threshold is met, REJECTED when any signer rejects).
+class _FakeTreasuryRepository extends TreasuryRepository {
+  _FakeTreasuryRepository(List<PendingApproval> approvals) : _approvals = approvals;
+
+  final List<PendingApproval> _approvals;
+
+  @override
+  Future<List<PendingApproval>> getApprovals({
+    required String entityId,
+    String? status,
+  }) async =>
+      status == null
+          ? List<PendingApproval>.of(_approvals)
+          : _approvals.where((a) => a.status == status).toList();
+
+  @override
+  Future<List<PendingApproval>> getPendingApprovals({required String entityId}) async =>
+      _approvals.where((a) => a.isPending).toList();
+
+  @override
+  Future<PendingApproval> signApproval(
+    String approvalId,
+    String signerId, {
+    bool reject = false,
+  }) async {
+    final index = _approvals.indexWhere((a) => a.id == approvalId);
+    if (index == -1) throw StateError('Approval not found');
+    final approval = _approvals[index];
+    final when = DateTime(2026, 10, 6, 12);
+    final signers = <ApprovalSigner>[
+      for (final signer in approval.signers)
+        signer.id == signerId
+            ? ApprovalSigner(
+                id: signer.id,
+                label: signer.label,
+                keyNote: signer.keyNote,
+                status: reject ? 'REJECTED' : 'SIGNED',
+                signedAt: when,
+              )
+            : signer,
+    ];
+    final signedCount = signers.where((s) => s.isSigned).length;
+    final rejected = signers.any((s) => s.isRejected);
+    final updated = PendingApproval(
+      id: approval.id,
+      title: approval.title,
+      amount: approval.amount,
+      currency: approval.currency,
+      description: approval.description,
+      signedCount: signedCount,
+      requiredSignatures: approval.requiredSignatures,
+      status: rejected
+          ? 'REJECTED'
+          : (signedCount >= approval.requiredSignatures ? 'APPROVED' : 'PENDING'),
+      createdAt: approval.createdAt,
+      updatedAt: when,
+      signers: signers,
+    );
+    _approvals[index] = updated;
+    return updated;
+  }
+}
+
+final _queuedApproval = PendingApproval(
+  id: 'ap_q1',
+  title: 'AWS Cloud & Nodes',
+  amount: 24500.00,
+  currency: 'USDC',
+  description: 'Q3 infrastructure deployment',
+  signedCount: 1,
+  requiredSignatures: 2,
+  status: 'PENDING',
+  createdAt: DateTime(2026, 10, 5, 10, 14),
+  updatedAt: DateTime(2026, 10, 5, 10, 14),
+  signers: [
+    ApprovalSigner(
+      id: 'sig_1',
+      label: 'CEO Key',
+      keyNote: 'Key #1',
+      status: 'SIGNED',
+      signedAt: DateTime(2026, 10, 5, 10, 14),
+    ),
+    const ApprovalSigner(id: 'sig_2', label: 'CFO Key', keyNote: 'Key #2', status: 'PENDING'),
+  ],
+);
+
+final _approvedApproval = PendingApproval(
+  id: 'ap_h1',
+  title: 'Q3 Payroll Disbursement',
+  amount: 38200.00,
+  currency: 'USDC',
+  description: 'September payroll cycle',
+  signedCount: 2,
+  requiredSignatures: 2,
+  status: 'APPROVED',
+  createdAt: DateTime(2026, 9, 15, 8, 45),
+  updatedAt: DateTime(2026, 9, 15, 9, 30),
+  signers: [
+    ApprovalSigner(
+      id: 'sig_3',
+      label: 'CEO Key',
+      keyNote: 'Key #1',
+      status: 'SIGNED',
+      signedAt: DateTime(2026, 9, 15, 8, 45),
+    ),
+    ApprovalSigner(
+      id: 'sig_4',
+      label: 'CFO Key',
+      keyNote: 'Key #2',
+      status: 'SIGNED',
+      signedAt: DateTime(2026, 9, 15, 9, 30),
+    ),
+  ],
+);
+
+/// Live-shaped balance sheet statement (same nesting as the real
+/// GET /api/reports/balance-sheet payload).
+const _cannedBalanceSheet = BalanceSheetData(
+  netOperatingSurplus: 11393.75,
+  totalInflows: 182450.0,
+  totalOutflows: 148250.0,
+  profitMarginPercent: 6.2,
+  totalCurrentAssets: 302050.0,
+  cashEquivalents: 284500.0,
+  accountsReceivable: 17550.0,
+  vaultHoldings: 74050.0,
+  tokenizedAssets: 0.0,
+  totalAssets: 376100.0,
+  totalCurrentLiabilities: 65456.25,
+  accruedPayroll: 42650.0,
+  taxPayable: 22806.25,
+  totalLiabilities: 65456.25,
+  totalOwnerEquity: 310643.75,
+  totalBilled: 200000.0,
+  totalOutstanding: 17550.0,
+  totalOverdue: 0.0,
+  businessName: 'Acme Global Technologies Ltd',
+  periodLabel: 'This Month',
 );
 
 /// ProviderScope must be pumped once — Riverpod rejects changing the
@@ -381,5 +525,149 @@ void main() {
 
     expect(find.textContaining('Pending Executive Approval'), findsNothing);
     expect(find.text('Review Queue'), findsNothing);
+  });
+
+  testWidgets('Multi-sig approvals screen renders the real queue', (tester) async {
+    final fakeRepo = _FakeTreasuryRepository([_queuedApproval, _approvedApproval]);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith(() => _FakeAuthNotifier()),
+          treasuryRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: const ProximApp(),
+      ),
+    );
+    router.go('/multi-sig');
+    await tester.pumpAndSettle();
+
+    // Header is driven by the active entity, not a hardcoded company name.
+    expect(find.text('ACME GLOBAL TECHNOLOGIES LTD • MULTI-SIG'), findsOneWidget);
+    expect(find.text('1 pending approval requires your signature'), findsOneWidget);
+    expect(find.text('Queue (1)'), findsOneWidget);
+    expect(find.text('History (1)'), findsOneWidget);
+
+    // Real approval data: title, amount, progress and signer slots.
+    expect(find.text('AWS Cloud & Nodes'), findsOneWidget);
+    expect(find.text('\$24,500.00'), findsOneWidget);
+    expect(find.text('USDC'), findsOneWidget);
+    expect(find.text('1 of 2 Signed'), findsOneWidget);
+    expect(find.text('CEO Key'), findsWidgets);
+    expect(find.text('CFO Key'), findsWidgets);
+    expect(find.text('Key #1'), findsWidgets);
+    expect(find.text('Sign as CFO Key'), findsOneWidget);
+    expect(find.text('Decline for CFO Key'), findsOneWidget);
+
+    // The queued approval is rendered once — no fabricated second card.
+    expect(find.text('Q3 Payroll Disbursement'), findsNothing);
+
+    // History tab renders the settled approval.
+    await tester.tap(find.text('History (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Q3 Payroll Disbursement'), findsOneWidget);
+    expect(find.text('APPROVED'), findsWidgets);
+  });
+
+  testWidgets('Multi-sig approvals screen signs a signer slot and refreshes the queue',
+      (tester) async {
+    final fakeRepo = _FakeTreasuryRepository([_queuedApproval]);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith(() => _FakeAuthNotifier()),
+          treasuryRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: const ProximApp(),
+      ),
+    );
+    router.go('/multi-sig');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sign as CFO Key'));
+    // The SnackBar timer would hang pumpAndSettle — bounded pumps instead.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // SnackBar reports the approval flipping to approved.
+    expect(find.text('AWS Cloud & Nodes approved'), findsOneWidget);
+
+    // Providers were invalidated: the approval left the queue.
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('No approvals queued'), findsOneWidget);
+    expect(find.text('No signatures outstanding'), findsOneWidget);
+  });
+
+  testWidgets('Multi-sig approvals screen shows an honest empty state', (tester) async {
+    final fakeRepo = _FakeTreasuryRepository([]);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith(() => _FakeAuthNotifier()),
+          treasuryRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: const ProximApp(),
+      ),
+    );
+    router.go('/multi-sig');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No approvals queued'), findsOneWidget);
+    expect(find.text('No signatures outstanding'), findsOneWidget);
+    expect(find.text('Queue (0)'), findsOneWidget);
+    expect(find.text('History (0)'), findsOneWidget);
+    expect(find.text('Signer slots will appear here once an approval is queued.'), findsOneWidget);
+  });
+
+  testWidgets('Balance sheet screen renders the live statement with no fabricated fallbacks',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith(() => _FakeAuthNotifier()),
+          activeBalanceSheetProvider.overrideWith((ref) => Future.value(_cannedBalanceSheet)),
+          treasuryMetricsProvider.overrideWith((ref) => Future.value(_cannedMetrics)),
+          treasuryHistoryProvider.overrideWith((ref) => Future.value(_cannedHistory)),
+          fxRatesProvider.overrideWith((ref) => Future.value(const [
+                FxRate(
+                  currency: 'USD',
+                  symbol: '\$',
+                  rateToNgn: 1595.2,
+                  rateToUsd: 1.0,
+                  name: 'US Dollar',
+                ),
+              ])),
+        ],
+        child: const ProximApp(),
+      ),
+    );
+    router.go('/balance-sheet');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Balance Sheet & Cashflow'), findsOneWidget);
+    expect(find.text('Acme Global Technologies Ltd • This Month'), findsOneWidget);
+
+    // Net surplus card from the statement.
+    expect(find.text('+\$11,393.75'), findsOneWidget);
+    expect(find.text('6.2% Margin'), findsOneWidget);
+    expect(find.text('+\$182,450.00'), findsOneWidget);
+    expect(find.text('-\$148,250.00'), findsOneWidget);
+
+    // Runway chip derived from live balance + transfer history.
+    expect(find.text('14.1 Mo Runway'), findsOneWidget);
+
+    // Breakdown rows from the statement.
+    expect(find.text('CURRENT ASSETS (\$302,050.00)'), findsOneWidget);
+    expect(find.text('Liquid Cash & Equivalents'), findsOneWidget);
+    expect(find.text('\$284,500.00'), findsOneWidget);
+    expect(find.text('Accounts Receivable'), findsOneWidget);
+    expect(find.text('CURRENT LIABILITIES (\$65,456.25)'), findsOneWidget);
+    expect(find.text('Accrued Payroll'), findsOneWidget);
+    expect(find.text('\$42,650.00'), findsOneWidget);
+    expect(find.text('Tax Payable (Est. VAT + WHT)'), findsOneWidget);
+    expect(find.text('OWNER EQUITY (\$310,643.75)'), findsOneWidget);
+
+    // Fabricated fallbacks are gone.
+    expect(find.text('\$482,950.00'), findsNothing);
+    expect(find.textContaining('14.2%'), findsNothing);
   });
 }

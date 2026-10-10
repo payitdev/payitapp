@@ -105,6 +105,176 @@ class _CardsBodyState extends ConsumerState<_CardsBody> {
     }
   }
 
+  Future<void> _showTopUpSheet(BuildContext context) async {
+    final amountController = TextEditingController(text: '50.00');
+    bool isSubmitting = false;
+    String? errorMessage;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: ProximColors.surfaceContainerLowest,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Top Up Card',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: ProximColors.onSurfaceVariant),
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Transfer funds from your available balance to •••• ${card.lastFour}',
+                    style: const TextStyle(fontSize: 13, color: ProximColors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [25.0, 50.0, 100.0, 250.0].map((amt) {
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(
+                                color: amountController.text == amt.toStringAsFixed(2)
+                                    ? ProximColors.primary
+                                    : ProximColors.hairlineBorder,
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            onPressed: () {
+                              setSheetState(() {
+                                amountController.text = amt.toStringAsFixed(2);
+                              });
+                            },
+                            child: Text(
+                              '\$${amt.toInt()}',
+                              style: const TextStyle(fontSize: 13, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      prefixText: '\$ ',
+                      prefixStyle: const TextStyle(color: ProximColors.primary, fontSize: 18, fontWeight: FontWeight.bold),
+                      labelText: 'Amount (${card.currency})',
+                      labelStyle: const TextStyle(color: ProximColors.onSurfaceVariant),
+                      filled: true,
+                      fillColor: ProximColors.surfaceContainerLow,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: ProximColors.hairlineBorder),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: ProximColors.hairlineBorder),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: ProximColors.primary),
+                      ),
+                    ),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      errorMessage!,
+                      style: const TextStyle(color: ProximColors.statusError, fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: ProximColors.primary,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              final amt = double.tryParse(amountController.text.replaceAll(',', '').trim());
+                              if (amt == null || amt <= 0) {
+                                setSheetState(() => errorMessage = 'Please enter a valid amount.');
+                                return;
+                              }
+                              setSheetState(() {
+                                isSubmitting = true;
+                                errorMessage = null;
+                              });
+                              try {
+                                final repo = ref.read(cardsRepositoryProvider);
+                                await repo.topUpCard(card.id, amt, card.currency);
+                                ref.invalidate(cardsListProvider);
+                                ref.invalidate(cardTransactionsProvider(card.id));
+                                if (sheetContext.mounted) {
+                                  Navigator.of(sheetContext).pop();
+                                }
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Card funded with \$${amt.toStringAsFixed(2)}')),
+                                  );
+                                }
+                              } catch (e) {
+                                setSheetState(() {
+                                  isSubmitting = false;
+                                  errorMessage = e.toString().replaceAll('Exception: ', '');
+                                });
+                              }
+                            },
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            )
+                          : const Text('Confirm Top Up', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final txAsync = ref.watch(cardTransactionsProvider(card.id));
@@ -243,8 +413,7 @@ class _CardsBodyState extends ConsumerState<_CardsBody> {
             _buildControlTile(
               icon: Icons.add_card,
               label: 'Top Up',
-              onTap: () => ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Top up coming soon'))),
+              onTap: () => _showTopUpSheet(context),
             ),
             const SizedBox(width: 8),
             _buildControlTile(
