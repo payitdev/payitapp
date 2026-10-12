@@ -144,6 +144,9 @@ async function runMigrations() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_term_vaults_near_intent ON term_vaults (near_intent_id) WHERE near_intent_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_term_vaults_deposit_address ON term_vaults (deposit_address) WHERE deposit_address IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_swaps_deposit_address ON intent_swaps (deposit_address);
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS quote_id TEXT;
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS source_chain TEXT;
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS destination_chain TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_tx_hash TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_intent_id TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_fee_amount NUMERIC(18,6);

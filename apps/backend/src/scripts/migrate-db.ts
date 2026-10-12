@@ -23,6 +23,18 @@ async function migrate() {
 
   try {
     await db.execute(sql`
+      ALTER TABLE intent_swaps
+      ADD COLUMN IF NOT EXISTS quote_id TEXT,
+      ADD COLUMN IF NOT EXISTS source_chain TEXT,
+      ADD COLUMN IF NOT EXISTS destination_chain TEXT;
+    `);
+    console.log('✓ Added quote_id, source_chain, and destination_chain columns to intent_swaps table');
+  } catch (err: any) {
+    console.error('Migration error on intent_swaps table:', err.message);
+  }
+
+  try {
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS archived_accounts (
         id TEXT PRIMARY KEY,
         entity_id TEXT NOT NULL REFERENCES entities(id),
