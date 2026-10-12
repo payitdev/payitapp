@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:proxim_app/src/core/network/api_client.dart';
 import 'package:proxim_app/src/core/network/api_config.dart';
 import 'package:proxim_app/src/features/auth/data/auth_repository.dart';
+import 'package:proxim_app/src/features/cards/data/cards_repository.dart';
 import 'package:proxim_app/src/features/developer/data/developer_repository.dart';
+import 'package:proxim_app/src/features/home/data/kyc_repository.dart';
 import 'package:proxim_app/src/features/invoices/data/invoices_repository.dart';
 import 'package:proxim_app/src/features/invoices/data/payment_requests_repository.dart';
 import 'package:proxim_app/src/features/payroll/data/payroll_repository.dart';
@@ -145,6 +147,62 @@ class FakeApiClient extends ProximApiClient {
         };
       case '/api/auth/passcode/verify':
         return {'verified': (body as Map?)?['passcode'] == '123456'};
+      case '/api/auth/passcode/set':
+        return {'success': true};
+      case '/api/cards/issue':
+        final cardReq = body as Map?;
+        return {
+          'success': true,
+          'card': {
+            'id': 'crd_new_1',
+            'entityId': cardReq?['entityId'] ?? 'ent_biz',
+            'holderName': 'Acme Global Technologies Ltd',
+            'lastFour': '8821',
+            'expiryMonth': '10',
+            'expiryYear': '29',
+            'network': (cardReq?['brand'] as String? ?? 'VISA').toUpperCase(),
+            'status': 'ACTIVE',
+            'balance': (cardReq?['amount'] as num?)?.toDouble() ?? 100.0,
+            'currency': cardReq?['currency'] ?? 'USD',
+            'createdAt': '2026-10-12T08:00:00.000Z',
+          },
+        };
+      case '/api/kyc/verify':
+        return {
+          'success': true,
+          'verified': true,
+          'dueTier': 1,
+          'dueStatus': 'approved',
+          'accountNumber': '0124899999',
+          'bankName': 'Providus Bank',
+        };
+      case '/api/users/resolve-identity':
+        return {
+          'found': true,
+          'success': true,
+          'identity': {
+            'entityId': 'ent_sarah',
+            'username': 'sarah',
+            'legalName': 'Sarah Connor',
+            'kind': 'PERSONAL',
+            'verified': true,
+          },
+        };
+      case '/api/transfers/internal':
+        final txReq = body as Map?;
+        return {
+          'success': true,
+          'transfer': {
+            'id': 'tx_internal_1',
+            'referenceNumber': 'PX-INT-9912',
+            'recipientName': 'Sarah Connor',
+            'amount': (txReq?['amount'] as num?)?.toDouble() ?? 50.0,
+            'currency': txReq?['currency'] ?? 'USD',
+            'status': 'CLEARED',
+            'timestamp': DateTime.now().toIso8601String(),
+            'rail': 'PROXIM_INTERNAL',
+          },
+        };
       case '/api/transfers/fx-quote':
         return {
           'quote': {
@@ -568,6 +626,46 @@ void main() {
       expect(await repo.verifyPasscode('123456'), isTrue);
       expect(await repo.verifyPasscode('999999'), isFalse);
     });
+
+    test('setPasscode configures security PIN', () async {
+      await expectLater(repo.setPasscode('482910'), completes);
+    });
+  });
+
+  group('CardsRepository with canned API responses', () {
+    final repo = CardsRepository(apiClient: FakeApiClient());
+
+    test('issueCard requests new virtual card successfully', () async {
+      final card = await repo.issueCard(
+        entityId: 'ent_biz',
+        brand: 'Visa',
+        cardType: 'Spender',
+        amount: 250.0,
+        currency: 'USD',
+      );
+      expect(card, isNotNull);
+      expect(card!.network, equals('VISA'));
+      expect(card.lastFour, equals('8821'));
+      expect(card.holderName, equals('Acme Global Technologies Ltd'));
+    });
+  });
+
+  group('KycRepository with canned API responses', () {
+    final repo = KycRepository(apiClient: FakeApiClient());
+
+    test('submitTier1Kyc verifies BVN and identity', () async {
+      await expectLater(
+        repo.submitTier1Kyc(
+          entityId: 'ent_biz',
+          accountType: 'BUSINESS',
+          bvn: '22211133344',
+          dateOfBirth: '1990-01-01',
+          firstName: 'Alex',
+          lastName: 'Morgan',
+        ),
+        completes,
+      );
+    });
   });
 
   group('TransfersRepository with canned API responses', () {
@@ -584,6 +682,27 @@ void main() {
       expect(quote.rate, greaterThan(0));
       expect(quote.toAmount, greaterThan(0));
       expect(quote.rail, equals('Proxim Instant OTC Clearing'));
+    });
+
+    test('resolveUserIdentity finds user by paytag', () async {
+      final user = await repo.resolveUserIdentity('sarah');
+      expect(user, isNotNull);
+      expect(user!.legalName, equals('Sarah Connor'));
+      expect(user.username, equals('sarah'));
+      expect(user.verified, isTrue);
+    });
+
+    test('sendInternalP2P clears instant transfer to paytag', () async {
+      final receipt = await repo.sendInternalP2P(
+        fromEntityId: 'ent_biz',
+        toUsernameOrTag: 'sarah',
+        amount: 50.0,
+        currency: 'USD',
+        narration: 'Dinner split',
+      );
+      expect(receipt.status, equals('CLEARED'));
+      expect(receipt.amount, equals(50.0));
+      expect(receipt.recipientName, equals('Sarah Connor'));
     });
 
     test('sendTransfer returns cleared receipt', () async {

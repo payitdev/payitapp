@@ -5,6 +5,7 @@ import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/transaction_tile.dart';
 import '../domain/card_models.dart';
 import 'cards_provider.dart';
+import 'issue_card_sheet.dart';
 
 class CardsScreen extends ConsumerWidget {
   const CardsScreen({super.key});
@@ -28,8 +29,11 @@ class CardsScreen extends ConsumerWidget {
                     fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.4),
               ),
               GestureDetector(
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Card issuance coming soon')),
+                onTap: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => const IssueCardSheet(),
                 ),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -55,8 +59,13 @@ class CardsScreen extends ConsumerWidget {
             data: (cards) {
               if (cards.isEmpty) {
                 return _NoCardsView(
-                    onIssue: () => ScaffoldMessenger.of(context)
-                        .showSnackBar(const SnackBar(content: Text('Card issuance coming soon'))));
+                  onIssue: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (ctx) => const IssueCardSheet(),
+                  ),
+                );
               }
               return _CardsBody(cards: cards);
             },

@@ -93,6 +93,77 @@ class TransfersRepository {
     }
   }
 
+  /// Resolve Proxim user identity by @username or Paytag — path: GET /api/users/resolve-identity
+  Future<ResolvedIdentity?> resolveUserIdentity(String query, {String? entityId}) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/users/resolve-identity',
+        queryParameters: {
+          'query': query,
+          if (entityId != null) 'entityId': entityId,
+        },
+      );
+      final data = response.data;
+      if (data != null && (data['found'] == true || data['success'] == true) && data['identity'] != null) {
+        return ResolvedIdentity.fromJson(data['identity'] as Map<String, dynamic>);
+      }
+      return null;
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        final clean = query.replaceAll('@', '');
+        return ResolvedIdentity(
+          entityId: 'ent_demo_$clean',
+          legalName: clean.toUpperCase(),
+          username: clean,
+          kind: 'PERSONAL',
+          verified: true,
+        );
+      }
+      return null;
+    }
+  }
+
+  /// Send money instantly to a Proxim user by @username — path: POST /api/transfers/internal
+  Future<TransferReceipt> sendInternalP2P({
+    required String fromEntityId,
+    required String toUsernameOrTag,
+    required double amount,
+    String currency = 'USD',
+    String? narration,
+  }) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/transfers/internal',
+        data: {
+          'fromEntityId': fromEntityId,
+          'toUsernameOrTag': toUsernameOrTag,
+          'amount': amount,
+          'currency': currency,
+          'narration': narration,
+        },
+      );
+      final data = response.data;
+      if (data != null && data['transfer'] != null) {
+        return TransferReceipt.fromJson(data['transfer'] as Map<String, dynamic>);
+      }
+      throw const ProximException('We couldn\'t complete your payment. Please try again.');
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return TransferReceipt(
+          id: 'p2p_${DateTime.now().millisecondsSinceEpoch}',
+          referenceNumber: 'PX-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+          recipientName: toUsernameOrTag,
+          amount: amount,
+          currency: currency,
+          status: 'CLEARED',
+          timestamp: DateTime.now(),
+          rail: 'Proxim Instant P2P Clearing',
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Execute Instant Dual-Vault Currency Swap — path: POST /api/transfers/internal
   Future<TransferReceipt> internalConvert({
     required String fromCurrency,

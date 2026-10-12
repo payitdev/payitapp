@@ -180,6 +180,27 @@ class AuthRepository {
     }
   }
 
+  /// Set or update 6-digit transaction passcode — path: POST /api/auth/passcode/set
+  Future<void> setPasscode(String passcode, {String? deviceId}) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/auth/passcode/set',
+        data: {
+          'passcode': passcode,
+          if (deviceId != null) 'deviceId': deviceId,
+        },
+      );
+      if (response.data?['success'] != true) {
+        throw const ProximException('Could not set Security PIN. Please try again.');
+      }
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return;
+      }
+      rethrow;
+    }
+  }
+
   /// Switch the active entity on the backend and update local storage.
   Future<void> switchActiveEntity(String entityId) async {
     try {

@@ -13,6 +13,7 @@ import '../../transfers/presentation/transfers_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
 import '../../vault/presentation/vault_provider.dart';
 import 'kyc_provider.dart';
+import 'kyc_verification_sheet.dart';
 
 /// Dynamic Home Screen — Business mode shows Treasury Dashboard,
 /// Personal mode shows the consumer banking view with live balance + activity.
@@ -160,6 +161,12 @@ class _PersonalHomeView extends ConsumerWidget {
               if (status == null || status.isApproved) return const SizedBox.shrink();
               return KycBanner(
                 status: status.isPending ? KycBannerState.pending : KycBannerState.unverified,
+                onVerify: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => const KycVerificationSheet(),
+                ),
               );
             },
             loading: () => const SizedBox.shrink(),
