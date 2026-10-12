@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/domain/auth_models.dart';
 import '../../auth/presentation/auth_provider.dart';
 import '../domain/transfers_models.dart';
 import 'transfers_provider.dart';
@@ -23,6 +24,17 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
 
   static const _chains = ['Base', 'Solana', 'Ethereum', 'Arbitrum', 'Polygon'];
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final entity = ref.read(activeEntityProvider);
+      if (entity == null || entity.evmDepositAddress == null || entity.evmDepositAddress!.isEmpty) {
+        ref.read(authProvider.notifier).initializeSession();
+      }
+    });
+  }
+
   void _copyToClipboard(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -35,8 +47,7 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   }
 
   /// Deposit address for the currently selected chain, from the active entity.
-  String? get _cryptoAddress {
-    final entity = ref.read(activeEntityProvider);
+  String? _cryptoAddressFor(ProximEntity? entity) {
     if (entity == null) return null;
     if (_chains[_selectedChain] == 'Solana') return entity.solanaDepositAddress;
     return entity.evmDepositAddress;
@@ -52,7 +63,7 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   Widget build(BuildContext context) {
     final entity = ref.watch(activeEntityProvider);
     final accountsAsync = entity == null ? null : ref.watch(depositAccountsProvider(entity.id));
-    final cryptoAddress = _cryptoAddress;
+    final cryptoAddress = _cryptoAddressFor(entity);
     final fiatAccount = _primaryFiatAccount(accountsAsync?.value);
 
     return Scaffold(
@@ -63,8 +74,19 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             children: [
               _buildTopBar(context),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: RefreshIndicator(
+                  color: ProximColors.primary,
+                  backgroundColor: ProximColors.surfaceContainerHigh,
+                  onRefresh: () async {
+                    await ref.read(authProvider.notifier).initializeSession();
+                    final ent = ref.read(activeEntityProvider);
+                    if (ent != null) {
+                      ref.invalidate(depositAccountsProvider(ent.id));
+                    }
+                  },
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -92,7 +114,8 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   ),
                 ),
               ),
-            ],
+            ),
+          ],
           ),
         ),
       ),
@@ -561,14 +584,33 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     else
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                         decoration: BoxDecoration(
                           color: ProximColors.surfaceContainerLowest,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(
-                          'Your deposit address isn\'t available yet. It is generated once your account is set up.',
-                          style: ProximTextStyles.bodySm(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Your deposit address is being generated...',
+                              style: ProximTextStyles.bodySm(),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 36,
+                              child: OutlinedButton.icon(
+                                onPressed: () => ref.read(authProvider.notifier).initializeSession(),
+                                icon: const Icon(Icons.refresh, size: 14),
+                                label: const Text('Refresh Address'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: ProximColors.primary,
+                                  side: const BorderSide(color: ProximColors.primary),
+                                  textStyle: ProximTextStyles.labelXs(color: ProximColors.primary),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],

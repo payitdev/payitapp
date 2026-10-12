@@ -20,7 +20,8 @@ class AuthRepository {
       final response = await _apiClient.get<Map<String, dynamic>>('/api/auth/session');
       final data = response.data;
       if (data != null && data['success'] == true && data['user'] != null) {
-        return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        final rawUser = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        return _ensureEntityAddresses(rawUser);
       }
     } catch (e) {
       debugPrint('[AuthRepository] Session restore failed: $e');
@@ -118,7 +119,8 @@ class AuthRepository {
       final token = data['token'] as String;
       await _apiClient.tokenStorage.saveToken(token);
 
-      final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      user = _ensureEntityAddresses(user);
       await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
       return user;
     }
@@ -141,7 +143,7 @@ class AuthRepository {
       '/api/auth/privy/login',
       data: {
         'privyUserId': privyUserId,
-        'walletAddress': ?walletAddress,
+        'walletAddress': walletAddress,
       },
       options: Options(
         headers: {'Authorization': 'Bearer $accessToken'},
@@ -150,7 +152,8 @@ class AuthRepository {
     final data = response.data;
     if (data != null && data['success'] == true && data['token'] != null) {
       await _saveSession(data);
-      return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      final rawUser = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      return _ensureEntityAddresses(rawUser);
     }
     throw const ProximException('Authentication failed. Please try again.');
   }
@@ -159,7 +162,8 @@ class AuthRepository {
     final token = data['token'] as String;
     await _apiClient.tokenStorage.saveToken(token);
 
-    final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+    var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+    user = _ensureEntityAddresses(user);
     await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
   }
 
