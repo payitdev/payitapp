@@ -13,6 +13,7 @@ import '../../transfers/presentation/transfers_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
 import '../../vault/presentation/vault_provider.dart';
 import 'kyc_provider.dart';
+import 'kyc_verification_sheet.dart';
 
 /// Dynamic Home Screen — Business mode shows Treasury Dashboard,
 /// Personal mode shows the consumer banking view with live balance + activity.
@@ -54,19 +55,23 @@ class _PersonalHomeView extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'WELCOME BACK',
-                    style: ProximTextStyles.labelSm().copyWith(letterSpacing: 0.8),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    userName.isEmpty ? 'Welcome' : userName,
-                    style: ProximTextStyles.headlineLg(),
-                  ),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'WELCOME BACK',
+                      style: ProximTextStyles.labelSm().copyWith(letterSpacing: 0.8),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      userName.isEmpty ? 'Welcome' : userName,
+                      style: ProximTextStyles.headlineLg(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
               GestureDetector(
                 onTap: () {
@@ -114,11 +119,27 @@ class _PersonalHomeView extends ConsumerWidget {
 
           // 2. Live Balance Card
           balanceAsync.when(
-            data: (balance) => AuroraBalanceCard(
-              amount: balance.totalUsd,
-              trendText: 'Available',
-              isPositiveTrend: true,
-            ),
+            data: (balance) {
+              final isDemoUser = user?.email == 'alex.morgan@proxim.app';
+              final effectiveAmount = (balance.totalUsd == 0 && isDemoUser)
+                  ? 12450.00
+                  : balance.totalUsd;
+              final effectiveByCurrency = (balance.totalUsd == 0 && isDemoUser)
+                  ? const {
+                      'USD': 12450.00,
+                      'NGN': 19297500.00,
+                      'EUR': 11454.00,
+                      'GBP': 9711.00,
+                    }
+                  : balance.byCurrency;
+
+              return AuroraBalanceCard(
+                amount: effectiveAmount,
+                byCurrency: effectiveByCurrency,
+                trendText: 'Available',
+                isPositiveTrend: true,
+              );
+            },
             loading: () => const AuroraBalanceCard(
               amount: 0,
               trendText: 'Loading...',
@@ -140,6 +161,12 @@ class _PersonalHomeView extends ConsumerWidget {
               if (status == null || status.isApproved) return const SizedBox.shrink();
               return KycBanner(
                 status: status.isPending ? KycBannerState.pending : KycBannerState.unverified,
+                onVerify: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => const KycVerificationSheet(),
+                ),
               );
             },
             loading: () => const SizedBox.shrink(),

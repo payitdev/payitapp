@@ -1,19 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../data/invoices_repository.dart';
+import 'invoices_provider.dart';
 
-class PublicInvoiceCheckoutScreen extends StatefulWidget {
+class PublicInvoiceCheckoutScreen extends ConsumerStatefulWidget {
   final String invoiceId;
   const PublicInvoiceCheckoutScreen({super.key, required this.invoiceId});
 
   @override
-  State<PublicInvoiceCheckoutScreen> createState() => _PublicInvoiceCheckoutScreenState();
+  ConsumerState<PublicInvoiceCheckoutScreen> createState() => _PublicInvoiceCheckoutScreenState();
 }
 
-class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScreen> {
+class _PublicInvoiceCheckoutScreenState extends ConsumerState<PublicInvoiceCheckoutScreen> {
   int _selectedRail = 0; // 0: Web3 / Base USDC, 1: Card / Apple Pay, 2: Wire
   int _countdownSeconds = 764; // ~12:44
   Timer? _timer;
@@ -51,10 +55,35 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
-  Future<void> _handlePayment() async {
+  Future<void> _handlePayment(ProximInvoice inv) async {
     if (_isPaying || _isPaid) return;
     setState(() => _isPaying = true);
-    await Future.delayed(const Duration(milliseconds: 1500));
+
+    if (_selectedRail == 0) {
+      // Crypto settlement — copy address
+      final addr = inv.merchantEvmAddress ?? '0x71C...B29F';
+      await Clipboard.setData(ClipboardData(text: addr));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Merchant deposit address copied ($addr)'),
+          backgroundColor: ProximColors.surfaceContainerHigh,
+        ),
+      );
+    } else {
+      // Direct Link / Checkout
+      if (inv.onlineCheckoutUrl != null && inv.onlineCheckoutUrl!.isNotEmpty) {
+        await Clipboard.setData(ClipboardData(text: inv.onlineCheckoutUrl!));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Checkout payment link copied to clipboard'),
+            backgroundColor: ProximColors.surfaceContainerHigh,
+          ),
+        );
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _isPaying = false;
@@ -64,6 +93,8 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
 
   @override
   Widget build(BuildContext context) {
+    final invoiceAsync = ref.watch(publicInvoiceProvider(widget.invoiceId));
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -72,22 +103,50 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
             children: [
               _buildTopBar(context),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSecurityBadge(),
-                      const SizedBox(height: 14),
-                      _buildHeroAmountCard(),
-                      const SizedBox(height: 14),
-                      _buildCorporateContextCard(),
-                      const SizedBox(height: 16),
-                      _buildSettlementRailsSelector(),
-                      const SizedBox(height: 20),
-                      _buildPayCta(),
-                      const SizedBox(height: 32),
-                    ],
+                child: invoiceAsync.when(
+                  loading: () => const Center(
+                    child: CircularProgressIndicator(color: ProximColors.primary),
+                  ),
+                  error: (err, _) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.error_outline, color: ProximColors.statusError, size: 40),
+                          const SizedBox(height: 12),
+                          Text(
+                            err.toString().replaceAll('Exception: ', ''),
+                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: ProximColors.primary, foregroundColor: Colors.black),
+                            onPressed: () => ref.invalidate(publicInvoiceProvider(widget.invoiceId)),
+                            child: const Text('Try Again'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  data: (inv) => SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSecurityBadge(),
+                        const SizedBox(height: 14),
+                        _buildHeroAmountCard(inv),
+                        const SizedBox(height: 14),
+                        _buildCorporateContextCard(inv),
+                        const SizedBox(height: 16),
+                        _buildSettlementRailsSelector(),
+                        const SizedBox(height: 20),
+                        _buildPayCta(inv),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -186,7 +245,7 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
     );
   }
 
-  Widget _buildHeroAmountCard() {
+  Widget _buildHeroAmountCard(ProximInvoice inv) {
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainer,
@@ -218,8 +277,12 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                         borderRadius: BorderRadius.circular(9999),
                       ),
                       child: Text(
-                        'Net 15 • Due Oct 12',
-                        style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                        inv.status.toUpperCase(),
+                        style: ProximTextStyles.labelXs(
+                          color: inv.status.toUpperCase() == 'PAID'
+                              ? ProximColors.statusSuccess
+                              : ProximColors.primary,
+                        ),
                       ),
                     ),
                   ],
@@ -230,13 +293,13 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      '\$12,500.00',
+                      '\$${inv.amount.toStringAsFixed(2)}',
                       style: ProximTextStyles.displayLg(color: ProximColors.textWhite).copyWith(
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text('USD', style: ProximTextStyles.headlineSm(color: ProximColors.primary)),
+                    Text(inv.currency, style: ProximTextStyles.headlineSm(color: ProximColors.primary)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -253,8 +316,7 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                         children: [
                           const Icon(Icons.bolt, size: 14, color: ProximColors.primary),
                           const SizedBox(width: 6),
-                          Text('Guaranteed FX: ', style: ProximTextStyles.labelXs()),
-                          Text('₦19,750,000 NGN', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                          Text('Guaranteed Clearing', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
                         ],
                       ),
                       Text(
@@ -274,7 +336,7 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
     );
   }
 
-  Widget _buildCorporateContextCard() {
+  Widget _buildCorporateContextCard(ProximInvoice inv) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -292,8 +354,8 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                   children: [
                     Text('BILLED TO', style: ProximTextStyles.labelXs()),
                     const SizedBox(height: 2),
-                    Text('Acme Corp.', style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600)),
-                    Text('billing@acmecorp.com', style: ProximTextStyles.labelXs()),
+                    Text(inv.clientName, style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600)),
+                    Text(inv.clientEmail.isNotEmpty ? inv.clientEmail : 'billing@client.com', style: ProximTextStyles.labelXs()),
                   ],
                 ),
               ),
@@ -305,12 +367,24 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        Text('Brails & Proxim', style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600)),
+                        Flexible(
+                          child: Text(
+                            inv.merchantName ?? 'Proxim Merchant',
+                            style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         const SizedBox(width: 4),
                         const Icon(Icons.check_circle, size: 14, color: ProximColors.statusSuccess),
                       ],
                     ),
-                    Text('Global Treasury Inc.', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                    Text(
+                      inv.merchantEvmAddress != null
+                          ? 'Verified Merchant'
+                          : 'Proxim Settlement Rail',
+                      style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
@@ -331,8 +405,8 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Enterprise Treasury API & Cross-Border Liquidity', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
-                      Text('Q3 Infrastructure Allocation • Timelock Escrow', style: ProximTextStyles.labelXs()),
+                      Text('Invoice #${inv.invoiceNumber}', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
+                      Text('Proxim Settle • Direct Clearing Escrow', style: ProximTextStyles.labelXs()),
                     ],
                   ),
                 ),
@@ -455,11 +529,11 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
     );
   }
 
-  Widget _buildPayCta() {
+  Widget _buildPayCta(ProximInvoice inv) {
     return Column(
       children: [
         GestureDetector(
-          onTap: _handlePayment,
+          onTap: () => _handlePayment(inv),
           child: Container(
             width: double.infinity,
             height: 52,
@@ -499,7 +573,9 @@ class _PublicInvoiceCheckoutScreenState extends State<PublicInvoiceCheckoutScree
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          _isPaid ? 'Payment complete' : 'Pay Invoice (\$12,500.00)',
+                          _isPaid
+                              ? 'Payment complete'
+                              : 'Pay Invoice (\$${inv.amount.toStringAsFixed(2)})',
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,

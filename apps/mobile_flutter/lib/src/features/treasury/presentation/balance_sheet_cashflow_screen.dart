@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/presentation/auth_provider.dart';
 import '../data/treasury_repository.dart';
+import '../domain/treasury_models.dart';
 import 'treasury_provider.dart';
 
+/// Balance sheet & cashflow — fully driven by GET /api/reports/balance-sheet
+/// (statement figures), GET /api/transfers/history (monthly cashflow
+/// trajectory + derived runway) and GET /api/fx/rates (NGN dual view).
+/// Every figure is real; missing data renders as '—' and fetch failures
+/// render a retry state — there are no fabricated fallbacks.
 class BalanceSheetCashflowScreen extends ConsumerStatefulWidget {
   const BalanceSheetCashflowScreen({super.key});
 
@@ -15,13 +23,67 @@ class BalanceSheetCashflowScreen extends ConsumerStatefulWidget {
 }
 
 class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflowScreen> {
-  int _selectedPeriod = 1; // 0: MTD, 1: Q3 2026, 2: YTD
+  static const _periods = [
+    (label: 'This Month', key: 'this_month'),
+    (label: 'Quarter to Date', key: 'qtd'),
+    (label: 'Year to Date', key: 'ytd'),
+  ];
+
   bool _isUsd = true;
+
+  final NumberFormat _ngnFormat = NumberFormat('#,##0', 'en_US');
+
+  String _formatUsd(double value) =>
+      '\$${value.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+
+  String _formatNgn(double value) => '₦${_ngnFormat.format(value)}';
+
+  /// Converts the last six calendar months of transfer history into
+  /// inflow/outflow sums. Months with no activity stay at real zeros.
+  List<({String label, double inflow, double outflow})> _monthlyCashflow(
+    List<TreasuryTransaction> history,
+    DateTime now,
+  ) {
+    final buckets = <DateTime, ({double inflow, double outflow})>{};
+    for (var i = 5; i >= 0; i--) {
+      final month = DateTime(now.year, now.month - i, 1);
+      buckets[month] = (inflow: 0.0, outflow: 0.0);
+    }
+    for (final tx in history) {
+      final date = tx.parsedDate;
+      if (date == null) continue;
+      final month = DateTime(date.year, date.month, 1);
+      final bucket = buckets[month];
+      if (bucket == null) continue;
+      buckets[month] = tx.isInbound
+          ? (inflow: bucket.inflow + tx.amount, outflow: bucket.outflow)
+          : (inflow: bucket.inflow, outflow: bucket.outflow + tx.amount);
+    }
+    final sorted = buckets.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return [
+      for (final entry in sorted)
+        (label: DateFormat('MMM').format(entry.key), inflow: entry.value.inflow, outflow: entry.value.outflow),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final balanceSheetAsync = ref.watch(activeBalanceSheetProvider);
     final report = balanceSheetAsync.value;
+    final metrics = ref.watch(treasuryMetricsProvider).value;
+    final historyAsync = ref.watch(treasuryHistoryProvider);
+    final rates = ref.watch(fxRatesProvider).value ?? const <FxRate>[];
+    final entity = ref.watch(activeEntityProvider);
+
+    FxRate? usdRate;
+    for (final rate in rates) {
+      if (rate.currency == 'USD') {
+        usdRate = rate;
+        break;
+      }
+    }
+    final rateToNgn = usdRate?.rateToNgn;
 
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
@@ -29,26 +91,31 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
         child: SafeArea(
           child: Column(
             children: [
-              _buildTopBar(context),
+              _buildTopBar(context, report, entity?.legalName),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildPeriodTabs(),
-                      const SizedBox(height: 12),
-                      _buildCurrencyToggle(),
-                      const SizedBox(height: 14),
-                      _buildNetSurplusCard(report),
-                      const SizedBox(height: 16),
-                      _buildCashflowChartCard(),
-                      const SizedBox(height: 16),
-                      _buildBalanceSheetBreakdown(report),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
+                child: balanceSheetAsync.hasError && report == null
+                    ? _buildErrorState(
+                        balanceSheetAsync.error!,
+                        onRetry: () => ref.invalidate(activeBalanceSheetProvider),
+                      )
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildPeriodTabs(),
+                            const SizedBox(height: 12),
+                            _buildCurrencyToggle(),
+                            const SizedBox(height: 14),
+                            _buildNetSurplusCard(report, rateToNgn),
+                            const SizedBox(height: 16),
+                            _buildCashflowChartCard(historyAsync),
+                            const SizedBox(height: 16),
+                            _buildBalanceSheetBreakdown(report, metrics?.runwayMonths),
+                            const SizedBox(height: 32),
+                          ],
+                        ),
+                      ),
               ),
             ],
           ),
@@ -57,7 +124,14 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, BalanceSheetData? report, String? entityName) {
+    final businessName = report?.businessName.isNotEmpty == true ? report!.businessName : entityName;
+    final periodLabel = report?.periodLabel;
+    final subtitle = [
+      if (businessName != null && businessName.isNotEmpty) businessName,
+      if (periodLabel != null && periodLabel.isNotEmpty) periodLabel,
+    ].join(' • ');
+
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -80,18 +154,29 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
               }
             },
           ),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('Balance Sheet & Cashflow', style: ProximTextStyles.headlineSm()),
-              Text('Acme Global • Q3 2026 Audit Ready', style: ProximTextStyles.labelXs()),
-            ],
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  'Balance Sheet & Cashflow',
+                  style: ProximTextStyles.headlineSm(),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  subtitle.isEmpty ? 'Financial report' : subtitle,
+                  style: ProximTextStyles.labelXs(),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.ios_share, size: 20, color: ProximColors.primary),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Exporting financial report CSV & PDF')),
+                const SnackBar(content: Text('Report export is not available yet.')),
               );
             },
           ),
@@ -101,32 +186,32 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
   }
 
   Widget _buildPeriodTabs() {
-    final periods = ['MTD (Sep)', 'Q3 2026 (Active)', 'YTD', 'Custom'];
+    final selectedKey = ref.watch(balanceSheetPeriodProvider);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: List.generate(periods.length, (index) {
-          final isSelected = _selectedPeriod == index;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => setState(() => _selectedPeriod = index),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isSelected ? ProximColors.primary : ProximColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(9999),
-                ),
-                child: Text(
-                  periods[index],
-                  style: ProximTextStyles.labelSm(
-                    color: isSelected ? ProximColors.surfaceContainerLowest : ProximColors.onSurfaceVariant,
-                  ).copyWith(fontWeight: FontWeight.w600),
+        children: [
+          for (final period in _periods)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () => ref.read(balanceSheetPeriodProvider.notifier).select(period.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: selectedKey == period.key ? ProximColors.primary : ProximColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(9999),
+                  ),
+                  child: Text(
+                    period.label,
+                    style: ProximTextStyles.labelSm(
+                      color: selectedKey == period.key ? ProximColors.surfaceContainerLowest : ProximColors.onSurfaceVariant,
+                    ).copyWith(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
             ),
-          );
-        }),
+        ],
       ),
     );
   }
@@ -141,12 +226,20 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.currency_exchange, size: 16, color: ProximColors.primary),
-              const SizedBox(width: 6),
-              Text('Ledger Base', style: ProximTextStyles.labelXs()),
-            ],
+          Flexible(
+            child: Row(
+              children: [
+                const Icon(Icons.currency_exchange, size: 16, color: ProximColors.primary),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Ledger Base',
+                    style: ProximTextStyles.labelXs(),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
           Row(
             children: [
@@ -190,11 +283,33 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
     );
   }
 
-  Widget _buildNetSurplusCard([BalanceSheetData? report]) {
-    final surplus = report?.netOperatingSurplus ?? 34200.00;
-    final formattedUsd = surplus >= 0
-        ? '+\$${surplus.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
-        : '-\$${(-surplus).toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+  Widget _buildMoney(double? usdValue, double? rateToNgn, {required bool outflow}) {
+    if (usdValue == null) {
+      return Text('—', style: ProximTextStyles.headlineSm(color: ProximColors.onSurfaceVariant));
+    }
+    // Outflows are stored as positive sums — present them as negatives.
+    final signed = outflow ? -usdValue.abs() : usdValue;
+    if (_isUsd || rateToNgn == null) {
+      final formatted = _formatUsd(signed.abs());
+      return Text(
+        '${signed >= 0 ? '+' : '-'}$formatted',
+        style: ProximTextStyles.headlineSm(
+          color: signed >= 0 ? ProximColors.primary : ProximColors.secondary,
+        ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+      );
+    }
+    final ngn = signed * rateToNgn;
+    return Text(
+      '${ngn >= 0 ? '+' : '-'}${_formatNgn(ngn.abs())}',
+      style: ProximTextStyles.headlineSm(
+        color: ngn >= 0 ? ProximColors.primary : ProximColors.secondary,
+      ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+    );
+  }
+
+  Widget _buildNetSurplusCard(BalanceSheetData? report, double? rateToNgn) {
+    final surplus = report?.netOperatingSurplus;
+    final margin = report?.profitMarginPercent;
 
     return Container(
       decoration: BoxDecoration(
@@ -219,7 +334,7 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('NET OPERATING SURPLUS (Q3)', style: ProximTextStyles.labelXs()),
+                    Text('NET OPERATING SURPLUS', style: ProximTextStyles.labelXs()),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
@@ -230,7 +345,10 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
                         children: [
                           const Icon(Icons.trending_up, size: 12, color: ProximColors.primary),
                           const SizedBox(width: 3),
-                          Text('+14.2%', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                          Text(
+                            margin == null ? '—' : '${margin.toStringAsFixed(1)}% Margin',
+                            style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                          ),
                         ],
                       ),
                     ),
@@ -241,12 +359,22 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(
-                      _isUsd ? formattedUsd : '+₦54,549,000',
-                      style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                    if (surplus == null)
+                      Text('—', style: ProximTextStyles.headlineLg(color: ProximColors.onSurfaceVariant))
+                    else if (_isUsd || rateToNgn == null)
+                      Text(
+                        '${surplus >= 0 ? '+' : '-'}${_formatUsd(surplus.abs())}',
+                        style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      )
+                    else
+                      Text(
+                        '${surplus >= 0 ? '+' : '-'}${_formatNgn((surplus * rateToNgn).abs())}',
+                        style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
-                    ),
                     const SizedBox(width: 6),
                     Text(_isUsd ? 'USD' : 'NGN', style: ProximTextStyles.headlineSm()),
                   ],
@@ -278,13 +406,8 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              _isUsd ? '+\$182,450.00' : '+₦291.0M',
-                              style: ProximTextStyles.headlineSm(color: ProximColors.primary).copyWith(
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                            Text('Invoices • Yields', style: ProximTextStyles.labelXs()),
+                            _buildMoney(report?.totalInflows, rateToNgn, outflow: false),
+                            Text('Collected Revenue', style: ProximTextStyles.labelXs()),
                           ],
                         ),
                       ),
@@ -306,13 +429,8 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              _isUsd ? '-\$148,250.00' : '-₦236.4M',
-                              style: ProximTextStyles.headlineSm(color: ProximColors.secondary).copyWith(
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                            Text('Payroll • Cloud Infra', style: ProximTextStyles.labelXs()),
+                            _buildMoney(report?.totalOutflows, rateToNgn, outflow: true),
+                            Text('Operating & Payroll Spend', style: ProximTextStyles.labelXs()),
                           ],
                         ),
                       ),
@@ -327,15 +445,55 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
     );
   }
 
-  Widget _buildCashflowChartCard() {
-    final months = [
-      {'m': 'Apr', 'in': 0.55, 'out': 0.48},
-      {'m': 'May', 'in': 0.68, 'out': 0.52},
-      {'m': 'Jun', 'in': 0.72, 'out': 0.65},
-      {'m': 'Jul', 'in': 0.80, 'out': 0.70},
-      {'m': 'Aug', 'in': 0.85, 'out': 0.74},
-      {'m': 'Sep', 'in': 0.95, 'out': 0.78},
-    ];
+  Widget _buildCashflowChartCard(AsyncValue<List<TreasuryTransaction>> historyAsync) {
+    final months = _monthlyCashflow(historyAsync.value ?? const [], DateTime.now());
+    final maxFlow = months.fold<double>(
+      0,
+      (max, m) => m.inflow > max ? m.inflow : (m.outflow > max ? m.outflow : max),
+    );
+
+    Widget bars(List<({String label, double inflow, double outflow})> data) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final entry in data)
+            Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: maxFlow > 0 ? 70 * (entry.inflow / maxFlow) : 0,
+                      decoration: BoxDecoration(
+                        color: ProximColors.primary,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Container(
+                      width: 8,
+                      height: maxFlow > 0 ? 70 * (entry.outflow / maxFlow) : 0,
+                      decoration: BoxDecoration(
+                        color: ProximColors.secondary,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(entry.label, style: ProximTextStyles.labelXs()),
+              ],
+            ),
+        ],
+      );
+    }
+
+    final title = months.isEmpty
+        ? '6-Month Trajectory'
+        : '6-Month Trajectory (${months.first.label} – ${months.last.label})';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -350,12 +508,20 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.stacked_bar_chart, size: 16, color: ProximColors.primary),
-                  const SizedBox(width: 6),
-                  Text('6-Month Trajectory (Apr – Sep 2026)', style: ProximTextStyles.labelXs()),
-                ],
+              Flexible(
+                child: Row(
+                  children: [
+                    const Icon(Icons.stacked_bar_chart, size: 16, color: ProximColors.primary),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: ProximTextStyles.labelXs(),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               Row(
                 children: [
@@ -380,55 +546,31 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
               color: ProximColors.surfaceContainerLowest,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: months.map((entry) {
-                final inFrac = entry['in'] as double;
-                final outFrac = entry['out'] as double;
-                final name = entry['m'] as String;
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 70 * inFrac,
-                          decoration: BoxDecoration(
-                            color: ProximColors.primary,
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        Container(
-                          width: 8,
-                          height: 70 * outFrac,
-                          decoration: BoxDecoration(
-                            color: ProximColors.secondary,
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(name, style: ProximTextStyles.labelXs()),
-                  ],
-                );
-              }).toList(),
+            child: historyAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator(color: ProximColors.primary)),
+              error: (error, _) => Center(
+                child: Text(
+                  'Cashflow trajectory unavailable.',
+                  style: ProximTextStyles.labelXs(),
+                ),
+              ),
+              data: (_) => bars(months),
             ),
           ),
+          if (historyAsync.hasValue && maxFlow == 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              'No cashflow activity recorded in this window.',
+              style: ProximTextStyles.labelXs(),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildBalanceSheetBreakdown([BalanceSheetData? report]) {
-    final runwayText = '${(report?.runwayMonths ?? 14.1).toStringAsFixed(1)} Mo Runway';
-    final assetsTotal = report != null
-        ? '\$${report.totalCurrentAssets.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
-        : '\$482,950.00';
+  Widget _buildBalanceSheetBreakdown(BalanceSheetData? report, double? runwayMonths) {
+    final runwayText = runwayMonths == null ? 'Runway —' : '${runwayMonths.toStringAsFixed(1)} Mo Runway';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -443,7 +585,14 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Consolidated Balance Sheet', style: ProximTextStyles.headlineSm()),
+              Flexible(
+                child: Text(
+                  'Consolidated Balance Sheet',
+                  style: ProximTextStyles.headlineSm(),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
@@ -455,20 +604,73 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
             ],
           ),
           const SizedBox(height: 12),
-          Text('CURRENT ASSETS ($assetsTotal)', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+          Text(
+            'CURRENT ASSETS (${report == null ? '—' : _formatUsd(report.totalCurrentAssets)})',
+            style: ProximTextStyles.labelXs(color: ProximColors.primary),
+          ),
           const SizedBox(height: 6),
-          _buildItemRow('USD Operational Cash Pocket', '\$284,500.00'),
+          _buildItemRow('Liquid Cash & Equivalents', report == null ? '—' : _formatUsd(report.cashEquivalents)),
           const SizedBox(height: 6),
-          _buildItemRow('NGN Local Clearing Reserves', '₦198.40M (~ \$124,400)'),
+          _buildItemRow('Accounts Receivable', report == null ? '—' : _formatUsd(report.accountsReceivable)),
           const SizedBox(height: 6),
-          _buildItemRow('Yield Treasury Buffer (Ondo/Kamino)', '\$74,050.00'),
+          _buildItemRow('Vault & Term Deposits', report == null ? '—' : _formatUsd(report.vaultHoldings)),
+          const SizedBox(height: 6),
+          _buildItemRow('Tokenized Securities', report == null ? '—' : _formatUsd(report.tokenizedAssets)),
           const SizedBox(height: 12),
-          Text('CURRENT LIABILITIES (\$62,700.00)', style: ProximTextStyles.labelXs(color: ProximColors.statusWarning)),
+          Text(
+            'CURRENT LIABILITIES (${report == null ? '—' : _formatUsd(report.totalCurrentLiabilities)})',
+            style: ProximTextStyles.labelXs(color: ProximColors.statusWarning),
+          ),
           const SizedBox(height: 6),
-          _buildItemRow('Accrued Payroll (Sep Cycle)', '\$42,650.00'),
+          _buildItemRow('Accrued Payroll', report == null ? '—' : _formatUsd(report.accruedPayroll)),
           const SizedBox(height: 6),
-          _buildItemRow('Accounts Payable & Cloud Retainers', '\$20,050.00'),
+          _buildItemRow('Tax Payable (Est. VAT + WHT)', report == null ? '—' : _formatUsd(report.taxPayable)),
+          const SizedBox(height: 12),
+          Text(
+            'OWNER EQUITY (${report == null ? '—' : _formatUsd(report.totalOwnerEquity)})',
+            style: ProximTextStyles.labelXs(color: ProximColors.tertiary),
+          ),
+          const SizedBox(height: 6),
+          _buildItemRow('Net Position (Assets − Liabilities)',
+              report == null ? '—' : _formatUsd(report.totalAssets - report.totalLiabilities)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(Object error, {required VoidCallback onRetry}) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: ProximColors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: ProximColors.hairlineBorder),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(error.toString(), style: ProximTextStyles.bodySm(), textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: onRetry,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: ProximColors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(9999),
+                  ),
+                  child: Text(
+                    'Retry',
+                    style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -483,7 +685,7 @@ class _BalanceSheetCashflowScreenState extends ConsumerState<BalanceSheetCashflo
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(name, style: ProximTextStyles.bodySm()),
+          Flexible(child: Text(name, style: ProximTextStyles.bodySm(), overflow: TextOverflow.ellipsis)),
           Text(
             amount,
             style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(

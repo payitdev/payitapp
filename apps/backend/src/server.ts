@@ -5,6 +5,7 @@ import path from 'path';
 import { env } from './env.js';
 import { authRoutes } from './routes/auth.js';
 import { entityRoutes } from './routes/entities.js';
+import { approvalRoutes } from './routes/approvals.js';
 import { transferRoutes } from './routes/transfers.js';
 import { cardRoutes } from './routes/cards.js';
 import { invoiceRoutes } from './routes/invoices.js';
@@ -150,6 +151,7 @@ export function buildServer() {
   server.register(savingsRoutes);
   server.register(waitlistRoutes);
   server.register(transferRoutes);
+  server.register(approvalRoutes);
 
   const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE || env.ENABLE_ONDO_FINANCE || env.ENABLE_NEAR_MPC;
   if (liveFinanceEnabled) {

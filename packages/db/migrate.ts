@@ -144,6 +144,9 @@ async function runMigrations() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_term_vaults_near_intent ON term_vaults (near_intent_id) WHERE near_intent_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_term_vaults_deposit_address ON term_vaults (deposit_address) WHERE deposit_address IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_swaps_deposit_address ON intent_swaps (deposit_address);
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS quote_id TEXT;
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS source_chain TEXT;
+      ALTER TABLE intent_swaps ADD COLUMN IF NOT EXISTS destination_chain TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_tx_hash TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_intent_id TEXT;
       ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS harvest_fee_amount NUMERIC(18,6);
@@ -776,6 +779,31 @@ async function runMigrations() {
         severity TEXT NOT NULL DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
         timestamp TIMESTAMP DEFAULT NOW() NOT NULL
       );
+
+      -- Corporate multi-sig approvals
+      CREATE TABLE IF NOT EXISTS multi_sig_approvals (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        title TEXT NOT NULL,
+        description TEXT,
+        amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USDC',
+        required_signatures INTEGER NOT NULL DEFAULT 2,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXECUTED', 'EXPIRED')),
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS multi_sig_approval_signers (
+        id TEXT PRIMARY KEY,
+        approval_id TEXT NOT NULL REFERENCES multi_sig_approvals(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        key_note TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SIGNED', 'REJECTED')),
+        signed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_multi_sig_approvals_entity ON multi_sig_approvals(entity_id, status);
 
       -- Core transfer rail
       CREATE TABLE IF NOT EXISTS transfers (

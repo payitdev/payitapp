@@ -60,14 +60,10 @@ export async function payrollRoutes(server: FastifyInstance) {
       return reply.status(404).send({ error: 'Entity not found' });
     }
 
-    const recipientList = recipients && recipients.length > 0
-      ? recipients
-      : Array.from({ length: employeeCount || 1 }, (_, i) => ({
-          name: `Employee ${i + 1}`,
-          accountOrPhone: `012345678${i}`,
-          bankOrNetwork: 'Bank Transfer',
-          amount: totalAmount ? totalAmount / (employeeCount || 1) : 50000,
-        }));
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return reply.status(400).send({ error: 'At least one recipient is required for payroll execution' });
+    }
+    const recipientList = recipients;
 
     const totalDisbursement = totalAmount || recipientList.reduce((sum, r) => sum + r.amount, 0);
     const feeCalculation = feeService.calculatePayrollFee(totalDisbursement, recipientList.length, currency);
@@ -80,7 +76,7 @@ export async function payrollRoutes(server: FastifyInstance) {
       totalAmount: String(totalDisbursement.toFixed(2)),
       feeAmount: String(feeCalculation.feeAmount.toFixed(2)),
       currency,
-      status: 'completed',
+      status: 'processing',
     });
 
     await db.insert(feeLedger).values({
@@ -140,6 +136,13 @@ export async function payrollRoutes(server: FastifyInstance) {
       });
     }
 
+    const failedCount = itemResults.filter(i => i.status === 'failed').length;
+    const finalRunStatus: 'completed' | 'completed_with_errors' | 'failed' = failedCount === 0
+      ? 'completed'
+      : (failedCount === itemResults.length ? 'failed' : 'completed_with_errors');
+
+    await db.update(payrollRuns).set({ status: finalRunStatus }).where(eq(payrollRuns.id, runId));
+
     return reply.send({
       success: true,
       payrollRun: {
@@ -149,7 +152,7 @@ export async function payrollRoutes(server: FastifyInstance) {
         currency,
         employeeCount: recipientList.length,
         feeAmount: feeCalculation.feeAmount,
-        status: 'COMPLETED',
+        status: finalRunStatus.toUpperCase(),
         recipients: itemResults,
       },
     });

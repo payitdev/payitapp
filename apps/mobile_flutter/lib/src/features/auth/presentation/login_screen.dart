@@ -129,21 +129,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       body: Stack(
         children: [
           const _AuroraGlow(),
-          CenteredAppContainer(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_step == _LoginStep.email)
-                    _buildEmailStep(isBusy)
-                  else
-                    _buildCodeStep(isBusy, auth),
-                  if (auth.errorMessage != null) ...[
-                    const SizedBox(height: 16),
-                    _ErrorBanner(message: auth.errorMessage!),
+          SafeArea(
+            child: CenteredAppContainer(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_step == _LoginStep.email)
+                      _buildEmailStep(isBusy)
+                    else
+                      _buildCodeStep(isBusy, auth),
+                    if (auth.errorMessage != null) ...[
+                      const SizedBox(height: 16),
+                      _ErrorBanner(message: auth.errorMessage!),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -398,6 +401,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                           ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: isBusy ? null : () => ref.read(authProvider.notifier).loginDemo(),
+                        icon: const Icon(Icons.play_circle_outline, size: 16, color: ProximColors.primary),
+                        label: Text(
+                          'Explore Demo Account',
+                          style: ProximTextStyles.bodySm(color: ProximColors.primary)
+                              .copyWith(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -885,8 +900,17 @@ class _BrandEmblem extends StatelessWidget {
           ),
         ],
       ),
-      child: const Center(
-        child: SizedBox(width: 32, height: 32, child: CustomPaint(painter: _EmblemPainter())),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.asset(
+          'assets/images/proxim_logo.png',
+          width: 56,
+          height: 56,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Center(
+            child: SizedBox(width: 32, height: 32, child: CustomPaint(painter: _EmblemPainter())),
+          ),
+        ),
       ),
     );
   }

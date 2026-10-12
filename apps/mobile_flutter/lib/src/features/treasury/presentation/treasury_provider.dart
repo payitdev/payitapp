@@ -10,6 +10,18 @@ final treasuryRepositoryProvider = Provider<TreasuryRepository>((ref) {
   return TreasuryRepository(apiClient: apiClient);
 });
 
+/// Selected balance-sheet period ('this_month' | 'qtd' | 'ytd') — surfaced
+/// by the period tabs on the balance sheet screen.
+class BalanceSheetPeriodNotifier extends Notifier<String> {
+  @override
+  String build() => 'this_month';
+
+  void select(String period) => state = period;
+}
+
+final balanceSheetPeriodProvider =
+    NotifierProvider<BalanceSheetPeriodNotifier, String>(BalanceSheetPeriodNotifier.new);
+
 final balanceSheetProvider = FutureProvider.autoDispose.family<BalanceSheetData, ({String entityId, String period})>((ref, arg) async {
   final repo = ref.watch(treasuryRepositoryProvider);
   return repo.getBalanceSheet(entityId: arg.entityId, period: arg.period);
@@ -20,8 +32,9 @@ final activeBalanceSheetProvider = FutureProvider.autoDispose<BalanceSheetData>(
   if (entity == null) {
     throw StateError('No active entity selected.');
   }
+  final period = ref.watch(balanceSheetPeriodProvider);
   final repo = ref.watch(treasuryRepositoryProvider);
-  return repo.getBalanceSheet(entityId: entity.id);
+  return repo.getBalanceSheet(entityId: entity.id, period: period);
 });
 
 /// Live consolidated balance for the active entity — GET /api/transfers/balance
@@ -63,9 +76,8 @@ final fxRatesProvider = FutureProvider.autoDispose<List<FxRate>>((ref) async {
 });
 
 /// Pending executive approvals for the active entity —
-/// GET /api/approvals/pending. Errors resolve to an empty list (the
-/// endpoint has not shipped on the backend yet), so the multi-sig banner
-/// simply stays hidden until approvals exist.
+/// GET /api/approvals/pending. Errors resolve to an empty list so the
+/// dashboard banner simply stays hidden until approvals exist.
 final pendingApprovalsProvider =
     FutureProvider.autoDispose<List<PendingApproval>>((ref) async {
   final entity = ref.watch(activeEntityProvider);
@@ -74,6 +86,19 @@ final pendingApprovalsProvider =
   }
   final repo = ref.watch(treasuryRepositoryProvider);
   return repo.getPendingApprovals(entityId: entity.id);
+});
+
+/// Approvals for the active entity — GET /api/approvals. The family
+/// argument is an optional status filter ('PENDING' / 'APPROVED' /
+/// 'REJECTED' / 'EXECUTED' / 'EXPIRED'); null returns every status.
+final approvalsProvider = FutureProvider.autoDispose
+    .family<List<PendingApproval>, String?>((ref, status) async {
+  final entity = ref.watch(activeEntityProvider);
+  if (entity == null) {
+    throw StateError('No active entity selected.');
+  }
+  final repo = ref.watch(treasuryRepositoryProvider);
+  return repo.getApprovals(entityId: entity.id, status: status);
 });
 
 /// Derived hero-card metrics (burn rate, runway, 30D inflow, NGN equivalent,

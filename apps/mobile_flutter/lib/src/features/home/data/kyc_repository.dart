@@ -52,4 +52,38 @@ class KycRepository {
       rethrow;
     }
   }
+
+  /// Submit identity verification form — path: POST /api/kyc/verify
+  Future<void> submitTier1Kyc({
+    required String entityId,
+    required String accountType,
+    required String bvn,
+    required String dateOfBirth,
+    required String firstName,
+    required String lastName,
+  }) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/kyc/verify',
+        data: {
+          'entityId': entityId,
+          'accountType': accountType.toLowerCase(),
+          'formData': {
+            'bvn': bvn,
+            'dateOfBirth': dateOfBirth,
+            'firstName': firstName,
+            'lastName': lastName,
+          },
+        },
+      );
+      if (response.data?['success'] != true) {
+        throw const ProximException('Verification submission failed. Please try again.');
+      }
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return;
+      }
+      rethrow;
+    }
+  }
 }

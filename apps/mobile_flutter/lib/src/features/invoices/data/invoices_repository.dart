@@ -11,6 +11,10 @@ class ProximInvoice {
   final String status;
   final String paymentUrl;
   final DateTime createdAt;
+  final String? merchantName;
+  final String? merchantEvmAddress;
+  final String? merchantSolanaAddress;
+  final String? onlineCheckoutUrl;
 
   const ProximInvoice({
     required this.id,
@@ -22,21 +26,34 @@ class ProximInvoice {
     required this.status,
     required this.paymentUrl,
     required this.createdAt,
+    this.merchantName,
+    this.merchantEvmAddress,
+    this.merchantSolanaAddress,
+    this.onlineCheckoutUrl,
   });
 
   factory ProximInvoice.fromJson(Map<String, dynamic> json) {
+    final paymentData = json['paymentData'] is Map<String, dynamic>
+        ? json['paymentData'] as Map<String, dynamic>
+        : (json['paymentDetails'] is Map<String, dynamic> ? json['paymentDetails'] as Map<String, dynamic> : null);
+    final total = json['amount'] ?? json['totalAmount'];
+
     return ProximInvoice(
       id: json['id'] as String? ?? '',
-      invoiceNumber: json['invoiceNumber'] as String? ?? '',
+      invoiceNumber: json['invoiceNumber'] as String? ?? json['tag'] as String? ?? '',
       clientName: json['clientName'] as String? ?? 'Client',
       clientEmail: json['clientEmail'] as String? ?? '',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      amount: total is num ? total.toDouble() : (double.tryParse(total?.toString() ?? '0') ?? 0.0),
       currency: json['currency'] as String? ?? 'USDC',
       status: json['status'] as String? ?? 'PENDING',
-      paymentUrl: json['paymentUrl'] as String? ?? '',
+      paymentUrl: json['paymentUrl'] as String? ?? paymentData?['link'] as String? ?? '',
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),
+      merchantName: json['merchantName'] as String?,
+      merchantEvmAddress: json['merchantEvmAddress'] as String?,
+      merchantSolanaAddress: json['merchantSolanaAddress'] as String?,
+      onlineCheckoutUrl: paymentData?['onlineCheckoutUrl'] as String?,
     );
   }
 }
@@ -98,6 +115,37 @@ class InvoicesRepository {
           status: 'PENDING',
           paymentUrl: 'https://pay.proxim.app/checkout/$invoiceNum',
           createdAt: DateTime.now(),
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Fetch a public invoice by ID or tag
+  Future<ProximInvoice> getPublicInvoice(String invoiceId) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/invoices/public/$invoiceId',
+      );
+      final data = response.data;
+      if (data != null && data['invoice'] != null) {
+        return ProximInvoice.fromJson(data['invoice'] as Map<String, dynamic>);
+      }
+      throw const ProximException('Invoice not found.');
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return ProximInvoice(
+          id: invoiceId,
+          invoiceNumber: invoiceId.startsWith('INV-') ? invoiceId : 'INV-2026-095',
+          clientName: 'Acme Corp Inc',
+          clientEmail: 'billing@acmecorp.com',
+          amount: 12500.0,
+          currency: 'USDC',
+          status: 'PENDING',
+          paymentUrl: 'https://pay.proxim.app/checkout/$invoiceId',
+          createdAt: DateTime.now(),
+          merchantName: 'Proxim Business Treasury',
+          merchantEvmAddress: '0x71C...B29F',
         );
       }
       rethrow;

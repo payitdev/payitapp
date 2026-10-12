@@ -3,9 +3,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { ulid } from 'ulid';
-import { createDbClient, eq, inArray, and, gt } from '@payit/db';
+import { createDbClient, eq, inArray, and, gt, or } from '@payit/db';
 import { users, trustedDevices, entities, accounts, telegramUserLinks } from '@payit/db/schema';
 import { PrivyNEARBridge, PrivyServerAuth, registerNearAccountOnChain, deriveUserAddresses } from '@payit/integrations';
+import { generateUniqueUsername, generateUniqueBusinessTag } from '../utils/username.js';
 import { env } from '../env.js';
 
 const db = createDbClient();
@@ -518,27 +519,32 @@ export async function authRoutes(server: FastifyInstance) {
       if (userRows.length === 0) {
         // Create new user
         userId = ulid();
-        await db.insert(users).values({
-          id: userId,
-          email: cleanEmail,
-          fullName: cleanEmail.split('@')[0],
-          privyUserId,
-        });
+        try {
+          await db.insert(users).values({
+            id: userId,
+            email: cleanEmail,
+            fullName: cleanEmail.split('@')[0],
+            privyUserId,
+          });
+        } catch (insertErr: any) {
+          // If a race occurred on insert, recover the existing user
+          const existing = await db.select().from(users).where(or(eq(users.email, cleanEmail), eq(users.privyUserId, privyUserId))).limit(1);
+          if (existing.length > 0) {
+            userId = existing[0].id;
+            userRows = existing;
+          } else {
+            throw insertErr;
+          }
+        }
       } else {
         // Update existing user with Privy ID if not set or if user was re-authenticated with new Privy user ID
         userId = userRows[0].id;
         if (claimedUserId && userRows[0].privyUserId && userRows[0].privyUserId !== privyUserId) {
           return reply.status(409).send({ error: 'Telegram account is already linked to another Privy identity' });
         }
-        if (userRows[0].privyUserId && userRows[0].privyUserId !== privyUserId) {
-          // The email on this record was just server-verified via Privy (the
-          // bearer token is valid and its email matches), so the caller owns
-          // it. Users can accumulate multiple Privy identities for the same
-          // email across social/email login paths — re-associate the account
-          // to the freshly verified identity instead of locking them out.
-          await db.update(users).set({ privyUserId }).where(eq(users.id, userId));
-        }
-        if (!userRows[0].privyUserId) {
+        if (userRows[0].privyUserId !== privyUserId) {
+          // Clear any conflicting stale row before re-associating
+          await db.update(users).set({ privyUserId: null }).where(eq(users.privyUserId, privyUserId));
           await db.update(users).set({ privyUserId }).where(eq(users.id, userId));
         }
         if (claimLinkId) {
@@ -548,32 +554,55 @@ export async function authRoutes(server: FastifyInstance) {
 
       // Check if entities exist
       let userEntities = await db.select().from(entities).where(eq(entities.userId, userId));
+      const hasPersonal = userEntities.some(e => e.kind === 'PERSONAL');
+      const hasBusiness = userEntities.some(e => e.kind === 'BUSINESS');
 
-      if (userEntities.length === 0) {
-        // Create default entities
-        const personalEntityId = ulid();
-        const businessEntityId = ulid();
+      if (!hasPersonal || !hasBusiness) {
         const prefix = cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+        const legalName = (userRows[0]?.fullName || cleanEmail.split('@')[0]) || 'User';
 
-        await db.insert(entities).values([
-          {
-            id: personalEntityId,
-            userId,
-            kind: 'PERSONAL',
-            legalName: cleanEmail.split('@')[0],
-            username: prefix,
-            evmDepositAddress: null,
-            dueStatus: 'incomplete',
-          },
-          {
-            id: businessEntityId,
-            userId,
-            kind: 'BUSINESS',
-            legalName: `${cleanEmail.split('@')[0]} Business`,
-            businessTag: prefix.toUpperCase().slice(0, 6),
-            dueStatus: 'incomplete',
-          },
-        ]);
+        if (!hasPersonal) {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const personalEntityId = ulid();
+              const uniqueUsername = await generateUniqueUsername(db, attempt === 0 ? prefix : `${prefix}${attempt}`);
+              await db.insert(entities).values({
+                id: personalEntityId,
+                userId,
+                kind: 'PERSONAL',
+                legalName,
+                username: uniqueUsername,
+                evmDepositAddress: null,
+                dueStatus: 'incomplete',
+              });
+              break;
+            } catch (err: any) {
+              if (err.code === '23505' && attempt < 2) continue;
+              throw err;
+            }
+          }
+        }
+
+        if (!hasBusiness) {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const businessEntityId = ulid();
+              const uniqueBusinessTag = await generateUniqueBusinessTag(db, attempt === 0 ? prefix : `${prefix}${attempt}`);
+              await db.insert(entities).values({
+                id: businessEntityId,
+                userId,
+                kind: 'BUSINESS',
+                legalName: `${legalName} Business`,
+                businessTag: uniqueBusinessTag,
+                dueStatus: 'incomplete',
+              });
+              break;
+            } catch (err: any) {
+              if (err.code === '23505' && attempt < 2) continue;
+              throw err;
+            }
+          }
+        }
       }
 
       const rawEntities = await db.select().from(entities).where(eq(entities.userId, userId)).orderBy(entities.kind);

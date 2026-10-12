@@ -210,3 +210,33 @@ class TransfersBalance {
   }
 }
 
+/// Resolved Proxim User Identity from GET /api/users/resolve-identity
+class ResolvedIdentity {
+  final String entityId;
+  final String legalName;
+  final String username;
+  final String kind;
+  final bool verified;
+  final bool isMutualContact;
+
+  const ResolvedIdentity({
+    required this.entityId,
+    required this.legalName,
+    required this.username,
+    required this.kind,
+    required this.verified,
+    this.isMutualContact = false,
+  });
+
+  factory ResolvedIdentity.fromJson(Map<String, dynamic> json) {
+    return ResolvedIdentity(
+      entityId: json['entityId'] as String? ?? '',
+      legalName: json['legalName'] as String? ?? 'Proxim User',
+      username: json['username'] as String? ?? '',
+      kind: json['kind'] as String? ?? 'PERSONAL',
+      verified: json['verified'] == true,
+      isMutualContact: json['isMutualContact'] == true,
+    );
+  }
+}
+

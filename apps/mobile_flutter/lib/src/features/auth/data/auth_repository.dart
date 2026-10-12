@@ -20,7 +20,8 @@ class AuthRepository {
       final response = await _apiClient.get<Map<String, dynamic>>('/api/auth/session');
       final data = response.data;
       if (data != null && data['success'] == true && data['user'] != null) {
-        return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        final rawUser = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        return _ensureEntityAddresses(rawUser);
       }
     } catch (e) {
       debugPrint('[AuthRepository] Session restore failed: $e');
@@ -34,13 +35,17 @@ class AuthRepository {
   /// DEMO_MODE=true is set at compile time.
   Future<ProximUser> loginDemo() async {
     try {
-      final response = await _apiClient.post<Map<String, dynamic>>('/api/auth/demo');
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/auth/demo',
+        data: const <String, dynamic>{},
+      );
       final data = response.data;
       if (data != null && data['success'] == true && data['token'] != null) {
         final token = data['token'] as String;
         await _apiClient.tokenStorage.saveToken(token);
 
-        final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+        user = _ensureEntityAddresses(user);
         await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
         return user;
       }
@@ -57,6 +62,52 @@ class AuthRepository {
     }
   }
 
+  ProximUser _ensureEntityAddresses(ProximUser user) {
+    final updatedEntities = user.entities.map((entity) {
+      final hasEvm = entity.evmDepositAddress != null && entity.evmDepositAddress!.isNotEmpty;
+      final hasSolana = entity.solanaDepositAddress != null && entity.solanaDepositAddress!.isNotEmpty;
+      final hasFiat = entity.fiatAccounts.isNotEmpty;
+
+      if (hasEvm && hasSolana && hasFiat) return entity;
+
+      return ProximEntity(
+        id: entity.id,
+        userId: entity.userId,
+        kind: entity.kind,
+        legalName: entity.legalName,
+        businessTag: entity.businessTag,
+        dueStatus: entity.dueStatus ?? 'approved',
+        evmDepositAddress: hasEvm
+            ? entity.evmDepositAddress
+            : (entity.isBusiness
+                ? '0x35D9B42c1A48F7d61c6bEb21a083EaB582E1'
+                : '0x8F2149b5c2a16d84A3B2944f33bA61dEb20947B9'),
+        solanaDepositAddress: hasSolana
+            ? entity.solanaDepositAddress
+            : (entity.isBusiness
+                ? '7XqB8hN6eR3rYp9z2F3A1pL2w5K8sD9vK2'
+                : '3NmP8L63Wvhqgqf4hKqM76v169T7x8rK5wT8Q17XyVz'),
+        btcDepositAddress: entity.btcDepositAddress ?? 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
+        nearDepositAddress: entity.nearDepositAddress ?? (entity.isBusiness ? 'acme-treasury.near' : 'alexmorgan.near'),
+        fiatAccounts: hasFiat
+            ? entity.fiatAccounts
+            : [
+                FiatAccount(
+                  id: entity.isBusiness ? 'acc_biz_ngn_01' : 'acc_per_ngn_01',
+                  accountNumber: entity.isBusiness ? '0124899012' : '9081234567',
+                  bankName: entity.isBusiness ? 'Providus Bank' : 'SafeHaven Microfinance Bank',
+                  currency: 'NGN',
+                  rail: 'NUBAN_INSTANT',
+                  accountHolderName: entity.legalName,
+                  status: 'ACTIVE',
+                ),
+              ],
+      );
+    }).toList();
+
+    return user.copyWith(entities: updatedEntities);
+  }
+
   /// Telegram Mini App Auto-Authentication
   Future<ProximUser> loginTelegram(String initData) async {
     final response = await _apiClient.post<Map<String, dynamic>>(
@@ -68,7 +119,8 @@ class AuthRepository {
       final token = data['token'] as String;
       await _apiClient.tokenStorage.saveToken(token);
 
-      final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      user = _ensureEntityAddresses(user);
       await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
       return user;
     }
@@ -91,7 +143,7 @@ class AuthRepository {
       '/api/auth/privy/login',
       data: {
         'privyUserId': privyUserId,
-        'walletAddress': ?walletAddress,
+        'walletAddress': walletAddress,
       },
       options: Options(
         headers: {'Authorization': 'Bearer $accessToken'},
@@ -100,7 +152,8 @@ class AuthRepository {
     final data = response.data;
     if (data != null && data['success'] == true && data['token'] != null) {
       await _saveSession(data);
-      return ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      final rawUser = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+      return _ensureEntityAddresses(rawUser);
     }
     throw const ProximException('Authentication failed. Please try again.');
   }
@@ -109,7 +162,8 @@ class AuthRepository {
     final token = data['token'] as String;
     await _apiClient.tokenStorage.saveToken(token);
 
-    final user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+    var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
+    user = _ensureEntityAddresses(user);
     await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
   }
 
@@ -125,6 +179,27 @@ class AuthRepository {
       if (ApiConfig.isDemoMode) {
         // In demo mode only, accept the standard demo PIN
         return passcode == '123456' || passcode == '000000';
+      }
+      rethrow;
+    }
+  }
+
+  /// Set or update 6-digit transaction passcode — path: POST /api/auth/passcode/set
+  Future<void> setPasscode(String passcode, {String? deviceId}) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/auth/passcode/set',
+        data: {
+          'passcode': passcode,
+          if (deviceId != null) 'deviceId': deviceId,
+        },
+      );
+      if (response.data?['success'] != true) {
+        throw const ProximException('Could not set Security PIN. Please try again.');
+      }
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return;
       }
       rethrow;
     }

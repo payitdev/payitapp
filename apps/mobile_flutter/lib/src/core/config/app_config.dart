@@ -42,11 +42,11 @@ import 'package:flutter/foundation.dart';
 class AppConfig {
   const AppConfig._();
 
-  /// Backend base URL. Defaults to localhost:3001 for local dev.
-  /// MUST be overridden in staging/production builds.
+  /// Backend base URL. Defaults to Render cloud backend.
+  /// Can be overridden via --dart-define=API_BASE_URL=...
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:3001',
+    defaultValue: 'https://payit-backend-td53.onrender.com',
   );
 
   /// When true, the app shows offline/demo data when the API is unreachable.
@@ -64,8 +64,14 @@ class AppConfig {
   /// Privy client ID — same resolution order as [privyAppId].
   static String privyClientId = _privyClientIdDefine;
 
-  static const String _privyAppIdDefine = String.fromEnvironment('PRIVY_APP_ID');
-  static const String _privyClientIdDefine = String.fromEnvironment('PRIVY_CLIENT_ID');
+  static const String _privyAppIdDefine = String.fromEnvironment(
+    'PRIVY_APP_ID',
+    defaultValue: 'cmt09hyk2006k0cl932bvr9kp',
+  );
+  static const String _privyClientIdDefine = String.fromEnvironment(
+    'PRIVY_CLIENT_ID',
+    defaultValue: 'client-WY6ctYcAHUvoR9zYY8PPnE73CFcEJjcy38JyMcuaaZEdw',
+  );
 
   /// Guard that fires in debug mode when a release build is misconfigured.
   static void validateConfig() {

@@ -462,6 +462,8 @@ class _TreasuryDashboardScreenState extends ConsumerState<TreasuryDashboardScree
             Text(
               label,
               textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: ProximTextStyles.labelSm(color: Colors.white).copyWith(fontSize: 11),
             ),
           ],

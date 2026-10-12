@@ -67,6 +67,48 @@ class CardsRepository {
     );
   }
 
+  /// Issue a new virtual card — path: POST /api/cards/issue
+  Future<ProximCard> issueCard({
+    required String entityId,
+    required String brand,
+    required String cardType,
+    double amount = 0,
+    String currency = 'USD',
+  }) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/api/cards/issue',
+        data: {
+          'entityId': entityId,
+          'brand': brand,
+          'cardType': cardType,
+          'amount': amount,
+          'currency': currency,
+        },
+      );
+      final data = response.data;
+      if (data != null && data['card'] != null) {
+        return ProximCard.fromJson(data['card'] as Map<String, dynamic>);
+      }
+      throw const ProximException('Unable to issue card. Please try again.');
+    } catch (e) {
+      if (ApiConfig.isDemoMode) {
+        return ProximCard(
+          id: 'card_${DateTime.now().millisecondsSinceEpoch}',
+          holderName: 'Alex Morgan',
+          lastFour: '${1000 + (DateTime.now().millisecondsSinceEpoch % 9000)}',
+          expiryMonth: '12',
+          expiryYear: '29',
+          network: brand.toUpperCase(),
+          status: 'ACTIVE',
+          balance: amount,
+          currency: currency,
+        );
+      }
+      rethrow;
+    }
+  }
+
   // ── Demo fallbacks ─────────────────────────────────────────────────────────
   static List<ProximCard> demoCards() => [
         const ProximCard(

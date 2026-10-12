@@ -53,12 +53,17 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         final amountColor = isCredit ? ProximColors.tertiary : Colors.white;
         final sign = isCredit ? '+' : '-';
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
               Center(
                 child: Container(
                   width: 36,
@@ -171,9 +176,11 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
+  },
+);
   }
 
   Widget _buildDetailRow(String label, String value, {bool isStatus = false}) {

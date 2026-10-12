@@ -1372,7 +1372,7 @@ export async function transferRoutes(server: FastifyInstance) {
    * Get Transaction History for Entity
    */
   server.get('/api/transfers/history', async (request, reply) => {
-    const { entityId } = request.query as { entityId: string };
+    const { entityId, limit } = request.query as { entityId: string; limit?: string };
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
     if (!request.session?.userEntityIds.includes(entityId)) return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
 
@@ -1385,12 +1385,13 @@ export async function transferRoutes(server: FastifyInstance) {
       });
     }
 
+    const parsedLimit = Math.min(Math.max(parseInt(limit || '30', 10) || 30, 1), 500);
     const dbTransfers = await db
       .select()
       .from(transfers)
       .where(eq(transfers.entityId, entityId))
       .orderBy(desc(transfers.createdAt))
-      .limit(30);
+      .limit(parsedLimit);
 
     const formatted = dbTransfers.map(row => {
       const tx = row as any;
@@ -1431,6 +1432,7 @@ export async function transferRoutes(server: FastifyInstance) {
         senderAccount: isInbound ? (tx.destinationAccountNumber || 'External Sender') : 'Proxim Balance',
         recipientAccount: isInbound ? 'Proxim Balance' : (tx.destinationAccountNumber || 'External Account'),
         reference: tx.dueTransferId || tx.id,
+        createdAt: tx.createdAt ? new Date(tx.createdAt).toISOString() : null,
       };
     });
 
@@ -1660,7 +1662,7 @@ export async function transferRoutes(server: FastifyInstance) {
       .limit(1);
 
     const tx = txRows[0];
-    const uetr = `UETR-${(payoutId || ulid()).slice(-8).toUpperCase()}`;
+    const trackingReference = tx?.dueTransferId || tx?.id || payoutId;
 
     return reply.send({
       success: true,
@@ -1670,7 +1672,8 @@ export async function transferRoutes(server: FastifyInstance) {
         stepIndex: tx?.status === 'completed' ? 4 : 2,
         currency: tx?.sourceCurrency || 'USD',
         amount: tx ? parseFloat(tx.sourceAmount) : 0,
-        uetrReference: uetr,
+        reference: trackingReference,
+        uetrReference: trackingReference,
         clearingNetwork: 'NIBSS / SWIFT / SEPA Instant',
         estimatedDelivery: 'Arrives in seconds',
         updatedAt: new Date().toISOString(),

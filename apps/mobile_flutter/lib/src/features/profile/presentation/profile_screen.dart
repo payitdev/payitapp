@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/providers/account_mode_provider.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../auth/presentation/auth_provider.dart';
+import '../../auth/presentation/security_pin_sheet.dart';
+import '../../home/presentation/kyc_verification_sheet.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -37,35 +39,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: ProximColors.surfaceContainerLow,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Terms of Service', style: ProximTextStyles.headlineSm()),
-              const SizedBox(height: 12),
-              Text(
-                'Proxim provides multi-currency payments, corporate treasury accounts, yield vaults, and digital asset settlements in compliance with applicable financial regulations.',
-                style: ProximTextStyles.bodySm(),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ProximColors.primary,
-                    foregroundColor: ProximColors.surfaceContainerLowest,
-                  ),
-                  child: const Text('Close'),
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Terms of Service', style: ProximTextStyles.headlineSm()),
+                const SizedBox(height: 12),
+                Text(
+                  'Proxim provides multi-currency payments, corporate treasury accounts, yield vaults, and digital asset settlements in compliance with applicable financial regulations.',
+                  style: ProximTextStyles.bodySm(),
                 ),
-              ),
-            ],
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ProximColors.primary,
+                      foregroundColor: ProximColors.surfaceContainerLowest,
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -243,15 +248,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               subtitle: _verificationSubtitle(dueStatus, entity?.kycTierLabel),
               trailing: _verificationChip(dueStatus),
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      dueStatus == 'approved'
-                          ? 'Identity verified. All features unlocked.'
-                          : 'Identity verification is coming soon.',
+                if (dueStatus == 'approved') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Identity verified. All features unlocked.'),
                     ),
-                  ),
-                );
+                  );
+                } else {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (ctx) => const KycVerificationSheet(),
+                  );
+                }
               },
             ),
           ]),
@@ -273,8 +283,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               title: 'Security PIN',
               subtitle: 'Change your 6-digit transaction passcode',
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Passcode setup coming in Phase 4')),
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => const SecurityPinSheet(),
                 );
               },
             ),

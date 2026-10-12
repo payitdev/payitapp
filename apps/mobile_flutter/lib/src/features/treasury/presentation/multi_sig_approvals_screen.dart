@@ -1,42 +1,136 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/presentation/auth_provider.dart';
+import '../domain/treasury_models.dart';
+import 'treasury_provider.dart';
 
-class MultiSigApprovalsScreen extends StatefulWidget {
+/// Multi-sig approval queue — fully data-driven from GET /api/approvals.
+/// Queue tab shows PENDING approvals (with per-signer Sign / Reject
+/// actions against POST /api/approvals/:id/sign); History tab shows
+/// everything that has left the queue (APPROVED / REJECTED / EXECUTED /
+/// EXPIRED).
+class MultiSigApprovalsScreen extends ConsumerStatefulWidget {
   const MultiSigApprovalsScreen({super.key});
 
   @override
-  State<MultiSigApprovalsScreen> createState() => _MultiSigApprovalsScreenState();
+  ConsumerState<MultiSigApprovalsScreen> createState() => _MultiSigApprovalsScreenState();
 }
 
-class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
-  int _selectedFilter = 0; // 0: Pending (2), 1: Executed (18), 2: Rejected (1)
-  bool _tx1Signed = false;
-  bool _tx2Signed = false;
+class _MultiSigApprovalsScreenState extends ConsumerState<MultiSigApprovalsScreen> {
+  int _selectedTab = 0; // 0: Queue, 1: History
+  bool _acting = false;
 
-  void _handleSign(int txId) {
-    setState(() {
-      if (txId == 1) _tx1Signed = true;
-      if (txId == 2) _tx2Signed = true;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.verified, size: 18, color: ProximColors.primary),
-            const SizedBox(width: 8),
-            Text('Transaction #0$txId signed & broadcasted to quorum'),
-          ],
-        ),
-        backgroundColor: ProximColors.surfaceContainerHigh,
-      ),
-    );
+  final NumberFormat _moneyFormat = NumberFormat('#,##0.00', 'en_US');
+  final DateFormat _dateFormat = DateFormat('MMM d, h:mm a');
+
+  String _currencySymbol(String currency) {
+    switch (currency) {
+      case 'NGN':
+        return '₦';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      default:
+        return '\$';
+    }
+  }
+
+  Future<void> _refresh() async {
+    ref.invalidate(approvalsProvider);
+    ref.invalidate(pendingApprovalsProvider);
+    await Future.wait([
+      ref.read(approvalsProvider('PENDING').future),
+      ref.read(approvalsProvider(null).future),
+    ]);
+  }
+
+  Future<void> _handleSign(PendingApproval approval, ApprovalSigner signer) async {
+    if (_acting) return;
+    setState(() => _acting = true);
+    try {
+      final repo = ref.read(treasuryRepositoryProvider);
+      final updated = await repo.signApproval(approval.id, signer.id);
+      _invalidateApprovals();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.verified, size: 18, color: ProximColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    updated.isPending
+                        ? 'Signature recorded for ${signer.label}'
+                        : '${updated.title} ${updated.status.toLowerCase()}',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: ProximColors.surfaceContainerHigh,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _handleReject(PendingApproval approval, ApprovalSigner signer) async {
+    if (_acting) return;
+    setState(() => _acting = true);
+    try {
+      final repo = ref.read(treasuryRepositoryProvider);
+      await repo.signApproval(approval.id, signer.id, reject: true);
+      _invalidateApprovals();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${signer.label} rejected ${approval.title}'),
+            backgroundColor: ProximColors.surfaceContainerHigh,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  void _invalidateApprovals() {
+    ref.invalidate(approvalsProvider('PENDING'));
+    ref.invalidate(approvalsProvider(null));
+    ref.invalidate(pendingApprovalsProvider);
   }
 
   @override
   Widget build(BuildContext context) {
+    final queueAsync = ref.watch(approvalsProvider('PENDING'));
+    final historyAsync = ref.watch(approvalsProvider(null));
+    final entity = ref.watch(activeEntityProvider);
+
+    final queue = queueAsync.value ?? const <PendingApproval>[];
+    final history = (historyAsync.value ?? const <PendingApproval>[])
+        .where((a) => !a.isPending)
+        .toList();
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -45,56 +139,29 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
             children: [
               _buildTopBar(context),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                child: RefreshIndicator(
+                  onRefresh: _refresh,
+                  color: ProximColors.primary,
+                  backgroundColor: ProximColors.surfaceContainerHigh,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     children: [
-                      _buildHeader(),
+                      _buildHeader(entity?.legalName ?? 'Organization'),
                       const SizedBox(height: 12),
-                      _buildNoticePill(),
-                      const SizedBox(height: 14),
-                      _buildQuorumOverviewCard(),
-                      const SizedBox(height: 14),
-                      _buildFilterTabs(),
-                      const SizedBox(height: 14),
-                      if (!_tx1Signed)
-                        _buildTransactionCard(
-                          txId: 1,
-                          tag: 'Infrastructure',
-                          priority: 'Priority 1',
-                          expiresIn: 'Expires in 4h 18m',
-                          amount: '\$24,500.00',
-                          countervalue: '≈ ₦39,077,500 NGN',
-                          title: 'AWS Cloud & Solana RPC Nodes',
-                          dest: 'To: 0x4a9b...77f1 (AWS Billing Core)',
-                          purpose: 'Purpose: Q3 Enterprise Infrastructure Deployment',
-                          progressText: '1 of 2 Signed',
-                          progressFraction: 0.5,
-                          signerNote: 'Elena Rostova approved at 10:14 AM',
-                          onSign: () => _handleSign(1),
-                        )
+                      if (queueAsync.hasError)
+                        const SizedBox.shrink()
                       else
-                        _buildSignedBanner('Transaction #01 (AWS Cloud) Finalized'),
-                      const SizedBox(height: 12),
-                      if (!_tx2Signed)
-                        _buildTransactionCard(
-                          txId: 2,
-                          tag: 'Payroll Batch',
-                          priority: '8 Recipients',
-                          expiresIn: 'Expires in 18h',
-                          amount: '\$38,200.00',
-                          countervalue: '≈ ₦60,929,000 NGN',
-                          title: 'Q3 Team Payroll Disbursement',
-                          dest: 'To: Proxim Payroll Smart Escrow',
-                          purpose: 'Cycle: September 15 Mid-Month Disbursal',
-                          progressText: '1 of 2 Signed',
-                          progressFraction: 0.5,
-                          signerNote: 'Alex Rivera approved at 8:45 AM',
-                          onSign: () => _handleSign(2),
-                        )
+                        _buildNoticePill(queueAsync.isLoading ? null : queue.length),
+                      const SizedBox(height: 14),
+                      _buildQuorumOverviewCard(queueAsync.isLoading ? const [] : queue),
+                      const SizedBox(height: 14),
+                      _buildFilterTabs(queue.length, history.length),
+                      const SizedBox(height: 14),
+                      if (_selectedTab == 0)
+                        _buildQueueBody(queueAsync)
                       else
-                        _buildSignedBanner('Transaction #02 (Payroll) Finalized'),
+                        _buildHistoryBody(historyAsync, history),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -151,7 +218,7 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(String entityName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -166,11 +233,14 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
               ),
             ),
             const SizedBox(width: 6),
-            Text(
-              'ACME GLOBAL TECHNOLOGIES • MULTI-SIG',
-              style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant).copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
+            Flexible(
+              child: Text(
+                '${entityName.toUpperCase()} • MULTI-SIG',
+                style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant).copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -181,7 +251,32 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
     );
   }
 
-  Widget _buildNoticePill() {
+  Widget _buildNoticePill(int? pendingCount) {
+    if (pendingCount == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: ProximColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: ProximColors.hairlineBorder),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.lock_clock, size: 16, color: ProximColors.statusWarning),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Checking for approvals that need your signature…',
+                style: ProximTextStyles.labelSm(color: ProximColors.textWhite),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final hasPending = pendingCount > 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -192,33 +287,65 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.lock_clock, size: 16, color: ProximColors.statusWarning),
-              const SizedBox(width: 8),
-              Text(
-                '2 pending transactions require your signature',
-                style: ProximTextStyles.labelSm(color: ProximColors.textWhite),
+          Flexible(
+            child: Row(
+              children: [
+                Icon(
+                  hasPending ? Icons.lock_clock : Icons.check_circle,
+                  size: 16,
+                  color: hasPending ? ProximColors.statusWarning : ProximColors.statusSuccess,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    hasPending
+                        ? '$pendingCount pending approval${pendingCount == 1 ? '' : 's'} require${pendingCount == 1 ? 's' : ''} your signature'
+                        : 'No signatures outstanding',
+                    style: ProximTextStyles.labelSm(color: ProximColors.textWhite),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasPending) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: ProximColors.statusWarning.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
               ),
-            ],
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: ProximColors.statusWarning.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(4),
+              child: Text(
+                'ACTION',
+                style: ProximTextStyles.labelXs(color: ProximColors.statusWarning).copyWith(fontWeight: FontWeight.w700),
+              ),
             ),
-            child: Text(
-              'ACTION',
-              style: ProximTextStyles.labelXs(color: ProximColors.statusWarning).copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildQuorumOverviewCard() {
+  Widget _buildQuorumOverviewCard(List<PendingApproval> queue) {
+    final totalRequired = queue.fold<int>(0, (sum, a) => sum + a.requiredSignatures);
+    final totalSigned = queue.fold<int>(0, (sum, a) => sum + a.signedCount);
+    final outstanding = totalRequired - totalSigned;
+
+    // Distinct signer slots across the queue, deduped by label, most
+    // advanced status wins (SIGNED > REJECTED > PENDING).
+    final slots = <String, ApprovalSigner>{};
+    for (final approval in queue) {
+      for (final signer in approval.signers) {
+        final existing = slots[signer.label];
+        if (existing == null || _statusRank(signer.status) > _statusRank(existing.status)) {
+          slots[signer.label] = signer;
+        }
+      }
+    }
+    final signers = slots.values.toList()
+      ..sort((a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)));
+
     return Container(
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainer,
@@ -242,13 +369,22 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.verified_user, size: 16, color: ProximColors.primary),
-                        const SizedBox(width: 6),
-                        Text('VAULT QUORUM THRESHOLD', style: ProximTextStyles.labelXs()),
-                      ],
+                    Flexible(
+                      child: Row(
+                        children: [
+                          const Icon(Icons.verified_user, size: 16, color: ProximColors.primary),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'VAULT QUORUM THRESHOLD',
+                              style: ProximTextStyles.labelXs(),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
@@ -260,33 +396,30 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text('2 of 3 Hardware Keys Required', style: ProximTextStyles.headlineSm()),
+                Text(
+                  queue.isEmpty
+                      ? 'No signatures outstanding'
+                      : '$totalSigned of $totalRequired signatures collected across ${queue.length} queued approval${queue.length == 1 ? '' : 's'}',
+                  style: ProximTextStyles.headlineSm(),
+                ),
+                if (queue.isNotEmpty && outstanding > 0)
+                  Text(
+                    '$outstanding signature${outstanding == 1 ? '' : 's'} still required',
+                    style: ProximTextStyles.labelXs(color: ProximColors.statusWarning),
+                  ),
                 const SizedBox(height: 12),
-
-                // Signers List
-                _buildSignerTile(
-                  name: 'Alex Rivera',
-                  role: 'CEO',
-                  keyNote: 'Key #1: Active Signer',
-                  badge: 'Standing',
-                  isSuccess: true,
-                ),
-                const SizedBox(height: 6),
-                _buildSignerTile(
-                  name: 'Elena Rostova',
-                  role: 'CFO',
-                  keyNote: 'Key #2: Signed (14m ago)',
-                  badge: 'Signed',
-                  isSuccess: true,
-                ),
-                const SizedBox(height: 6),
-                _buildSignerTile(
-                  name: 'Hardware Cold Key',
-                  role: '(You)',
-                  keyNote: 'Key #3: Awaiting Signature',
-                  badge: 'Required',
-                  isWarning: true,
-                ),
+                if (signers.isEmpty)
+                  Text(
+                    'Signer slots will appear here once an approval is queued.',
+                    style: ProximTextStyles.labelXs(),
+                  )
+                else
+                  ...signers.map(
+                    (signer) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _buildSignerTile(signer: signer),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -295,14 +428,45 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
     );
   }
 
-  Widget _buildSignerTile({
-    required String name,
-    required String role,
-    required String keyNote,
-    required String badge,
-    bool isSuccess = false,
-    bool isWarning = false,
-  }) {
+  int _statusRank(String status) {
+    switch (status) {
+      case 'SIGNED':
+        return 2;
+      case 'REJECTED':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'SIGNED':
+      case 'APPROVED':
+      case 'EXECUTED':
+        return ProximColors.statusSuccess;
+      case 'REJECTED':
+        return ProximColors.statusDanger;
+      default:
+        return ProximColors.statusWarning;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case 'SIGNED':
+      case 'APPROVED':
+      case 'EXECUTED':
+        return Icons.check;
+      case 'REJECTED':
+        return Icons.close;
+      default:
+        return Icons.key;
+    }
+  }
+
+  Widget _buildSignerTile({required ApprovalSigner signer}) {
+    final color = _statusColor(signer.status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -312,53 +476,53 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isSuccess ? ProximColors.statusSuccess.withValues(alpha: 0.15) : ProximColors.statusWarning.withValues(alpha: 0.15),
+          Flexible(
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(alpha: 0.15),
+                  ),
+                  child: Icon(_statusIcon(signer.status), size: 16, color: color),
                 ),
-                child: Icon(
-                  isSuccess ? Icons.check : Icons.key,
-                  size: 16,
-                  color: isSuccess ? ProximColors.statusSuccess : ProximColors.statusWarning,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(width: 4),
-                      Text(role, style: ProximTextStyles.labelXs()),
+                      Text(
+                        signer.label,
+                        style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        [
+                          if (signer.keyNote != null && signer.keyNote!.isNotEmpty) signer.keyNote,
+                          if (signer.isSigned && signer.signedAt != null) 'Signed ${_dateFormat.format(signer.signedAt!)}',
+                          if (signer.isRejected && signer.signedAt != null) 'Rejected ${_dateFormat.format(signer.signedAt!)}',
+                        ].whereType<String>().join(' • '),
+                        style: ProximTextStyles.labelXs(color: color),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
-                  Text(
-                    keyNote,
-                    style: ProximTextStyles.labelXs(
-                      color: isSuccess ? ProximColors.statusSuccess : ProximColors.statusWarning,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: (isSuccess ? ProximColors.statusSuccess : ProximColors.statusWarning).withValues(alpha: 0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              badge,
-              style: ProximTextStyles.labelXs(
-                color: isSuccess ? ProximColors.statusSuccess : ProximColors.statusWarning,
-              ).copyWith(fontWeight: FontWeight.w600),
+              signer.status,
+              style: ProximTextStyles.labelXs(color: color).copyWith(fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -366,16 +530,16 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
     );
   }
 
-  Widget _buildFilterTabs() {
-    final tabs = ['Pending (2)', 'Executed (18)', 'Rejected (1)'];
+  Widget _buildFilterTabs(int queueCount, int historyCount) {
+    final tabs = ['Queue ($queueCount)', 'History ($historyCount)'];
     return Row(
       children: List.generate(tabs.length, (index) {
-        final isSelected = _selectedFilter == index;
+        final isSelected = _selectedTab == index;
         return Expanded(
           child: Padding(
             padding: EdgeInsets.only(right: index == tabs.length - 1 ? 0 : 6),
             child: GestureDetector(
-              onTap: () => setState(() => _selectedFilter = index),
+              onTap: () => setState(() => _selectedTab = index),
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
@@ -398,21 +562,130 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
     );
   }
 
-  Widget _buildTransactionCard({
-    required int txId,
-    required String tag,
-    required String priority,
-    required String expiresIn,
-    required String amount,
-    required String countervalue,
-    required String title,
-    required String dest,
-    required String purpose,
-    required String progressText,
-    required double progressFraction,
-    required String signerNote,
-    required VoidCallback onSign,
+  Widget _buildQueueBody(AsyncValue<List<PendingApproval>> queueAsync) {
+    return queueAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator(color: ProximColors.primary)),
+      ),
+      error: (error, _) => _buildErrorState(
+        error,
+        onRetry: () => ref.invalidate(approvalsProvider('PENDING')),
+      ),
+      data: (approvals) {
+        if (approvals.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.inbox_outlined,
+            message: 'No approvals queued',
+            detail: 'New approval requests will appear here for signature.',
+          );
+        }
+        return Column(
+          children: [
+            for (final approval in approvals) ...[
+              _buildApprovalCard(approval),
+              const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryBody(
+    AsyncValue<List<PendingApproval>> historyAsync,
+    List<PendingApproval> history,
+  ) {
+    return historyAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator(color: ProximColors.primary)),
+      ),
+      error: (error, _) => _buildErrorState(
+        error,
+        onRetry: () => ref.invalidate(approvalsProvider(null)),
+      ),
+      data: (_) {
+        if (history.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.history,
+            message: 'No approvals yet',
+            detail: 'Approved, rejected and executed approvals will show here.',
+          );
+        }
+        return Column(
+          children: [
+            for (final approval in history) ...[
+              _buildHistoryCard(approval),
+              const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildErrorState(Object error, {required VoidCallback onRetry}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ProximColors.hairlineBorder),
+      ),
+      child: Column(
+        children: [
+          Text(error.toString(), style: ProximTextStyles.bodySm()),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: onRetry,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: ProximColors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(9999),
+              ),
+              child: Text(
+                'Retry',
+                style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState({
+    required IconData icon,
+    required String message,
+    required String detail,
   }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ProximColors.hairlineBorder),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 28, color: ProximColors.onSurfaceVariant),
+          const SizedBox(height: 10),
+          Text(message, style: ProximTextStyles.headlineSm()),
+          const SizedBox(height: 4),
+          Text(detail, style: ProximTextStyles.labelXs(), textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApprovalCard(PendingApproval approval) {
+    final fraction = approval.requiredSignatures > 0
+        ? (approval.signedCount / approval.requiredSignatures).clamp(0.0, 1.0)
+        : 0.0;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -426,28 +699,22 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: ProximColors.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(tag, style: ProximTextStyles.labelXs(color: ProximColors.primary)),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: ProximColors.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(priority, style: ProximTextStyles.labelXs()),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: ProximColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  approval.status,
+                  style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                ),
               ),
-              Text(expiresIn, style: ProximTextStyles.labelXs(color: ProximColors.statusWarning)),
+              if (approval.createdAt != null)
+                Text(
+                  'Created ${_dateFormat.format(approval.createdAt!)}',
+                  style: ProximTextStyles.labelXs(),
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -456,16 +723,15 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                amount,
+                '${_currencySymbol(approval.currency)}${_moneyFormat.format(approval.amount)}',
                 style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
               const SizedBox(width: 6),
-              Text('USDC', style: ProximTextStyles.headlineSm()),
+              Text(approval.currency, style: ProximTextStyles.headlineSm()),
             ],
           ),
-          Text(countervalue, style: ProximTextStyles.bodySm()),
           const SizedBox(height: 10),
 
           // Detail box
@@ -478,11 +744,14 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: ProximTextStyles.labelSm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text(dest, style: ProximTextStyles.labelXs(color: ProximColors.primary)),
-                const SizedBox(height: 2),
-                Text(purpose, style: ProximTextStyles.labelXs()),
+                Text(
+                  approval.title,
+                  style: ProximTextStyles.labelSm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600),
+                ),
+                if (approval.description != null && approval.description!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(approval.description!, style: ProximTextStyles.labelXs()),
+                ],
               ],
             ),
           ),
@@ -492,95 +761,167 @@ class _MultiSigApprovalsScreenState extends State<MultiSigApprovalsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(signerNote, style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
-              Text(progressText, style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+              Text(
+                '${approval.signedCount} of ${approval.requiredSignatures} Signed',
+                style: ProximTextStyles.labelXs(color: ProximColors.primary),
+              ),
+              if (approval.updatedAt != null)
+                Text(
+                  'Updated ${_dateFormat.format(approval.updatedAt!)}',
+                  style: ProximTextStyles.labelXs(),
+                ),
             ],
           ),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(9999),
             child: LinearProgressIndicator(
-              value: progressFraction,
+              value: fraction,
               backgroundColor: ProximColors.surfaceContainerLowest,
               valueColor: const AlwaysStoppedAnimation<Color>(ProximColors.primary),
               minHeight: 4,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
-          // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Transaction rejected')),
-                    );
-                  },
-                  child: Container(
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: ProximColors.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Center(
-                      child: Text('Decline', style: ProximTextStyles.labelSm(color: ProximColors.statusDanger)),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 2,
-                child: GestureDetector(
-                  onTap: onSign,
-                  child: Container(
-                    height: 42,
-                    decoration: BoxDecoration(
-                      gradient: ProximColors.auroraGradient,
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.fingerprint, size: 16, color: ProximColors.surfaceContainerLowest),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Sign & Authorize',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: ProximColors.surfaceContainerLowest,
-                            ),
+          // Signer slots with per-slot actions
+          for (final signer in approval.signers) ...[
+            _buildSignerTile(signer: signer),
+            if (signer.isPending) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _acting ? null : () => _handleReject(approval, signer),
+                      child: Container(
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: ProximColors.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(9999),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Decline for ${signer.label}',
+                            style: ProximTextStyles.labelXs(color: ProximColors.statusDanger),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: GestureDetector(
+                      onTap: _acting ? null : () => _handleSign(approval, signer),
+                      child: Container(
+                        height: 36,
+                        decoration: BoxDecoration(
+                          gradient: ProximColors.auroraGradient,
+                          borderRadius: BorderRadius.circular(9999),
+                        ),
+                        child: Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.fingerprint, size: 16, color: ProximColors.surfaceContainerLowest),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Sign as ${signer.label}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: ProximColors.surfaceContainerLowest,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
-          ),
+            const SizedBox(height: 6),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildSignedBanner(String message) {
+  Widget _buildHistoryCard(PendingApproval approval) {
+    final color = _statusColor(approval.status);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ProximColors.statusSuccess.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ProximColors.hairlineBorder),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.check_circle, size: 18, color: ProximColors.statusSuccess),
-          const SizedBox(width: 10),
-          Expanded(child: Text(message, style: ProximTextStyles.labelSm(color: ProximColors.statusSuccess))),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  approval.status,
+                  style: ProximTextStyles.labelXs(color: color).copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (approval.updatedAt != null)
+                Text(
+                  _dateFormat.format(approval.updatedAt!),
+                  style: ProximTextStyles.labelXs(),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      approval.title,
+                      style: ProximTextStyles.labelSm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (approval.description != null && approval.description!.isNotEmpty)
+                      Text(
+                        approval.description!,
+                        style: ProximTextStyles.labelXs(),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '${_currencySymbol(approval.currency)}${_moneyFormat.format(approval.amount)} ${approval.currency}',
+                style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${approval.signedCount} of ${approval.requiredSignatures} signatures collected',
+            style: ProximTextStyles.labelXs(color: ProximColors.primary),
+          ),
         ],
       ),
     );

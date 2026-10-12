@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/network/api_config.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/presentation/auth_provider.dart';
 import '../domain/transfers_models.dart';
 import 'transfers_provider.dart';
 
@@ -20,9 +21,11 @@ class SendPayoutScreen extends ConsumerStatefulWidget {
 class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _recipientController = TextEditingController();
-  int _selectedRail = 0; // 0: Nuvion African, 1: Multi-chain, 2: Bank Wire
+  int _selectedRail = 0; // 0: Paytag, 1: Nuvion African, 2: Multi-chain, 3: Bank Wire
   int _countdownSeconds = 0;
   Timer? _timer;
+  Timer? _searchDebounce;
+  ResolvedIdentity? _resolvedUser;
   bool _isAuthorizing = false;
   bool _isDispatched = false;
 
@@ -43,9 +46,31 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     });
   }
 
+  void _onRecipientChanged(String query) {
+    setState(() {});
+    if (_selectedRail != 0) return;
+
+    _searchDebounce?.cancel();
+    final clean = query.trim().replaceAll('@', '');
+    if (clean.length < 2) {
+      if (_resolvedUser != null) {
+        setState(() => _resolvedUser = null);
+      }
+      return;
+    }
+
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final identity = await ref.read(transfersRepositoryProvider).resolveUserIdentity(clean);
+      if (mounted) {
+        setState(() => _resolvedUser = identity);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _searchDebounce?.cancel();
     _amountController.dispose();
     _recipientController.dispose();
     super.dispose();
@@ -79,7 +104,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     final recipientName = _recipientController.text.trim();
     final cleanAmount = _amount;
     if (recipientName.isEmpty) {
-      _showError('Please enter a recipient name.');
+      _showError(_selectedRail == 0
+          ? 'Please enter a recipient Paytag or @username.'
+          : 'Please enter a recipient name.');
       return;
     }
     if (cleanAmount <= 0) {
@@ -87,24 +114,44 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
       return;
     }
 
-    final quote = liveQuote ?? ref.read(fxQuoteProvider((from: 'USD', to: 'NGN', amount: cleanAmount))).value;
-    if (quote == null) {
-      _showError("We couldn't lock in a live rate. Please try again.");
-      return;
-    }
-
-    final railName = _selectedRail == 0
-        ? 'Nuvion African Payout Rail'
-        : (_selectedRail == 1 ? 'Multi-Chain Digital Rail' : 'Global Bank Wire');
-
     setState(() => _isAuthorizing = true);
     try {
-      await ref.read(transfersRepositoryProvider).sendTransfer(
-            recipientName: recipientName,
-            amount: cleanAmount,
-            currency: 'USD',
-            rail: railName,
-          );
+      if (_selectedRail == 0) {
+        // Instant P2P Paytag Clearing
+        final entity = ref.read(activeEntityProvider);
+        if (entity == null) {
+          _showError('No active account found.');
+          setState(() => _isAuthorizing = false);
+          return;
+        }
+        final targetTag = recipientName.replaceAll('@', '');
+        await ref.read(transfersRepositoryProvider).sendInternalP2P(
+              fromEntityId: entity.id,
+              toUsernameOrTag: targetTag,
+              amount: cleanAmount,
+              currency: 'USD',
+              narration: 'Proxim Instant Paytag transfer',
+            );
+      } else {
+        // Cross-border / External rail execution
+        final quote = liveQuote ?? ref.read(fxQuoteProvider((from: 'USD', to: 'NGN', amount: cleanAmount))).value;
+        if (quote == null) {
+          _showError("We couldn't lock in a live rate. Please try again.");
+          setState(() => _isAuthorizing = false);
+          return;
+        }
+
+        final railName = _selectedRail == 1
+            ? 'Nuvion African Payout Rail'
+            : (_selectedRail == 2 ? 'Multi-Chain Digital Rail' : 'Global Bank Wire');
+
+        await ref.read(transfersRepositoryProvider).sendTransfer(
+              recipientName: recipientName,
+              amount: cleanAmount,
+              currency: 'USD',
+              rail: railName,
+            );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isAuthorizing = false);
@@ -468,11 +515,21 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
         ),
         const SizedBox(height: 8),
 
-        // Rail 1: Nuvion African Payout
+        // Rail 0: Proxim Instant Paytag
         _buildRailCard(
           index: 0,
+          title: 'Proxim Instant Paytag',
+          badge: 'Zero Fee',
+          subtitle: 'Direct clearing to any @username',
+          icon: Icons.alternate_email,
+        ),
+        const SizedBox(height: 6),
+
+        // Rail 1: Nuvion African Payout
+        _buildRailCard(
+          index: 1,
           title: 'Nuvion African Payout',
-          badge: 'Fastest',
+          badge: 'Corridor',
           subtitle: 'Direct corridor • NGN, KES, GHS',
           icon: Icons.public,
         ),
@@ -480,7 +537,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
 
         // Rail 2: Digital Dollar
         _buildRailCard(
-          index: 1,
+          index: 2,
           title: 'Digital Dollar Settlement',
           subtitle: 'Direct settlement across 5 global rails',
           icon: Icons.account_balance_wallet_outlined,
@@ -489,7 +546,7 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
 
         // Rail 3: Bank Wire
         _buildRailCard(
-          index: 2,
+          index: 3,
           title: 'Global Bank Wire',
           subtitle: 'Global wire clearing (ACH / SEPA / SWIFT)',
           icon: Icons.account_balance_outlined,
@@ -643,20 +700,39 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                           Text('RECIPIENT', style: ProximTextStyles.labelXs()),
                           TextField(
                             controller: _recipientController,
-                            onChanged: (_) => setState(() {}),
+                            onChanged: _onRecipientChanged,
                             style: ProximTextStyles.headlineSm(),
                             decoration: InputDecoration(
                               border: InputBorder.none,
                               isDense: true,
                               contentPadding: EdgeInsets.zero,
-                              hintText: 'Enter recipient name',
+                              hintText: _selectedRail == 0
+                                  ? 'Enter @username or paytag'
+                                  : 'Enter recipient name',
                               hintStyle: ProximTextStyles.headlineSm(
                                 color: ProximColors.onSurfaceVariant,
                               ),
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text('Cross-border payout beneficiary', style: ProximTextStyles.bodySm()),
+                          if (_selectedRail == 0 && _resolvedUser != null)
+                            Row(
+                              children: [
+                                const Icon(Icons.verified, size: 13, color: ProximColors.statusSuccess),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${_resolvedUser!.legalName} · @${_resolvedUser!.username}',
+                                  style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                                ),
+                              ],
+                            )
+                          else
+                            Text(
+                              _selectedRail == 0
+                                  ? 'Instant zero-fee peer-to-peer transfer'
+                                  : 'Cross-border payout beneficiary',
+                              style: ProximTextStyles.bodySm(),
+                            ),
                         ],
                       ),
                     ),
@@ -664,27 +740,64 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Guaranteed Live FX banner
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: ProximColors.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Flexible(
-                        child: Row(
+                // Guaranteed Live FX / Instant P2P Settlement Banner
+                if (_selectedRail == 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: ProximColors.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            if (quoteAsync.isLoading)
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
-                              )
-                            else
-                              const Icon(Icons.lock_clock, size: 18, color: ProximColors.primary),
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: const BoxDecoration(
+                                color: ProximColors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.bolt, size: 14, color: Colors.black),
+                            ),
+                            const SizedBox(width: 8),
+                            Text('Instant P2P Ledger Clearing', style: ProximTextStyles.bodySm()),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: ProximColors.statusSuccess.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text('0.00% FEE', style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: ProximColors.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                          child: Row(
+                            children: [
+                              if (quoteAsync.isLoading)
+                                const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                                )
+                              else
+                                const Icon(Icons.lock_clock, size: 18, color: ProximColors.primary),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Column(

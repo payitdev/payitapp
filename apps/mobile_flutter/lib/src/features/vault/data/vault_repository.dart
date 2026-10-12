@@ -45,4 +45,41 @@ class VaultRepository {
       data: {'strategyId': strategyId, 'amount': amount, 'currency': currency},
     );
   }
+
+  /// Live yield routes with APYs across Kamino + NEAR Intent Earn —
+  /// GET /api/kamino/yield-options. Returns an empty list when the
+  /// service is unavailable so the UI can fall back to '—'.
+  Future<List<VaultYieldOption>> getYieldOptions() async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>('/api/kamino/yield-options');
+      final data = response.data;
+      if (data != null && data['options'] is List) {
+        return (data['options'] as List)
+            .map((o) => VaultYieldOption.fromJson(o as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Auto-save configuration for an entity — GET /api/kamino/auto-save.
+  /// Falls back to disabled when unavailable so the badge never claims
+  /// a state we could not verify.
+  Future<AutoSaveStatus> getAutoSave({required String entityId}) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/kamino/auto-save',
+        queryParameters: {'entityId': entityId},
+      );
+      final data = response.data;
+      if (data != null) {
+        return AutoSaveStatus.fromJson(data);
+      }
+      return const AutoSaveStatus(enabled: false, liquidBufferUsd: 0);
+    } catch (_) {
+      return const AutoSaveStatus(enabled: false, liquidBufferUsd: 0);
+    }
+  }
 }

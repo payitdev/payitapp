@@ -41,43 +41,46 @@ class ProximBottomNav extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(9999),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                height: 64,
-                decoration: BoxDecoration(
-                  color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(9999),
-                  border: Border.all(color: ProximColors.elevatedBorder),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      blurRadius: 28,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Row(
-                  children: items.map((item) {
-                    final isSelected = item.path == '/'
-                        ? currentPath == '/'
-                        : currentPath.startsWith(item.path);
-
-                    return Expanded(
-                      child: _NavItemButton(
-                        item: item,
-                        isSelected: isSelected,
-                        onTap: () {
-                          if (currentPath != item.path) {
-                            context.go(item.path);
-                          }
-                        },
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(9999),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(9999),
+                    border: Border.all(color: ProximColors.elevatedBorder),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 28,
+                        offset: const Offset(0, 10),
                       ),
-                    );
-                  }).toList(),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    children: items.map((item) {
+                      final isSelected = item.path == '/'
+                          ? currentPath == '/'
+                          : currentPath.startsWith(item.path);
+
+                      return Expanded(
+                        child: _NavItemButton(
+                          item: item,
+                          isSelected: isSelected,
+                          onTap: () {
+                            if (currentPath != item.path) {
+                              context.go(item.path);
+                            }
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
             ),
@@ -129,6 +132,8 @@ class _NavItemButton extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             item.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 10,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,

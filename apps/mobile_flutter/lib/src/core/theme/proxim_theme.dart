@@ -43,6 +43,7 @@ class ProximColors {
   static const Color statusSuccess = Color(0xFF10B981);
   static const Color statusWarning = Color(0xFFF59E0B);
   static const Color statusDanger = Color(0xFFEF4444);
+  static const Color statusError = Color(0xFFEF4444);
   static const Color error = Color(0xFFFFB4AB);
 
   // Typography & On-Surface

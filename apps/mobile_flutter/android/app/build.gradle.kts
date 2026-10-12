@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "app.proxim.proxim_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

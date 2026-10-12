@@ -1,36 +1,91 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
+import '../../auth/presentation/auth_provider.dart';
+import '../data/payment_requests_repository.dart';
+import 'invoices_provider.dart';
 
-class PaymentRequestHubScreen extends StatefulWidget {
+class PaymentRequestHubScreen extends ConsumerStatefulWidget {
   const PaymentRequestHubScreen({super.key});
 
   @override
-  State<PaymentRequestHubScreen> createState() => _PaymentRequestHubScreenState();
+  ConsumerState<PaymentRequestHubScreen> createState() => _PaymentRequestHubScreenState();
 }
 
-class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
-  int _selectedTab = 0; // 0: Inbound (3), 1: Outbound (5), 2: Archived
+class _PaymentRequestHubScreenState extends ConsumerState<PaymentRequestHubScreen> {
+  int _selectedTab = 0; // 0: Inbound, 1: Outbound, 2: Settled / Archived
+  String? _processingRequestId;
 
-  void _showPaymentSuccess(String name, String amount) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.verified, size: 18, color: ProximColors.primary),
-            const SizedBox(width: 8),
-            Text('Payment of $amount to $name approved'),
-          ],
+  Future<void> _handleApprove(PaymentRequestItem item, String entityId) async {
+    if (_processingRequestId != null) return;
+    setState(() => _processingRequestId = item.id);
+    try {
+      final repo = ref.read(paymentRequestsRepositoryProvider);
+      await repo.fulfillRequest(entityId: entityId, requestId: item.id);
+      ref.invalidate(paymentRequestsProvider(entityId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.verified, size: 18, color: ProximColors.primary),
+              const SizedBox(width: 8),
+              Text('Payment of \$${item.amount.toStringAsFixed(2)} to ${item.requesterName} completed'),
+            ],
+          ),
+          backgroundColor: ProximColors.surfaceContainerHigh,
         ),
-        backgroundColor: ProximColors.surfaceContainerHigh,
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: ProximColors.statusError,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _processingRequestId = null);
+    }
+  }
+
+  Future<void> _handleDecline(PaymentRequestItem item, String entityId) async {
+    if (_processingRequestId != null) return;
+    setState(() => _processingRequestId = item.id);
+    try {
+      final repo = ref.read(paymentRequestsRepositoryProvider);
+      await repo.declineRequest(entityId: entityId, requestId: item.id);
+      ref.invalidate(paymentRequestsProvider(entityId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Request from ${item.requesterName} declined'),
+          backgroundColor: ProximColors.surfaceContainerHigh,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: ProximColors.statusError,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _processingRequestId = null);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final entity = ref.watch(activeEntityProvider);
+    final entityId = entity?.id ?? '';
+    final requestsAsync = entityId.isEmpty ? null : ref.watch(paymentRequestsProvider(entityId));
+    final data = requestsAsync?.value;
+
     return Scaffold(
       backgroundColor: ProximColors.backgroundVoid,
       body: CenteredAppContainer(
@@ -46,29 +101,13 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                     children: [
                       _buildHeader(),
                       const SizedBox(height: 14),
-                      _buildSegmentedTabs(),
+                      _buildSegmentedTabs(data),
                       const SizedBox(height: 14),
-                      _buildMetricsBento(),
+                      _buildMetricsBento(data),
                       const SizedBox(height: 16),
-                      _buildVerifiedSectionHeader(),
+                      _buildSectionHeader(),
                       const SizedBox(height: 10),
-                      _buildRequestCard(
-                        name: 'Elena Rostova',
-                        role: 'Product Ops • London HQ',
-                        amount: '\$1,250.00',
-                        currency: 'USDC Inbound',
-                        memo: 'Q3 Travel Reimbursement • London Fintech Summit',
-                        onApprove: () => _showPaymentSuccess('Elena Rostova', '\$1,250.00'),
-                      ),
-                      const SizedBox(height: 10),
-                      _buildRequestCard(
-                        name: 'David Miller',
-                        role: 'Lead Engineer • Core Infra',
-                        amount: '\$3,400.00',
-                        currency: 'USDC Inbound',
-                        memo: 'Compute Cluster Renewal & Dedicated Nodes',
-                        onApprove: () => _showPaymentSuccess('David Miller', '\$3,400.00'),
-                      ),
+                      _buildRequestsList(requestsAsync, entityId),
                       const SizedBox(height: 20),
                       _buildCreateRequestCta(context),
                       const SizedBox(height: 32),
@@ -106,10 +145,22 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
               }
             },
           ),
-          Text('Request Hub', style: ProximTextStyles.headlineSm()),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Payment Hub',
+              style: ProximTextStyles.headlineSm(),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.qr_code_2, size: 22, color: ProximColors.primary),
-            onPressed: () => context.push('/receive'),
+            icon: const Icon(Icons.refresh, size: 20, color: ProximColors.primary),
+            onPressed: () {
+              final entity = ref.read(activeEntityProvider);
+              if (entity != null) ref.invalidate(paymentRequestsProvider(entity.id));
+            },
           ),
         ],
       ),
@@ -132,10 +183,10 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
             ),
             const SizedBox(width: 6),
             Text(
-              'PEER & TREASURY RECEIVABLES',
+              'PEER CLEARING PROTOCOL',
               style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
+                letterSpacing: 1.2,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
               ),
             ),
           ],
@@ -146,8 +197,15 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
     );
   }
 
-  Widget _buildSegmentedTabs() {
-    final tabs = ['Inbound (3)', 'Outbound (5)', 'Archived'];
+  Widget _buildSegmentedTabs(PaymentRequestsData? data) {
+    final inboundCount = data?.allInbound.length ?? 0;
+    final outboundCount = data?.outbound.length ?? 0;
+    final tabs = [
+      'Inbound ($inboundCount)',
+      'Outbound ($outboundCount)',
+      'Settled',
+    ];
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -183,7 +241,12 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
     );
   }
 
-  Widget _buildMetricsBento() {
+  Widget _buildMetricsBento(PaymentRequestsData? data) {
+    final pendingOutbound = data?.outbound.where((r) => r.status == 'PENDING').toList() ?? [];
+    final pendingOutboundTotal = pendingOutbound.fold<double>(0.0, (sum, r) => sum + r.amount);
+
+    final pendingInbound = data?.allInbound.where((r) => r.status == 'PENDING').toList() ?? [];
+
     return Row(
       children: [
         Expanded(
@@ -206,13 +269,13 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '\$6,450.00',
+                  '\$${pendingOutboundTotal.toStringAsFixed(2)}',
                   style: ProximTextStyles.headlineLg(color: ProximColors.textWhite).copyWith(
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text('≈ ₦10.28M NGN', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                Text('${pendingOutbound.length} Active Outbound', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
               ],
             ),
           ),
@@ -232,7 +295,7 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('UNSETTLED', style: ProximTextStyles.labelXs()),
+                    Text('ACTION REQUIRED', style: ProximTextStyles.labelXs()),
                     Container(
                       width: 6,
                       height: 6,
@@ -244,9 +307,14 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text('3 Active', style: ProximTextStyles.headlineLg(color: ProximColors.textWhite)),
+                Text('${pendingInbound.length} Inbound', style: ProximTextStyles.headlineLg(color: ProximColors.textWhite)),
                 const SizedBox(height: 2),
-                Text('1 Requires Action', style: ProximTextStyles.labelXs(color: ProximColors.statusWarning)),
+                Text(
+                  pendingInbound.isNotEmpty ? 'Awaiting your approval' : 'All clear',
+                  style: ProximTextStyles.labelXs(
+                    color: pendingInbound.isNotEmpty ? ProximColors.statusWarning : ProximColors.statusSuccess,
+                  ),
+                ),
               ],
             ),
           ),
@@ -255,42 +323,107 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
     );
   }
 
-  Widget _buildVerifiedSectionHeader() {
+  Widget _buildSectionHeader() {
+    final title = _selectedTab == 0
+        ? 'Inbound Approval Queue'
+        : (_selectedTab == 1 ? 'Outbound Requests' : 'Settled History');
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          children: [
-            Text('Verified Counterparties', style: ProximTextStyles.headlineSm()),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: ProximColors.statusSuccess.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(9999),
-              ),
-              child: Text('2 Queued', style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            const Icon(Icons.verified_user, size: 14, color: ProximColors.statusSuccess),
-            const SizedBox(width: 4),
-            Text('Fraud Shield Active', style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
-          ],
-        ),
+        Text(title, style: ProximTextStyles.headlineSm()),
+        if (_selectedTab == 0)
+          Row(
+            children: [
+              const Icon(Icons.shield_outlined, size: 14, color: ProximColors.primary),
+              const SizedBox(width: 4),
+              Text('Secured by NEAR MPC', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+            ],
+          ),
       ],
     );
   }
 
+  Widget _buildRequestsList(AsyncValue<PaymentRequestsData>? requestsAsync, String entityId) {
+    if (requestsAsync == null || requestsAsync.isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24.0),
+          child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+        ),
+      );
+    }
+
+    if (requestsAsync.hasError) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: ProximColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            'Unable to load requests.',
+            style: ProximTextStyles.bodyMd(color: ProximColors.statusError),
+          ),
+        ),
+      );
+    }
+
+    final data = requestsAsync.value;
+    if (data == null) return const SizedBox.shrink();
+
+    List<PaymentRequestItem> items;
+    if (_selectedTab == 0) {
+      items = data.allInbound.where((r) => r.status == 'PENDING').toList();
+    } else if (_selectedTab == 1) {
+      items = data.outbound.where((r) => r.status == 'PENDING').toList();
+    } else {
+      items = [...data.allInbound, ...data.outbound].where((r) => r.status != 'PENDING').toList();
+    }
+
+    if (items.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: ProximColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ProximColors.hairlineBorder),
+        ),
+        child: Text(
+          _selectedTab == 0
+              ? 'No pending inbound requests.'
+              : (_selectedTab == 1 ? 'No active outbound requests.' : 'No archived requests.'),
+          style: ProximTextStyles.bodyMd(color: ProximColors.onSurfaceVariant),
+        ),
+      );
+    }
+
+    return Column(
+      children: items.map((item) {
+        final isProcessing = _processingRequestId == item.id;
+        final isInbound = _selectedTab == 0;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _buildRequestCard(
+            item: item,
+            isInbound: isInbound,
+            isProcessing: isProcessing,
+            onApprove: () => _handleApprove(item, entityId),
+            onDecline: () => _handleDecline(item, entityId),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildRequestCard({
-    required String name,
-    required String role,
-    required String amount,
-    required String currency,
-    required String memo,
+    required PaymentRequestItem item,
+    required bool isInbound,
+    required bool isProcessing,
     required VoidCallback onApprove,
+    required VoidCallback onDecline,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -310,13 +443,13 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                   Container(
                     width: 36,
                     height: 36,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       color: ProximColors.surfaceContainerHighest,
                     ),
                     child: Center(
                       child: Text(
-                        name.substring(0, 1),
+                        item.requesterName.isNotEmpty ? item.requesterName.substring(0, 1).toUpperCase() : 'U',
                         style: const TextStyle(fontWeight: FontWeight.bold, color: ProximColors.primary),
                       ),
                     ),
@@ -327,12 +460,14 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                     children: [
                       Row(
                         children: [
-                          Text(name, style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600)),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.verified, size: 14, color: ProximColors.primary),
+                          Text(item.requesterName, style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600)),
+                          if (item.isMutualContact) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified, size: 14, color: ProximColors.primary),
+                          ],
                         ],
                       ),
-                      Text(role, style: ProximTextStyles.labelXs()),
+                      Text('@${item.requesterUsername}', style: ProximTextStyles.labelXs()),
                     ],
                   ),
                 ],
@@ -341,12 +476,12 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    amount,
+                    '\$${item.amount.toStringAsFixed(2)}',
                     style: ProximTextStyles.headlineSm(color: ProximColors.textWhite).copyWith(
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                  Text(currency, style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                  Text(item.currency, style: ProximTextStyles.labelXs(color: ProximColors.primary)),
                 ],
               ),
             ],
@@ -364,7 +499,7 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    memo,
+                    item.narration,
                     style: ProximTextStyles.bodySm(),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -372,62 +507,89 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: GestureDetector(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Request declined')),
-                    );
-                  },
-                  child: Container(
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: ProximColors.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Center(
-                      child: Text('Decline', style: ProximTextStyles.labelSm()),
-                    ),
-                  ),
+          if (isInbound && item.status == 'PENDING') ...[
+            const SizedBox(height: 10),
+            if (isProcessing)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: GestureDetector(
-                  onTap: onApprove,
-                  child: Container(
-                    height: 38,
-                    decoration: BoxDecoration(
-                      gradient: ProximColors.auroraGradient,
-                      borderRadius: BorderRadius.circular(9999),
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.check, size: 16, color: ProximColors.surfaceContainerLowest),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Approve & Pay',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: ProximColors.surfaceContainerLowest,
-                            ),
-                          ),
-                        ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: GestureDetector(
+                      onTap: onDecline,
+                      child: Container(
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: ProximColors.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(9999),
+                        ),
+                        child: Center(
+                          child: Text('Decline', style: ProximTextStyles.labelSm()),
+                        ),
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 3,
+                    child: GestureDetector(
+                      onTap: onApprove,
+                      child: Container(
+                        height: 38,
+                        decoration: BoxDecoration(
+                          gradient: ProximColors.auroraGradient,
+                          borderRadius: BorderRadius.circular(9999),
+                        ),
+                        child: const Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check, size: 16, color: ProximColors.surfaceContainerLowest),
+                              SizedBox(width: 4),
+                              Text(
+                                'Approve & Pay',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: ProximColors.surfaceContainerLowest,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: item.status == 'PAID'
+                    ? ProximColors.statusSuccess.withValues(alpha: 0.15)
+                    : (item.status == 'DECLINED'
+                        ? ProximColors.statusError.withValues(alpha: 0.15)
+                        : ProximColors.statusWarning.withValues(alpha: 0.15)),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                item.status,
+                style: ProximTextStyles.labelXs(
+                  color: item.status == 'PAID'
+                      ? ProximColors.statusSuccess
+                      : (item.status == 'DECLINED' ? ProximColors.statusError : ProximColors.statusWarning),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -444,15 +606,17 @@ class _PaymentRequestHubScreenState extends State<PaymentRequestHubScreen> {
           borderRadius: BorderRadius.circular(9999),
           border: Border.all(color: ProximColors.primary.withValues(alpha: 0.4)),
         ),
-        child: Row(
+        child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.add_link, size: 18, color: ProximColors.primary),
-            const SizedBox(width: 8),
+            Icon(Icons.add_link, size: 18, color: ProximColors.primary),
+            SizedBox(width: 8),
             Text(
-              'Create Custom Payment Link',
-              style: ProximTextStyles.bodyLg(color: ProximColors.primary).copyWith(
+              'Request Payment from Someone',
+              style: TextStyle(
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
+                color: ProximColors.textWhite,
               ),
             ),
           ],
