@@ -162,6 +162,24 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     }
   }
 
+  /// Refresh the stored session without ever logging out — used when a
+  /// screen needs re-hydrated entity data (e.g. freshly derived deposit
+  /// addresses). Failures keep the current session untouched.
+  Future<void> refreshSession() async {
+    try {
+      final user = await _repository.restoreSession();
+      if (user != null) {
+        _setState(state.copyWith(
+          isLoading: false,
+          user: user,
+          activeEntityId: user.activeEntityId,
+        ));
+      }
+    } catch (e) {
+      debugPrint('[AuthNotifier] Session refresh failed (kept current session): $e');
+    }
+  }
+
   // ── Sign-in flows ──────────────────────────────────────────────────────────
 
   /// Step 1 of email sign-in / sign-up: send a one-time code.

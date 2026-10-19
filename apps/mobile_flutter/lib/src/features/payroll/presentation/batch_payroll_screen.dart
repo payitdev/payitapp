@@ -368,7 +368,6 @@ class _BatchPayrollScreenState extends ConsumerState<BatchPayrollScreen> {
     required String rail,
     required String status,
     bool isSuccess = false,
-    bool isWarning = false,
     VoidCallback? onRemove,
   }) {
     return Container(

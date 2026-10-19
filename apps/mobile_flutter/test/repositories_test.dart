@@ -644,7 +644,7 @@ void main() {
         currency: 'USD',
       );
       expect(card, isNotNull);
-      expect(card!.network, equals('VISA'));
+      expect(card.network, equals('VISA'));
       expect(card.lastFour, equals('8821'));
       expect(card.holderName, equals('Acme Global Technologies Ltd'));
     });
@@ -873,7 +873,7 @@ void main() {
 
     test('developerRepository returns production and test keys and rolls key', () async {
       final repo = DeveloperRepository(apiClient: FakeApiClient());
-      final keys = await repo.getKeys('ent-1');
+      await repo.getKeys('ent-1');
       final rolled = await repo.rollKey('ent-1', 'production');
       expect(rolled, isNotNull);
       expect(rolled.keyPrefix, startsWith('px_live_'));

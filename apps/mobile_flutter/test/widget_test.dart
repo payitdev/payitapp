@@ -13,6 +13,7 @@ import 'package:proxim_app/src/features/treasury/data/treasury_repository.dart';
 import 'package:proxim_app/src/features/treasury/domain/treasury_metrics.dart';
 import 'package:proxim_app/src/features/treasury/domain/treasury_models.dart';
 import 'package:proxim_app/src/features/treasury/presentation/treasury_provider.dart';
+import 'repositories_test.dart' show FakeApiClient;
 
 /// Auth notifier that stays inert (no session restore, no Privy calls) but
 /// provides a realistic two-entity user so screens render their real,
@@ -72,7 +73,12 @@ class _FakeAuthNotifier extends AuthNotifier {
 Future<void> pumpProximApp(WidgetTester tester) {
   return tester.pumpWidget(
     ProviderScope(
-      overrides: [authProvider.overrideWith(() => _FakeAuthNotifier())],
+      overrides: [
+        authProvider.overrideWith(() => _FakeAuthNotifier()),
+        // Hermetic network: without this, screens hit the default (prod)
+        // backend in tests, get 401, and the session interceptor logs out.
+        apiClientProvider.overrideWithValue(FakeApiClient()),
+      ],
       child: const ProximApp(),
     ),
   );
@@ -291,6 +297,7 @@ Future<void> pumpDashboardWith({
     ProviderScope(
       overrides: [
         authProvider.overrideWith(() => _FakeAuthNotifier()),
+        apiClientProvider.overrideWithValue(FakeApiClient()),
         treasuryMetricsProvider.overrideWith((ref) => Future.value(metrics)),
         treasuryHistoryProvider.overrideWith((ref) => Future.value(history)),
         pendingApprovalsProvider.overrideWith((ref) => Future.value(approvals)),
@@ -413,17 +420,17 @@ void main() {
     // 1. Batch Payroll
     await tester.tap(find.text('Batch Payroll'));
     await tester.pumpAndSettle();
-    expect(find.text('Batch Payroll Execution'), findsOneWidget);
-    expect(find.text('Upload CSV'), findsOneWidget);
+    expect(find.text('CORPORATE DISBURSEMENTS'), findsOneWidget);
+    expect(find.text('Add Employee'), findsOneWidget);
     expect(find.text('David Miller'), findsOneWidget);
 
     // Go back
     await tester.tap(find.byIcon(Icons.arrow_back).first);
     await tester.pumpAndSettle();
 
-    // 2. New Invoice
+    // 2. New Invoice — has a live countdown ticker, so bounded pumps
     await tester.tap(find.text('New Invoice'));
-    await tester.pumpAndSettle();
+    await pumpWithLiveTimers(tester);
     expect(find.text('Invoices & Billing'), findsOneWidget);
     expect(find.text('Instant Flow Builder'), findsOneWidget);
 
@@ -583,6 +590,9 @@ void main() {
     router.go('/multi-sig');
     await tester.pumpAndSettle();
 
+    // The card is taller than the test viewport — scroll the CTA into view.
+    await tester.ensureVisible(find.text('Sign as CFO Key'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Sign as CFO Key'));
     // The SnackBar timer would hang pumpAndSettle — bounded pumps instead.
     await tester.pump();

@@ -398,7 +398,7 @@ class _MultiSigApprovalsScreenState extends ConsumerState<MultiSigApprovalsScree
                 const SizedBox(height: 6),
                 Text(
                   queue.isEmpty
-                      ? 'No signatures outstanding'
+                      ? 'No approvals queued'
                       : '$totalSigned of $totalRequired signatures collected across ${queue.length} queued approval${queue.length == 1 ? '' : 's'}',
                   style: ProximTextStyles.headlineSm(),
                 ),
@@ -498,15 +498,18 @@ class _MultiSigApprovalsScreenState extends ConsumerState<MultiSigApprovalsScree
                         style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(fontWeight: FontWeight.w600),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
-                        [
-                          if (signer.keyNote != null && signer.keyNote!.isNotEmpty) signer.keyNote,
-                          if (signer.isSigned && signer.signedAt != null) 'Signed ${_dateFormat.format(signer.signedAt!)}',
-                          if (signer.isRejected && signer.signedAt != null) 'Rejected ${_dateFormat.format(signer.signedAt!)}',
-                        ].whereType<String>().join(' • '),
-                        style: ProximTextStyles.labelXs(color: color),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      if (signer.keyNote != null && signer.keyNote!.isNotEmpty)
+                        Text(
+                          signer.keyNote!,
+                          style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      if ((signer.isSigned || signer.isRejected) && signer.signedAt != null)
+                        Text(
+                          '${signer.isSigned ? 'Signed' : 'Rejected'} ${_dateFormat.format(signer.signedAt!)}',
+                          style: ProximTextStyles.labelXs(color: color),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                     ],
                   ),
                 ),
@@ -576,7 +579,7 @@ class _MultiSigApprovalsScreenState extends ConsumerState<MultiSigApprovalsScree
         if (approvals.isEmpty) {
           return _buildEmptyState(
             icon: Icons.inbox_outlined,
-            message: 'No approvals queued',
+            message: 'Queue is empty',
             detail: 'New approval requests will appear here for signature.',
           );
         }

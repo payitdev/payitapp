@@ -191,7 +191,7 @@ class AuthRepository {
         '/api/auth/passcode/set',
         data: {
           'passcode': passcode,
-          if (deviceId != null) 'deviceId': deviceId,
+          'deviceId': ?deviceId,
         },
       );
       if (response.data?['success'] != true) {

@@ -30,7 +30,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final entity = ref.read(activeEntityProvider);
       if (entity == null || entity.evmDepositAddress == null || entity.evmDepositAddress!.isEmpty) {
-        ref.read(authProvider.notifier).initializeSession();
+        // Refresh entity data (e.g. freshly derived deposit addresses).
+        // Never logs out on failure — the user may be mid-flow.
+        ref.read(authProvider.notifier).refreshSession();
       }
     });
   }

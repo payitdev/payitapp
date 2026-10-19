@@ -79,9 +79,15 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, 'user@example.com');
     await tester.pump();
-    await tester.ensureVisible(find.text('Continue with Email'));
-    await tester.tap(find.text('Continue with Email'));
-    await tester.pumpAndSettle();
+    // At the test viewport size an aurora decoration band overlaps the label
+    // center, so aim inside the lower half of the button.
+    await tester.tapAt(
+      tester.getCenter(find.text('Continue with Email')) + const Offset(0, 20),
+    );
+    // Let the async code-send complete; the resend countdown's 1s timers
+    // would hang pumpAndSettle, so use bounded pumps.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('STEP 2 OF 2'), findsOneWidget);
     expect(
@@ -92,5 +98,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('PROTECTED BY PRIVY SESSION VAULT • ZERO-KNOWLEDGE RECOVERY'), findsOneWidget);
+
+    // Drain the resend-countdown timers so the test exits cleanly.
+    await tester.pump(const Duration(seconds: 31));
   });
 }

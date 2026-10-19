@@ -100,7 +100,7 @@ class TransfersRepository {
         '/api/users/resolve-identity',
         queryParameters: {
           'query': query,
-          if (entityId != null) 'entityId': entityId,
+          'entityId': ?entityId,
         },
       );
       final data = response.data;

@@ -907,7 +907,7 @@ class _BrandEmblem extends StatelessWidget {
           width: 56,
           height: 56,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const Center(
+          errorBuilder: (_, _, _) => const Center(
             child: SizedBox(width: 32, height: 32, child: CustomPaint(painter: _EmblemPainter())),
           ),
         ),
