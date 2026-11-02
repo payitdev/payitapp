@@ -33,6 +33,7 @@ import {
   Code2,
   DollarSign,
 } from 'lucide-react';
+import { apiFetch, apiUrl } from '../apiClient';
 
 interface DeveloperDashboardProps {
   onBackToHome: () => void;
@@ -46,7 +47,6 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
   appUrl = 'https://app.proximfi.xyz/',
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'kyc' | 'keys' | 'webhooks' | 'explorer' | 'logs' | 'billing'>('overview');
-  const apiBaseUrl = 'http://localhost:4000';
   const entityId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('entityId') || '' : '';
   const [dataError, setDataError] = useState<string | null>(null);
 
@@ -109,10 +109,10 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
     }
     const query = `?entityId=${encodeURIComponent(entityId)}`;
     Promise.all([
-      fetch(`${apiBaseUrl}/api/developer/keys${query}`).then(response => response.json()),
-      fetch(`${apiBaseUrl}/api/developer/webhooks${query}`).then(response => response.json()),
-      fetch(`${apiBaseUrl}/api/developer/webhooks/deliveries${query}`).then(response => response.json()),
-      fetch(`${apiBaseUrl}/api/developer/logs${query}`).then(response => response.json()),
+      apiFetch(apiUrl(`/api/developer/keys${query}`)).then(response => response.json()),
+      apiFetch(apiUrl(`/api/developer/webhooks${query}`)).then(response => response.json()),
+      apiFetch(apiUrl(`/api/developer/webhooks/deliveries${query}`)).then(response => response.json()),
+      apiFetch(apiUrl(`/api/developer/logs${query}`)).then(response => response.json()),
     ]).then(([keyData, webhookData, deliveryData, logData]) => {
       setKeys(keyData.success ? keyData.keys : []);
       setWebhooks(webhookData.success ? webhookData.endpoints : []);
@@ -135,7 +135,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
     setKycResult(null);
 
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/identity/verify`, {
+      const res = await apiFetch(apiUrl('/v1/identity/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,7 +163,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
   const handleStartLiveness = async () => {
     setLivenessLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/identity/liveness/session`, {
+      const res = await apiFetch(apiUrl('/v1/identity/liveness/session'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -186,7 +186,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
   const handleCreateKey = async () => {
     if (!newKeyName.trim()) return;
     if (!entityId) return;
-    const response = await fetch(`${apiBaseUrl}/api/developer/keys`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, name: newKeyName.trim(), environment: newKeyEnv, scopes: newKeyScopes }) });
+    const response = await apiFetch(apiUrl('/api/developer/keys'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, name: newKeyName.trim(), environment: newKeyEnv, scopes: newKeyScopes }) });
     const data = await response.json();
     if (data.success) { setCreatedSecretKey(data.apiKey.secretKey); setKeys([data.apiKey, ...keys]); }
     setNewKeyName('');
@@ -196,7 +196,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
   const handleRegisterWebhook = async () => {
     if (!newWebhookUrl.trim()) return;
     if (!entityId) return;
-    const response = await fetch(`${apiBaseUrl}/api/developer/webhooks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, url: newWebhookUrl.trim(), events: newWebhookEvents }) });
+    const response = await apiFetch(apiUrl('/api/developer/webhooks'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, url: newWebhookUrl.trim(), events: newWebhookEvents }) });
     const data = await response.json();
     if (data.success) setWebhooks([data.endpoint, ...webhooks]);
     setNewWebhookUrl('');
@@ -208,7 +208,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
     setTestPingLoading(true);
     if (!entityId) { setTestPingLoading(false); return; }
     try {
-      const response = await fetch(`${apiBaseUrl}/api/developer/webhooks/test-ping`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, event: 'invoice.paid' }) });
+      const response = await apiFetch(apiUrl('/api/developer/webhooks/test-ping'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityId, event: 'invoice.paid' }) });
       const data = await response.json();
       if (data.success) setWebhookDeliveries([{ id: `test_${Date.now()}`, event: 'invoice.paid', status: 'QUEUED', createdAt: new Date().toISOString(), payload: JSON.stringify(data.testData) }, ...webhookDeliveries]);
     } finally { setTestPingLoading(false); }
@@ -219,15 +219,15 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
     setExplorerLoading(true);
     setExplorerResponse(null);
 
-    let endpointUrl = `${apiBaseUrl}/v1/accounts/dynamic-session`;
+    let endpointUrl = apiUrl('/v1/accounts/dynamic-session');
     let method = 'POST';
 
     if (explorerEndpoint === 'resolve_account') {
-      endpointUrl = `${apiBaseUrl}/v1/payouts/resolve-account`;
+      endpointUrl = apiUrl('/v1/payouts/resolve-account');
     } else if (explorerEndpoint === 'derive_wallet') {
-      endpointUrl = `${apiBaseUrl}/v1/wallets/derive`;
+      endpointUrl = apiUrl('/v1/wallets/derive');
     } else if (explorerEndpoint === 'sub_ledger') {
-      endpointUrl = `${apiBaseUrl}/v1/ledger/sub-accounts/${encodeURIComponent(entityId)}?currency=NGN`;
+      endpointUrl = apiUrl(`/v1/ledger/sub-accounts/${encodeURIComponent(entityId)}?currency=NGN`);
       method = 'GET';
     }
 

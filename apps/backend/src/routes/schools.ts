@@ -5,6 +5,7 @@ import { BrailsClient } from '@payit/integrations';
 import { ulid } from 'ulid';
 
 const db = createDbClient();
+const applicationAttempts = new Map<string, { count: number; resetAt: number }>();
 
 async function ownedSchool(entityId: string, userId: string) {
   const rows = await db.select().from(entities).where(and(eq(entities.id, entityId), eq(entities.userId, userId), eq(entities.kind, 'BUSINESS'))).limit(1);
@@ -15,14 +16,27 @@ function clean(value: any) {
   return String(value ?? '').trim();
 }
 
+function redactedApplicationData(body: Record<string, any>) {
+  const data = { ...body };
+  for (const field of ['adminIdNumber', 'adminBvn', 'adminNin', 'taxId', 'adminIdFrontUrl', 'adminIdBackUrl', 'proofOfAddressUrl', 'registrationDocumentUrl']) delete data[field];
+  return data;
+}
+
 export async function schoolRoutes(server: FastifyInstance) {
   server.post('/api/schools/applications', async (request, reply) => {
     const body = request.body as Record<string, any>;
+    const now = Date.now();
+    const key = `${request.ip}:${clean(body.adminEmail).toLowerCase()}`;
+    const attempt = applicationAttempts.get(key);
+    if (attempt && attempt.resetAt > now && attempt.count >= 3) return reply.status(429).send({ error: 'Too many school applications. Please retry later.' });
+    applicationAttempts.set(key, attempt && attempt.resetAt > now ? { count: attempt.count + 1, resetAt: attempt.resetAt } : { count: 1, resetAt: now + 15 * 60 * 1000 });
     const required = ['schoolLegalName', 'registrationNumber', 'adminName', 'adminEmail', 'adminPhone', 'country', 'industry', 'description', 'incorporationDate', 'address', 'city', 'state', 'postalCode', 'adminDateOfBirth', 'adminNationality', 'adminGender', 'adminIdType', 'adminIdNumber', 'adminIdFrontUrl', 'proofOfAddressUrl', 'taxId', 'taxIdType'];
     if (required.some(field => !clean(body[field]))) return reply.status(400).send({ error: 'Complete school business, address, tax, authorized-admin, identity-document, and proof-of-address fields are required' });
+    const duplicate = await db.select({ id: schoolApplications.id }).from(schoolApplications).where(and(eq(schoolApplications.registrationNumber, clean(body.registrationNumber)), eq(schoolApplications.country, clean(body.country).toUpperCase()), inArray(schoolApplications.status, ['SUBMITTED', 'KYB_REVIEW'] as any))).limit(1);
+    if (duplicate[0]) return reply.status(409).send({ error: 'An active application already exists for this registration number and country.' });
     const applicationId = `school_app_${ulid()}`;
     const applicationValues = { id: applicationId, schoolLegalName: clean(body.schoolLegalName), registrationNumber: clean(body.registrationNumber), adminName: clean(body.adminName), adminEmail: clean(body.adminEmail).toLowerCase(), adminPhone: clean(body.adminPhone), country: clean(body.country).toUpperCase(), status: 'KYB_REVIEW' as const };
-    const rows = await db.insert(schoolApplications).values({ ...applicationValues, applicationData: body }).returning();
+    const rows = await db.insert(schoolApplications).values({ ...applicationValues, applicationData: redactedApplicationData(body) }).returning();
     const adminNames = applicationValues.adminName.split(/\s+/);
     const brails = new BrailsClient();
     try {
@@ -63,10 +77,10 @@ export async function schoolRoutes(server: FastifyInstance) {
       const brailsCustomerId = String(providerData?.id || providerData?.customerId || providerData?.customer_id || '');
       const brailsStatus = String(providerData?.status || providerData?.kybStatus || providerData?.kyb_status || 'PENDING');
       const updated = await db.update(schoolApplications).set({ brailsCustomerId: brailsCustomerId || null, brailsStatus, brailsPayload: providerResponse }).where(eq(schoolApplications.id, applicationId)).returning();
-      return reply.status(201).send({ success: true, application: updated[0], provider: 'BRAILS', nextStep: 'WAIT_FOR_BRAILS_KYB_APPROVAL' });
+      return reply.status(201).send({ success: true, application: { id: updated[0].id, status: updated[0].status, brailsStatus: updated[0].brailsStatus }, provider: 'BRAILS', nextStep: 'WAIT_FOR_BRAILS_KYB_APPROVAL' });
     } catch (error: any) {
       const updated = await db.update(schoolApplications).set({ brailsStatus: 'SUBMISSION_FAILED', brailsPayload: { error: error.message } }).where(eq(schoolApplications.id, applicationId)).returning();
-      return reply.status(502).send({ success: false, application: updated[0], provider: 'BRAILS', error: 'School application was saved, but Brails KYB submission failed. Please retry.' });
+      return reply.status(502).send({ success: false, application: { id: updated[0].id, status: updated[0].status, brailsStatus: updated[0].brailsStatus }, provider: 'BRAILS', error: 'School application was saved, but Brails KYB submission failed. Please retry.' });
     }
   });
 
@@ -110,6 +124,10 @@ export async function schoolRoutes(server: FastifyInstance) {
     if (!await ownedSchool(entityId, request.session!.userId)) return reply.status(403).send({ error: 'School access denied' });
     const body = request.body as Record<string, any>;
     if (!clean(body.name)) return reply.status(400).send({ error: 'Class name is required' });
+    if (clean(body.campusId)) {
+      const campus = await db.select({ id: schoolCampuses.id }).from(schoolCampuses).where(and(eq(schoolCampuses.id, clean(body.campusId)), eq(schoolCampuses.entityId, entityId))).limit(1);
+      if (!campus[0]) return reply.status(400).send({ error: 'campusId must belong to this school' });
+    }
     const rows = await db.insert(schoolClasses).values({ id: `class_${ulid()}`, entityId, campusId: clean(body.campusId) || null, name: clean(body.name), academicSession: clean(body.academicSession) || null, term: clean(body.term) || null }).returning();
     return reply.status(201).send({ success: true, class: rows[0] });
   });
@@ -128,6 +146,8 @@ export async function schoolRoutes(server: FastifyInstance) {
     const name = clean(body.fullName);
     const studentNumber = clean(body.studentNumber);
     if (!name || !studentNumber || !clean(body.classId)) return reply.status(400).send({ error: 'fullName, studentNumber, and classId are required' });
+    const studentClass = await db.select({ id: schoolClasses.id }).from(schoolClasses).where(and(eq(schoolClasses.id, clean(body.classId)), eq(schoolClasses.entityId, entityId))).limit(1);
+    if (!studentClass[0]) return reply.status(400).send({ error: 'classId must belong to this school' });
     const existing = await db.select().from(schoolStudents).where(and(eq(schoolStudents.entityId, entityId), eq(schoolStudents.studentNumber, studentNumber))).limit(1);
     if (existing[0]) return reply.status(409).send({ error: 'Student number already exists for this school' });
     const studentRows = await db.insert(schoolStudents).values({ id: `student_${ulid()}`, entityId, classId: clean(body.classId), studentNumber, fullName: name, parentName: clean(body.parentName) || null, parentEmail: clean(body.parentEmail) || null, parentPhone: clean(body.parentPhone) || null, status: 'ACTIVE' }).returning();
@@ -141,6 +161,12 @@ export async function schoolRoutes(server: FastifyInstance) {
     if (!Array.isArray(body.students) || body.students.length === 0) return reply.status(400).send({ error: 'students must be a non-empty array. Parse the Excel template in the dashboard before submitting.' });
     const values = body.students.map(student => ({ id: `student_${ulid()}`, entityId, classId: clean(student.classId), studentNumber: clean(student.studentNumber), fullName: clean(student.fullName), parentName: clean(student.parentName) || null, parentEmail: clean(student.parentEmail) || null, parentPhone: clean(student.parentPhone) || null, status: 'ACTIVE' as const }));
     if (values.some(student => !student.classId || !student.studentNumber || !student.fullName)) return reply.status(400).send({ error: 'Every student requires classId, studentNumber, and fullName' });
+    if (new Set(values.map(student => student.studentNumber)).size !== values.length) return reply.status(409).send({ error: 'Student numbers must be unique within the import.' });
+    const classIds = [...new Set(values.map(student => student.classId))];
+    const ownedClasses = await db.select({ id: schoolClasses.id }).from(schoolClasses).where(and(eq(schoolClasses.entityId, entityId), inArray(schoolClasses.id, classIds)));
+    if (ownedClasses.length !== classIds.length) return reply.status(400).send({ error: 'Every classId must belong to this school' });
+    const existingStudents = await db.select({ studentNumber: schoolStudents.studentNumber }).from(schoolStudents).where(and(eq(schoolStudents.entityId, entityId), inArray(schoolStudents.studentNumber, values.map(student => student.studentNumber))));
+    if (existingStudents.length) return reply.status(409).send({ error: 'One or more student numbers already exist for this school', studentNumbers: existingStudents.map(student => student.studentNumber) });
     const rows = await db.insert(schoolStudents).values(values).returning();
     return reply.status(201).send({ success: true, imported: rows.length, students: rows });
   });

@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, BarChart3, Building2, CheckCircle2, GraduationCap, Landmark, RefreshCw, ShieldCheck, Users, WalletCards } from 'lucide-react';
+import { apiFetch, apiUrl } from '../apiClient';
 
 interface Props { onBackToHome: () => void; }
 interface Overview { school?: { legalName?: string; businessTag?: string }; counts: { campuses: number; classes: number; students: number; staff: number }; fees: Array<{ name: string; amount: string; currency: string }>; savingsPolicies: Array<{ name: string; percentage: string; currency: string; status: string }>; }
-
-const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 export const SchoolConsole: React.FC<Props> = ({ onBackToHome }) => {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -18,7 +17,7 @@ export const SchoolConsole: React.FC<Props> = ({ onBackToHome }) => {
     if (!entityId) { setMessage('Ready to create a school workspace.'); return; }
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/schools/${encodeURIComponent(entityId)}/overview`);
+      const response = await apiFetch(apiUrl(`/api/schools/${encodeURIComponent(entityId)}/overview`));
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to connect school workspace.');
       setOverview(data);
@@ -33,7 +32,7 @@ export const SchoolConsole: React.FC<Props> = ({ onBackToHome }) => {
     event.preventDefault();
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/schools/applications`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(onboarding) });
+      const response = await apiFetch(apiUrl('/api/schools/applications'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(onboarding) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to submit school KYB application.');
       setOnboardingComplete(true);

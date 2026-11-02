@@ -9,21 +9,21 @@ import { server } from './bot.js';
 
 describe('Telegram Conversational Financial OS Tests', () => {
   it('correctly handles session creation and entity switching', () => {
-    const session = sessionManager.getSession(99991, 1001, 'alex_morgan');
+    const session = sessionManager.getSession(1001, 1001, 'alex_morgan');
     assert.equal(session.activeEntity, 'PERSONAL');
     assert.equal(session.step, 'IDLE');
 
-    const switchedToBiz = sessionManager.switchEntity(99991);
+    const switchedToBiz = sessionManager.switchEntity(1001);
     assert.equal(switchedToBiz, 'BUSINESS');
     assert.equal(session.activeEntity, 'BUSINESS');
 
-    const switchedBack = sessionManager.switchEntity(99991);
+    const switchedBack = sessionManager.switchEntity(1001);
     assert.equal(switchedBack, 'PERSONAL');
   });
 
   it('verifies PIN entry and enforces lockout after 3 failed attempts', async () => {
-    const chatId = 99992;
-    sessionManager.getSession(chatId, 1002, 'test_user');
+    const chatId = 1002;
+    sessionManager.getSession(chatId, chatId, 'test_user');
     await sessionManager.setPin(chatId, '654321');
 
     // Attempt 1: Wrong PIN
@@ -79,7 +79,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
   });
 
   it('processes conversational transfer intent and triggers PIN prompt', async () => {
-    const session = sessionManager.getSession(99993, 1003, 'trader');
+    const session = sessionManager.getSession(1003, 1003, 'trader');
     const result = await groqEngine.processMessage('Send ₦50,000 to David Okafor', session);
 
     assert.equal(result.actionRequired, 'PIN_PROMPT');
@@ -90,7 +90,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
   });
 
   it('derives deterministic multi-chain NEAR MPC addresses (EVM, Solana, Bitcoin, NEAR)', () => {
-    const session = sessionManager.getSession(99995, 1005, 'mpc_user');
+    const session = sessionManager.getSession(1005, 1005, 'mpc_user');
     assert.ok(session.mpcPersonalBaseAddress.startsWith('0x'));
     assert.ok(session.mpcBusinessBaseAddress.startsWith('0x'));
     assert.ok(session.mpcPersonalNearAddress.includes('proxim'));
@@ -107,7 +107,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
       url: '/telegram/webhook',
       payload: {
         message: {
-          chat: { id: 99994 },
+          chat: { id: 1004 },
           from: { id: 1004, username: 'telegram_tester' },
           text: '/start',
         },
@@ -145,7 +145,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.body);
       assert.equal(body.method, 'sendMessage');
-      assert.ok(body.text.includes('Linked successfully'));
+      assert.ok(body.text.includes('Linked.'));
     } finally {
       global.fetch = originalFetch;
     }
@@ -153,7 +153,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
 
   it('formats multi-chain crypto receiving card with automatic NEAR Intent swap note', async () => {
     const { telegramUi } = await import('./telegramUi.js');
-    const session = sessionManager.getSession(99996, 1006, 'crypto_receiver');
+    const session = sessionManager.getSession(1006, 1006, 'crypto_receiver');
     const card = telegramUi.formatMultiChainCryptoDepositCard(session);
 
     assert.ok(card.includes('Multi-Chain Receiving Coordinates'));
@@ -171,7 +171,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
       url: '/telegram/webhook',
       payload: {
         callback_query: {
-          message: { chat: { id: 99997 }, message_id: 555 },
+          message: { chat: { id: 1007 }, message_id: 555 },
           from: { id: 1007, username: 'yield_user' },
           data: 'save_kamino',
         },
@@ -191,7 +191,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
       url: '/telegram/webhook',
       payload: {
         callback_query: {
-          message: { chat: { id: 99998 }, message_id: 556 },
+          message: { chat: { id: 1008 }, message_id: 556 },
           from: { id: 1008, username: 'withdraw_guard' },
           data: 'withdraw_savings',
         },
@@ -213,7 +213,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
       url: '/telegram/webhook',
       payload: {
         message: {
-          chat: { id: 99999 },
+          chat: { id: 1009 },
           from: { id: 1009, username: 'kyc_guard' },
           document: { file_id: 'doc-123', file_name: 'id.pdf' },
         },
@@ -228,7 +228,7 @@ describe('Telegram Conversational Financial OS Tests', () => {
     assert.ok(body.text.includes('KYC') || body.text.includes('verification'));
   });
 
-  it('derives real NEAR named accounts from username and retrieves live database balances', async () => {
+  it('derives real NEAR named accounts from username and retrieves live database balances', { skip: process.env.TELEGRAM_TEST_MODE === 'true' }, async () => {
     const { liveDataService } = await import('./liveDataService.js');
 
     const result = await liveDataService.getOrCreateUserEntities(88881, 'musa_trader');

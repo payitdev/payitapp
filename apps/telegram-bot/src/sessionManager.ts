@@ -89,6 +89,20 @@ export class SessionManager {
   private readonly MAX_PIN_ATTEMPTS = 3;
   private readonly LOCKOUT_DURATION_MS = 10 * 60 * 1000; // 10 minute lockout
 
+  private createTestSession(chatId: number, telegramUserId: number, username?: string): UserSession {
+    const suffix = telegramUserId.toString(16).padStart(40, '0').slice(-40);
+    const session: UserSession = {
+      chatId, telegramUserId, username, activeEntity: 'PERSONAL', step: 'IDLE', pinAttempts: 0, lastActive: Date.now(),
+      localEntityId: `ent_test_${telegramUserId}_personal`, businessEntityId: `ent_test_${telegramUserId}_business`, kycStatus: 'UNVERIFIED',
+      mpcPersonalBaseAddress: `0x${suffix}`, mpcPersonalNearAddress: `tg${telegramUserId}.proximfi.near`, mpcPersonalSolanaAddress: `Solana${suffix.slice(0, 24)}`, mpcPersonalBtcAddress: `bc1q${suffix}`,
+      mpcPersonalTronAddress: `T${suffix.slice(0, 33)}`, mpcPersonalTonAddress: `ton${telegramUserId}`, mpcPersonalSuiAddress: `sui${telegramUserId}`, mpcPersonalAptosAddress: `aptos${telegramUserId}`, mpcPersonalCosmosAddress: `cosmos${telegramUserId}`, mpcPersonalXrpAddress: `xrp${telegramUserId}`,
+      mpcBusinessBaseAddress: `0x${suffix.slice(0, 39)}1`, mpcBusinessNearAddress: `tg${telegramUserId}-biz.proximfi.near`, mpcBusinessSolanaAddress: `SolanaBiz${suffix.slice(0, 20)}`, mpcBusinessBtcAddress: `bc1q${suffix.slice(0, 39)}1`,
+      mpcBusinessTronAddress: `TB${suffix.slice(0, 32)}`, mpcBusinessTonAddress: `tonbiz${telegramUserId}`, mpcBusinessSuiAddress: `suibiz${telegramUserId}`, mpcBusinessAptosAddress: `aptosbiz${telegramUserId}`, mpcBusinessCosmosAddress: `cosmosbiz${telegramUserId}`, mpcBusinessXrpAddress: `xrpbiz${telegramUserId}`,
+    };
+    this.sessions.set(telegramUserId, session);
+    return session;
+  }
+
   public async getSessionAsync(chatId: number, telegramUserId: number, username?: string): Promise<UserSession> {
     if (chatId !== telegramUserId) throw new Error('Financial Telegram sessions are only available in private chats');
     const now = Date.now();
@@ -96,6 +110,7 @@ export class SessionManager {
     let session = this.sessions.get(sessionKey);
 
     if (!session) {
+      if (process.env.TELEGRAM_TEST_MODE === 'true') return this.createTestSession(chatId, telegramUserId, username);
       const dbEntities = await liveDataService.getOrCreateUserEntities(telegramUserId, username);
 
       session = {
@@ -151,6 +166,7 @@ export class SessionManager {
     let session = this.sessions.get(telegramUserId);
 
     if (!session) {
+      if (process.env.TELEGRAM_TEST_MODE === 'true') return this.createTestSession(chatId, telegramUserId, username);
       throw new Error('Synchronous Telegram sessions require an existing authenticated session; use getSessionAsync for new users.');
 
       /*

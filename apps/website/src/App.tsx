@@ -17,9 +17,12 @@ import { DeveloperDocs } from './components/DeveloperDocs';
 import { DeveloperDashboard } from './components/DeveloperDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SchoolConsole } from './components/SchoolConsole';
+import { ComingSoonModal } from './components/ComingSoonModal';
+
+type AppView = 'home' | 'coming-soon' | 'developers' | 'dashboard' | 'admin' | 'schools';
 
 const APP_URL = 'https://app.proximfi.xyz/';
-const TELEGRAM_URL = 'https://t.me/proximfibot';
+const TELEGRAM_URL = 'https://t.me/payeetbot';
 
 const XIcon = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -188,7 +191,7 @@ const ComingSoonView = ({ onBackToHome }: { onBackToHome: () => void }) => {
           <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
             <MessageSquare className="w-4 h-4 text-[#35D9D0]" />
             <p className="text-xs font-bold text-white">Telegram Layer</p>
-            <p className="text-[0.65rem] text-white/50">@proximfibot in chat</p>
+            <p className="text-[0.65rem] text-white/50">@payeetbot in chat</p>
           </div>
           <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
             <Zap className="w-4 h-4 text-[#7567F8]" />
@@ -215,7 +218,8 @@ const ComingSoonView = ({ onBackToHome }: { onBackToHome: () => void }) => {
    MAIN APPLICATION
    ══════════════════════════════════════════════════════ */
 export default function App() {
-  const [activePage, setActivePage] = useState<'home' | 'coming-soon'>('home');
+  const [activePage, setActivePage] = useState<AppView>('home');
+  const [comingSoonModalOpen, setComingSoonModalOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
@@ -232,36 +236,41 @@ export default function App() {
     const handleHashChange = () => {
       const hash = window.location.hash;
       const path = window.location.pathname;
-      if (
-        hash === '#coming-soon' ||
-        hash === '#developers' ||
-        hash === '#dashboard' ||
-        hash === '#admin' ||
-        hash === '#schools' ||
-        path.startsWith('/developers') ||
-        path.startsWith('/docs') ||
-        path.startsWith('/dashboard') ||
-        path.startsWith('/admin') ||
-        path.startsWith('/schools')
-      ) {
-        setActivePage('coming-soon');
-      }
+      if (hash === '#coming-soon') setActivePage('coming-soon');
+      else if (hash === '#developers' || path.startsWith('/developers') || path.startsWith('/docs')) setActivePage('developers');
+      else if (hash === '#dashboard' || path.startsWith('/dashboard')) setActivePage('dashboard');
+      else if (hash === '#admin' || path.startsWith('/admin')) setActivePage('admin');
+      else if (hash === '#schools' || path.startsWith('/schools')) setActivePage('schools');
+      else setActivePage('home');
     };
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', fn, { passive: true });
+    return () => window.removeEventListener('scroll', fn);
+  }, []);
+
+  const goHome = () => {
+    setActivePage('home');
+    window.history.pushState(null, '', '/');
+  };
+
   if (activePage === 'coming-soon') {
     return (
       <ComingSoonView
-        onBackToHome={() => {
-          setActivePage('home');
-          if (window.history.pushState) window.history.pushState(null, '', '/');
-        }}
+        onBackToHome={goHome}
       />
     );
   }
+
+  if (activePage === 'developers') return <DeveloperDocs onBackToHome={goHome} />;
+  if (activePage === 'dashboard') return <DeveloperDashboard onBackToHome={goHome} onOpenDocs={() => setActivePage('developers')} />;
+  if (activePage === 'admin') return <AdminDashboard onBackToHome={goHome} onOpenConsole={() => setActivePage('dashboard')} />;
+  if (activePage === 'schools') return <SchoolConsole onBackToHome={goHome} />;
 
 
   const rates: Record<string, number> = {
@@ -277,12 +286,6 @@ export default function App() {
   };
 
   const calculatedOutput = (parseFloat(sendAmount || '0') * (rates[`${sourceCurrency}-${targetCurrency}`] || 1550)).toLocaleString('en-US', { maximumFractionDigits: 2 });
-
-  useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', fn, { passive: true });
-    return () => window.removeEventListener('scroll', fn);
-  }, []);
 
   const currenciesList = [
     { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '/flags/ng.png', route: 'Dedicated NUBAN Bank Payouts' },
@@ -342,7 +345,7 @@ export default function App() {
     },
     {
       q: 'How can I access Proxim through Telegram?',
-      a: 'You can open @proximfibot directly in Telegram to check balances, send money, generate invoices, and manage your account using natural conversations with bank-grade PIN authorization.',
+      a: 'You can open @payeetbot directly in Telegram to check balances, send money, generate invoices, and manage your account using natural conversations with bank-grade PIN authorization.',
     },
     {
       q: 'How is my account and money secured?',
@@ -387,13 +390,13 @@ export default function App() {
           {/* Action CTAs */}
           <div className="hidden md:flex items-center gap-3">
             <button
-              onClick={() => setActivePage('coming-soon')}
+              onClick={() => setComingSoonModalOpen(true)}
               className="text-sm font-600 text-[#F7F8F4]/85 hover:text-white transition-colors px-3 py-2"
             >
               Sign in
             </button>
             <button
-              onClick={() => setActivePage('coming-soon')}
+              onClick={() => setComingSoonModalOpen(true)}
               className="btn-primary !text-sm !py-2.5 !px-5"
             >
               Get started <ArrowRight className="w-4 h-4" />
@@ -435,13 +438,13 @@ export default function App() {
               ))}
               <div className="pt-6 space-y-3">
                 <button
-                  onClick={() => { setActivePage('coming-soon'); setMobileMenuOpen(false); }}
+                  onClick={() => { setComingSoonModalOpen(true); setMobileMenuOpen(false); }}
                   className="w-full text-center block py-3 rounded-2xl font-700 text-sm bg-white/10 border border-white/15 text-white"
                 >
                   Sign in
                 </button>
                 <button
-                  onClick={() => { setActivePage('coming-soon'); setMobileMenuOpen(false); }}
+                  onClick={() => { setComingSoonModalOpen(true); setMobileMenuOpen(false); }}
                   className="btn-primary w-full text-center block !text-sm !py-3"
                 >
                   Get started <ArrowRight className="w-4 h-4" />
@@ -495,15 +498,37 @@ export default function App() {
               {/* Action Buttons */}
               <motion.div
                 variants={fadeUp} custom={3}
-                className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start max-w-md mx-auto lg:mx-0 pt-2"
+                className="space-y-3 max-w-md mx-auto lg:mx-0 pt-2"
               >
-                <button onClick={() => setActivePage('coming-soon')} className="btn-primary !text-base !py-3.5 !px-8">
-                  Launch Mobile App <ArrowRight className="w-5 h-5" />
-                </button>
-                <button onClick={() => setActivePage('coming-soon')} className="btn-secondary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2">
-                  <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
-                  <span>Use on Telegram</span>
-                </button>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                  <button
+                    onClick={() => setComingSoonModalOpen(true)}
+                    className="btn-primary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
+                  >
+                    <span>Use mobile app</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                  <a
+                    href={TELEGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
+                  >
+                    <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
+                    <span>Get started on Telegram</span>
+                  </a>
+                </div>
+                <div className="flex justify-center lg:justify-start">
+                  <a
+                    href={TELEGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-[#35D9D0] hover:underline font-mono tracking-wide"
+                  >
+                    <span>https://t.me/payeetbot</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </a>
+                </div>
               </motion.div>
 
 
@@ -650,7 +675,7 @@ export default function App() {
                             <TelegramIcon className="w-4 h-4 text-[#35D9D0]" />
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-white leading-none">@proximfibot</p>
+                            <p className="text-xs font-bold text-white leading-none">@payeetbot</p>
                             <p className="text-[0.6rem] text-[#16C7B7]">Verified Bot</p>
                           </div>
                         </div>
@@ -844,8 +869,8 @@ export default function App() {
                 Your full financial control center. View real-time multi-currency balances, switch between Personal and Business workspaces, manage virtual cards, and track live payout status.
               </p>
               <div className="pt-2">
-                <button onClick={() => setActivePage('coming-soon')} className="btn-primary !text-sm !py-3 !px-6 inline-flex items-center gap-2">
-                  Open Mobile App <ArrowRight className="w-4 h-4" />
+                <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-sm !py-3 !px-6 inline-flex items-center gap-2">
+                  Use Mobile App <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -862,17 +887,33 @@ export default function App() {
                   </div>
                 </div>
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#35D9D0]/20 text-[#35D9D0] border border-[#35D9D0]/30">
-                  @proximfibot
+                  @payeetbot
                 </span>
               </div>
               <p className="text-sm text-[#F7F8F4]/80 leading-relaxed">
                 Conversational money management where you already spend your time. Send money to contacts, generate PDF/SVG invoices, check rates, and authorize bank transfers—protected by 6-digit PIN security.
               </p>
-              <div className="pt-2">
-                <button onClick={() => setActivePage('coming-soon')} className="btn-secondary !text-xs !py-2.5 !px-4 inline-flex items-center gap-1.5">
+              <div className="pt-2 space-y-2">
+                <a
+                  href={TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary !text-xs !py-2.5 !px-4 inline-flex items-center gap-1.5"
+                >
                   <TelegramIcon className="w-3.5 h-3.5 text-[#35D9D0]" />
-                  <span>Launch on Telegram</span>
-                </button>
+                  <span>Get Started on Telegram</span>
+                </a>
+                <div>
+                  <a
+                    href={TELEGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[0.7rem] text-[#35D9D0] hover:underline inline-flex items-center gap-1 font-mono"
+                  >
+                    <span>https://t.me/payeetbot</span>
+                    <ArrowUpRight className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -1072,7 +1113,7 @@ export default function App() {
             </div>
 
             <div className="pt-2 text-center">
-              <button onClick={() => setActivePage('coming-soon')} className="btn-primary !text-base !py-4 !px-9 inline-flex items-center gap-2">
+              <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-base !py-4 !px-9 inline-flex items-center gap-2">
                 Convert Crypto to Cash Now <ArrowRight className="w-5 h-5" />
               </button>
             </div>
@@ -1195,7 +1236,7 @@ export default function App() {
               </div>
 
               <div className="pt-2">
-                <button onClick={() => setActivePage('coming-soon')} className="btn-primary w-full text-center block !py-3.5 !text-base">
+                <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary w-full text-center block !py-3.5 !text-base">
                   Send Money Now
                 </button>
               </div>
@@ -1313,7 +1354,7 @@ export default function App() {
               </div>
 
               <div className="pt-2">
-                <button onClick={() => setActivePage('coming-soon')} className="btn-primary !text-base !py-3.5 !px-8">
+                <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-base !py-3.5 !px-8">
                   Explore Proxim for Business <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
@@ -1660,13 +1701,13 @@ export default function App() {
 
               <div className="flex flex-wrap gap-4 pt-3">
                 <button
-                  onClick={() => setActivePage('coming-soon')}
+                  onClick={() => setActivePage('developers')}
                   className="btn-primary !text-base !py-3.5 !px-8 flex items-center gap-2"
                 >
                   <Code2 className="w-5 h-5" /> Explore the API
                 </button>
                 <button
-                  onClick={() => setActivePage('coming-soon')}
+                  onClick={() => setActivePage('developers')}
                   className="btn-secondary !text-base !py-3.5 !px-8 flex items-center gap-2"
                 >
                   <Zap className="w-5 h-5 text-[#35D9D0]" /> Read Documentation
@@ -1892,14 +1933,33 @@ console.log(status); // "SETTLED"`}
           <p className="text-lg sm:text-xl text-[#F7F8F4]/85 max-w-xl mx-auto leading-relaxed">
             Open your Proxim account in minutes on your phone or start managing your money conversationally in Telegram.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-2">
-            <button onClick={() => setActivePage('coming-soon')} className="btn-primary !text-lg !py-4 !px-10">
-              Open Account Free <ArrowRight className="w-5 h-5" />
-            </button>
-            <button onClick={() => setActivePage('coming-soon')} className="btn-secondary !text-lg !py-4 !px-10 flex items-center justify-center gap-2.5">
-              <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
-              <span>Launch Telegram Bot</span>
-            </button>
+          <div className="space-y-3 pt-2 max-w-md mx-auto">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-lg !py-4 !px-10 flex items-center justify-center gap-2">
+                <span>Use Mobile App</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+              <a
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary !text-lg !py-4 !px-10 flex items-center justify-center gap-2.5"
+              >
+                <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
+                <span>Get started on Telegram</span>
+              </a>
+            </div>
+            <div className="flex justify-center">
+              <a
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-[#35D9D0] hover:underline font-mono tracking-wide"
+              >
+                <span>https://t.me/payeetbot</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
           </div>
         </div>
       </section>
@@ -1921,12 +1981,14 @@ console.log(status); // "SETTLED"`}
               <a href="#developers-section" className="hover:text-white transition-colors">Developers</a>
               <a href="#security" className="hover:text-white transition-colors">Security</a>
               <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
-              <button
-                onClick={() => setActivePage('coming-soon')}
+              <a
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-[#35D9D0] hover:text-white transition-colors font-semibold flex items-center gap-1.5"
               >
                 <TelegramIcon className="w-4 h-4" /> Telegram Bot
-              </button>
+              </a>
             </nav>
 
             <a
@@ -1948,6 +2010,13 @@ console.log(status); // "SETTLED"`}
           </div>
         </div>
       </footer>
+
+      {/* Coming Soon Modal for Mobile App */}
+      <ComingSoonModal
+        isOpen={comingSoonModalOpen}
+        onClose={() => setComingSoonModalOpen(false)}
+        telegramUrl={TELEGRAM_URL}
+      />
 
     </div>
   );

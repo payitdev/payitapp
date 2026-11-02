@@ -9,7 +9,8 @@
     "build": "tsc && node scripts/verify-build.js",
     "start": "node dist/server.js",
     "dev": "npx tsx src/server.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "pnpm build && node --test dist/middleware/apiKeyAuth.test.js"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",

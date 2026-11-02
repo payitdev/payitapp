@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { ulid } from 'ulid';
 import { createDbClient, eq, and, or } from '@payit/db';
 import { apiKeys, entities, apiLogs } from '@payit/db/schema';
+import { hasApiScope, requiredScope } from './apiScope.js';
+export { API_SCOPES } from './apiScope.js';
 
 const db = createDbClient();
 const API_KEY_PEPPER = process.env.API_KEY_PEPPER || 'proxim_enterprise_vault_pepper_2026';
@@ -136,7 +138,20 @@ export async function requireApiKeyAuth(request: FastifyRequest, reply: FastifyR
   try {
     parsedScopes = JSON.parse(keyRecord.scopes || '[]');
   } catch {
-    parsedScopes = ['all'];
+    parsedScopes = [];
+  }
+
+  const required = requiredScope(request);
+  const hasScope = required && hasApiScope(parsedScopes, required);
+  if (required && !hasScope) {
+    return reply.status(403).send({
+      error: {
+        code: 'INSUFFICIENT_SCOPE',
+        message: `This API key does not have the '${required}' permission.`,
+        requiredScope: required,
+        doc_url: 'https://proxim.finance/developers#authentication',
+      },
+    });
   }
 
   // Rate Limiting Check (Token Bucket)

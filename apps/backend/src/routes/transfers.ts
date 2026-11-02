@@ -595,7 +595,7 @@ async function executeBaseUsdcIntent(params: {
       entityId: params.entity.id,
       amount: grossAmount.toFixed(2),
       currency: 'USDC',
-      recipientDetails: params.destinationAddress ? `External Account (${params.destinationAddress.slice(0, 6)}...${params.destinationAddress.slice(-4)})` : 'External account',
+      recipientDetails: params.recipientAddress ? `External Account (${params.recipientAddress.slice(0, 6)}...${params.recipientAddress.slice(-4)})` : 'External account',
       reference: params.transferId,
     }).catch((err) => console.error('[Crypto Withdrawal Notification] Failed:', err.message));
 
@@ -1849,7 +1849,7 @@ export async function transferRoutes(server: FastifyInstance) {
         entityId,
         amount,
         currency,
-        recipientDetails: `${accountName} (${accountNumber})`,
+        recipientDetails: `${recipientName || 'Recipient'} (${recipientAccount})`,
         bankName,
         reference: withdrawalId,
       }).catch((err) => console.error('[Withdrawal Notification] Failed:', err.message));

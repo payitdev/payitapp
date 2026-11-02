@@ -286,8 +286,8 @@ export async function nuvionRoutes(server: FastifyInstance) {
                 entityId: account.localEntityId,
                 amount: (Number(amount) / 100).toFixed(2),
                 currency: account.currency,
-                sourceDescription: event.includes('stablecoin') ? 'Direct deposit' : 'Account transfer',
-                isCrypto: event.includes('stablecoin'),
+                sourceDescription: event.event.includes('stablecoin') ? 'Direct deposit' : 'Account transfer',
+                isCrypto: event.event.includes('stablecoin'),
                 reference: inflow.reference || inflow.tx_hash || inflow.id,
               }).catch((err) => console.error('[Nuvion Inflow Notification] Failed:', err.message));
             }

@@ -15,7 +15,7 @@ import {
 import { deriveUserAddresses, deriveNearNamedAddress, PrivyNEARBridge } from '@payit/integrations';
 import { ulid } from 'ulid';
 
-const db = createDbClient();
+const db = process.env.DATABASE_URL ? createDbClient() : (null as any);
 
 
 
@@ -88,8 +88,8 @@ export class LiveDataService {
 
         if (linkedUser) {
           const entityRows = await db.select().from(entities).where(eq(entities.userId, linkedUser.id)).orderBy(entities.kind);
-          const personalEntity = entityRows.find(e => e.kind === 'PERSONAL') || entityRows[0];
-          const businessEntity = entityRows.find(e => e.kind === 'BUSINESS');
+          const personalEntity = entityRows.find((e: any) => e.kind === 'PERSONAL') || entityRows[0];
+          const businessEntity = entityRows.find((e: any) => e.kind === 'BUSINESS');
 
           const personalContext = linkedUser.privyUserId ? await PrivyNEARBridge.deriveAddress(linkedUser.privyUserId, 'personal', linkedUser.email) : await deriveUserAddresses(linkedUser.id, 'personal', linkedUser.email);
           const businessContext = linkedUser.privyUserId ? await PrivyNEARBridge.deriveAddress(linkedUser.privyUserId, 'business', linkedUser.email) : await deriveUserAddresses(linkedUser.id, 'business', linkedUser.email);

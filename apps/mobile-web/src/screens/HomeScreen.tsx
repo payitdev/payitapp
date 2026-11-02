@@ -1,9 +1,20 @@
 import React from 'react';
-import { Lock, Clock, CheckCircle2, ChevronDown } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  FileText, 
+  Users, 
+  ShieldCheck, 
+  Briefcase 
+} from 'lucide-react';
 import { StatusBar } from '../components/layout/StatusBar';
 import { AuroraBar } from '../components/layout/AuroraBar';
 import { BottomNav } from '../components/layout/BottomNav';
+import { StatusCard } from '../components/StatusCard';
+import { ListRow } from '../components/ListRow';
 import { useAccount, getLegalDisplayName, getLegalFirstName } from '../context/AccountContext';
+import { useTransactions } from '../hooks/useTransactions';
 import { triggerLightHaptic } from '../hooks/useHaptics';
 import type { PrimaryScreen } from '../types/navigation';
 
@@ -24,20 +35,10 @@ interface HomeScreenProps {
   onOpenKyc: () => void;
 }
 
-/**
- * Behavior parity with the old inline `screen-home` block (App.tsx
- * ~1745-2050): same KYC banner states, same hero balance, same quick-action
- * row. What's different is structural — this file only knows about Home.
- * It can't accidentally break the Cards screen's nav highlight, because it
- * doesn't contain the Cards screen.
- */
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigate,
   onEnterScreen,
   formatDisplayBalance,
-  getTrueUsdcBalance,
-  getAssetSummary,
-  onChainBalanceError,
   selectedCurrency,
   onOpenCurrencyPicker,
   onOpenSend,
@@ -48,88 +49,351 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenKyc,
 }) => {
   const { accountType, activeEntity, currentUser, kycStatus, kycTier, toggleAccountMode } = useAccount();
-  const assetSummary = getAssetSummary();
+  const { transactions } = useTransactions();
+
+  const displayName = getLegalDisplayName(activeEntity, currentUser);
+  const firstName = getLegalFirstName(activeEntity, currentUser);
+  const avatarInitial = (displayName.charAt(0) || 'P').toUpperCase();
 
   return (
-    <div className="screen active" id="screen-home">
+    <div className="screen-container">
       <StatusBar brand="Proxim" />
 
-      <div className="topbar">
-        <div className="greeting-block">
-          <div className="avatar">{(getLegalDisplayName(activeEntity, currentUser).charAt(0) || 'P').toUpperCase()}</div>
-          <div className="greeting-text">
-            <div className="eyebrow">{accountType === 'PERSONAL' ? 'Good evening' : 'Corporate Account'}</div>
-            <div className="name">{getLegalFirstName(activeEntity, currentUser)}</div>
+      {/* Top greeting bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 20px 12px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 'var(--radius-pill)',
+              background: 'var(--surface)',
+              border: '1px solid var(--hairline)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontFamily: 'var(--font-display)',
+              fontSize: 'var(--type-15)',
+              fontWeight: 800,
+              color: 'var(--accent-teal)',
+            }}
+          >
+            {avatarInitial}
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--type-11)', color: 'var(--text-muted)', fontWeight: 700 }}>
+              {accountType === 'PERSONAL' ? 'Good day' : 'Corporate Treasury'}
+            </div>
+            <div style={{ fontSize: 'var(--type-15)', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {firstName}
+            </div>
           </div>
         </div>
 
-        <div className={`switcher ${accountType === 'BUSINESS' ? 'flipped' : ''}`} onClick={toggleAccountMode}>
-          <div className="switcher-inner">
-            <div className="switcher-face front">
-              <span className="dot" />Personal
-            </div>
-            <div className="switcher-face back">
-              <span className="dot" />Business
-            </div>
-          </div>
-        </div>
+        {/* Account Mode Switcher */}
+        <button
+          onClick={() => {
+            triggerLightHaptic();
+            toggleAccountMode();
+          }}
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 'var(--radius-pill)',
+            padding: '6px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            color: 'var(--text-primary)',
+            fontSize: 'var(--type-13)',
+            fontWeight: 700,
+            fontFamily: 'var(--font-body)',
+            transition: 'background 150ms ease',
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: accountType === 'PERSONAL' ? 'var(--accent-teal)' : 'var(--accent-indigo)',
+              boxShadow: `0 0 8px ${accountType === 'PERSONAL' ? 'var(--accent-teal)' : 'var(--accent-indigo)'}`,
+            }}
+          />
+          {accountType === 'PERSONAL' ? 'Personal' : 'Business'}
+        </button>
       </div>
 
-      <div className="scroll">
-        <KycBanner status={kycStatus} tier={kycTier} accountType={accountType} onVerify={onOpenKyc} />
+      <div style={{ flex: 1, paddingBottom: 24 }}>
+        {/* Verification Banner */}
+        <div style={{ padding: '0 20px 14px' }}>
+          {kycStatus === 'pending' && (
+            <StatusCard
+              tone="pending"
+              title="Verification in review"
+              subtitle="Your accounts will activate once confirmed."
+            />
+          )}
+          {kycStatus === 'approved' && (
+            <StatusCard
+              tone="success"
+              title={`Verified ${accountType === 'PERSONAL' ? 'Personal' : 'Business'} Account`}
+              subtitle={`Tier ${kycTier} · Full limit access active`}
+            />
+          )}
+          {kycStatus === 'unverified' && (
+            <StatusCard
+              tone="action"
+              title="Verify your identity"
+              subtitle="Unlock your dedicated local account in 60 seconds."
+              cta={{
+                label: 'Verify ID',
+                onClick: onOpenKyc,
+              }}
+            />
+          )}
+        </div>
 
-        <div className="hero" style={{ fontFamily: 'var(--font-body)' }}>
+        {/* Hero Balance Card */}
+        <div
+          style={{
+            margin: '0 20px',
+            padding: '20px',
+            background: 'var(--surface)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 'var(--radius-md)',
+            position: 'relative',
+          }}
+        >
           <div style={{ marginBottom: 16 }}>
             <AuroraBar sweep />
           </div>
-          <div className="bal-head">
-            <span className="label" style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 700 }}>
-              {accountType === 'PERSONAL' ? 'Across 3 accounts · tap to switch' : 'Corporate Treasury Balance'}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--type-11)', fontWeight: 700 }}>
+              {accountType === 'PERSONAL' ? 'Available Balance' : 'Corporate Treasury Balance'}
             </span>
             <button
-              className="ccy-tag"
               onClick={() => {
                 triggerLightHaptic();
                 onOpenCurrencyPicker();
               }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--hairline)',
+                borderRadius: 'var(--radius-pill)',
+                padding: '4px 10px',
+                color: 'var(--text-primary)',
+                fontSize: 'var(--type-11)',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
               aria-label="Switch active currency"
             >
               <span>{selectedCurrency}</span>
-              <ChevronDown size={14} style={{ display: 'inline', marginLeft: 2, verticalAlign: 'middle' }} />
+              <ChevronDown size={12} />
             </button>
           </div>
+
           <div
-            className="amount num"
-            style={{ fontFamily: 'var(--font-body)', fontWeight: 900, fontSize: accountType === 'PERSONAL' ? 42 : 34 }}
+            className="num"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 900,
+              fontSize: accountType === 'PERSONAL' ? 'var(--type-42)' : 'var(--type-34)',
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.8px',
+              margin: '8px 0 2px',
+              lineHeight: 1.1,
+            }}
           >
             {formatDisplayBalance()}
           </div>
-          <div className="true-balance" style={{ fontFamily: 'var(--font-body)' }}>
-            {getTrueUsdcBalance()}
-          </div>
-          {assetSummary && (
-            <div className="true-balance" style={{ fontFamily: 'var(--font-body)' }}>
-              On-chain: {assetSummary}
-            </div>
-          )}
-          {onChainBalanceError && (
-            <div className="true-balance" style={{ fontFamily: 'var(--font-body)', color: 'var(--danger-soft)' }}>
-              On-chain balance unavailable: {onChainBalanceError}
-            </div>
-          )}
-          <div className="delta num" style={{ color: 'var(--accent-teal)', fontWeight: 700 }}>
-            +₦0.00 today
+
+          <div style={{ color: 'var(--accent-teal)', fontSize: 'var(--type-13)', fontWeight: 700, marginTop: 4 }}>
+            Ready when you are
           </div>
 
-          <QuickActions
-            accountType={accountType}
-            onSend={onOpenSend}
-            onReceive={onOpenReceive}
-            onRequest={onOpenRequest}
-            onContacts={onOpenContacts}
-            onSave={onOpenSave}
-            onGoInvoices={() => onNavigate('home' as PrimaryScreen) /* secondary nav wired at App level */}
-          />
+          {/* Quick Actions Component */}
+          <div style={{ marginTop: 20 }}>
+            {accountType === 'BUSINESS' ? (
+              <div>
+                {/* Primary Button */}
+                <button
+                  onClick={() => {
+                    triggerLightHaptic();
+                    onOpenReceive();
+                  }}
+                  style={{
+                    width: '100%',
+                    height: 48,
+                    background: 'var(--gradient-aurora)',
+                    borderRadius: 'var(--radius-pill)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 'var(--type-15)',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    marginBottom: 14,
+                  }}
+                >
+                  <ArrowDownLeft size={18} strokeWidth={2.2} />
+                  <span>Receive Payment</span>
+                </button>
+
+                {/* Secondary Row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: 12 }}>
+                  <QuickCircleButton
+                    icon={<FileText size={20} strokeWidth={1.8} />}
+                    label="Invoices"
+                    onClick={() => onNavigate('invoices' as PrimaryScreen)}
+                  />
+                  <QuickCircleButton
+                    icon={<Briefcase size={20} strokeWidth={1.8} />}
+                    label="Payroll"
+                    onClick={() => onNavigate('payroll' as PrimaryScreen)}
+                  />
+                  <QuickCircleButton
+                    icon={<ArrowUpRight size={20} strokeWidth={1.8} />}
+                    label="Send"
+                    onClick={onOpenSend}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div>
+                {/* Primary Button */}
+                <button
+                  onClick={() => {
+                    triggerLightHaptic();
+                    onOpenSend();
+                  }}
+                  style={{
+                    width: '100%',
+                    height: 48,
+                    background: 'var(--gradient-aurora)',
+                    borderRadius: 'var(--radius-pill)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 'var(--type-15)',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    marginBottom: 14,
+                  }}
+                >
+                  <ArrowUpRight size={18} strokeWidth={2.2} />
+                  <span>Send Money</span>
+                </button>
+
+                {/* Secondary Circular Actions Row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: 12 }}>
+                  <QuickCircleButton
+                    icon={<ArrowDownLeft size={20} strokeWidth={1.8} />}
+                    label="Receive"
+                    onClick={onOpenReceive}
+                  />
+                  <QuickCircleButton
+                    icon={<FileText size={20} strokeWidth={1.8} />}
+                    label="Request"
+                    onClick={onOpenRequest}
+                  />
+                  <QuickCircleButton
+                    icon={<Users size={20} strokeWidth={1.8} />}
+                    label="Contacts"
+                    onClick={onOpenContacts}
+                  />
+                  <QuickCircleButton
+                    icon={<ShieldCheck size={20} strokeWidth={1.8} />}
+                    label="Vault"
+                    onClick={onOpenSave}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Recent Activity Section */}
+        <div style={{ marginTop: 24, padding: '0 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <h3
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 'var(--type-20)',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+              }}
+            >
+              Recent activity
+            </h3>
+            {transactions.length > 0 && (
+              <button
+                onClick={() => {
+                  triggerLightHaptic();
+                  onNavigate('activity');
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--accent-teal)',
+                  fontSize: 'var(--type-13)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                See all
+              </button>
+            )}
+          </div>
+
+          {transactions.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '24px 0',
+                color: 'var(--text-muted)',
+                fontSize: 'var(--type-13)',
+              }}
+            >
+              Nothing yet — your activity will show up here.
+            </div>
+          ) : (
+            <div>
+              {transactions.slice(0, 5).map((tx) => (
+                <ListRow
+                  key={tx.id}
+                  icon={tx.type === 'INBOUND' ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                  title={tx.title}
+                  meta={`${tx.date} · ${tx.subtitle}`}
+                  amount={`${tx.type === 'INBOUND' ? '+' : '-'}${tx.symbol || ''}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                  isIncoming={tx.type === 'INBOUND'}
+                  onClick={() => onNavigate('activity')}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -138,162 +402,45 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
 };
 
-const KycBanner: React.FC<{
-  status: 'unverified' | 'pending' | 'approved';
-  tier: number;
-  accountType: 'PERSONAL' | 'BUSINESS';
-  onVerify: () => void;
-}> = ({ status, tier, accountType, onVerify }) => {
-  if (status === 'pending') {
-    return (
-      <BannerShell borderColor="rgba(214, 182, 90, 0.3)" bg="rgba(214, 182, 90, 0.12)">
-        <Clock size={20} color="var(--warning)" />
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--warning)' }}>Verification in review</div>
-          <div style={{ fontSize: 11, color: 'rgba(247, 248, 244, 0.7)' }}>
-            Your bank accounts will activate once confirmed.
-          </div>
-        </div>
-      </BannerShell>
-    );
-  }
-
-  if (status === 'approved') {
-    return (
-      <BannerShell borderColor="rgba(22, 199, 183, 0.3)" bg="rgba(22, 199, 183, 0.12)" justify="space-between">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CheckCircle2 size={20} color="var(--accent-teal-deep)" />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-teal)' }}>
-              Verified {accountType === 'PERSONAL' ? 'Personal Account' : 'Business Account'}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(247, 248, 244, 0.7)' }}>Tier {tier} · Bank accounts active</div>
-          </div>
-        </div>
-        <div
-          className="chip"
-          style={{
-            background: 'var(--accent-teal-deep)',
-            color: 'var(--text-inverse)',
-            fontWeight: 800,
-            padding: '4px 10px',
-            borderRadius: 'var(--radius-pill)',
-            fontSize: 11,
-          }}
-        >
-          Verified
-        </div>
-      </BannerShell>
-    );
-  }
-
-  return (
-    <BannerShell borderColor="rgba(45,212,191,0.2)" bg="var(--gradient-verify-bg)" justify="space-between">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Lock size={18} color="var(--accent-cyan)" />
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-on-surface)' }}>Unlock your Naira account</div>
-          <div style={{ fontSize: 11, color: 'rgba(247,248,244,0.6)' }}>Verify your identity in 60 seconds.</div>
-        </div>
-      </div>
-      <button
-        onClick={onVerify}
-        style={{
-          background: 'var(--gradient-aurora)',
-          border: 'none',
-          borderRadius: 'var(--radius-pill)',
-          padding: '7px 14px',
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: 11,
-          cursor: 'pointer',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Verify ID
-      </button>
-    </BannerShell>
-  );
-};
-
-const BannerShell: React.FC<{
-  borderColor: string;
-  bg: string;
-  justify?: string;
-  children: React.ReactNode;
-}> = ({ borderColor, bg, justify = 'space-between', children }) => (
-  <div
+const QuickCircleButton: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}> = ({ icon, label, onClick }) => (
+  <button
+    onClick={() => {
+      triggerLightHaptic();
+      onClick();
+    }}
     style={{
-      background: bg,
-      border: `1px solid ${borderColor}`,
-      borderRadius: 'var(--radius-md)',
-      padding: 14,
-      marginBottom: 16,
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: justify,
-      fontFamily: 'var(--font-body)',
-      gap: 10,
+      gap: 6,
+      background: 'transparent',
+      border: 'none',
+      cursor: 'pointer',
+      padding: 0,
     }}
   >
-    {children}
-  </div>
-);
-
-const QuickActionIcon: React.FC<{ path: string }> = ({ path }) => (
-  <div className="quick-icon-box">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d={path} />
-    </svg>
-  </div>
-);
-
-const QuickActions: React.FC<{
-  accountType: 'PERSONAL' | 'BUSINESS';
-  onSend: () => void;
-  onReceive: () => void;
-  onRequest: () => void;
-  onContacts: () => void;
-  onSave: () => void;
-  onGoInvoices: () => void;
-}> = ({ accountType, onSend, onReceive, onRequest, onContacts, onSave, onGoInvoices }) => {
-  if (accountType === 'BUSINESS') {
-    return (
-      <div className="quick-row">
-        <button className="quick-btn primary" onClick={onReceive}>
-          <QuickActionIcon path="M17 7L7 17M7 17h8M7 17V9" />
-          <span>Receive</span>
-        </button>
-        <button className="quick-btn" onClick={onGoInvoices}>
-          <QuickActionIcon path="M6 3h9l3 3v15H6z M9 8h6M9 12h6M9 16h3" />
-          <span>Invoices</span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="quick-row">
-      <button className="quick-btn primary" onClick={onSend}>
-        <QuickActionIcon path="M7 17L17 7M17 7H9M17 7v8" />
-        <span>Send</span>
-      </button>
-      <button className="quick-btn" onClick={onReceive}>
-        <QuickActionIcon path="M17 7L7 17M7 17h8M7 17V9" />
-        <span>Receive</span>
-      </button>
-      <button className="quick-btn" onClick={onRequest}>
-        <QuickActionIcon path="M12 4a4 4 0 00-4 4v3.2c0 .9-.32 1.77-.9 2.46L6 15h12l-1.1-1.34a3.9 3.9 0 01-.9-2.46V8a4 4 0 00-4-4z M10 18a2 2 0 004 0" />
-        <span>Request</span>
-      </button>
-      <button className="quick-btn" onClick={onContacts}>
-        <QuickActionIcon path="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M9 7a4 4 0 100 8 4 4 0 000-8z" />
-        <span>Contacts</span>
-      </button>
-      <button className="quick-btn" onClick={onSave}>
-        <QuickActionIcon path="M12 3v3M12 18v3M5 12H3M21 12h-2M6.3 6.3L5 5M19 19l-1.3-1.3M6.3 17.7L5 19M19 5l-1.3 1.3" />
-        <span>Vault</span>
-      </button>
+    <div
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 'var(--radius-pill)',
+        background: 'var(--surface)',
+        border: '1px solid var(--hairline)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--text-primary)',
+        transition: 'transform 100ms ease, background 150ms ease',
+      }}
+    >
+      {icon}
     </div>
-  );
-};
+    <span style={{ fontSize: 'var(--type-11)', color: 'var(--text-muted)', fontWeight: 500 }}>
+      {label}
+    </span>
+  </button>
+);

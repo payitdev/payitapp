@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/bot.js",
     "poll": "tsc && node dist/polling.js",
-    "test": "node --test dist/**/*.test.js",
+    "test": "pnpm build && node --import ./dist/testSetup.js --test dist/**/*.test.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

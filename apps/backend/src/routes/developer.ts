@@ -5,6 +5,7 @@ import { createDbClient, eq, and, desc } from '@payit/db';
 import { apiKeys, webhookEndpoints, apiLogs, entities, webhookDeliveries } from '@payit/db/schema';
 import { WebhookDispatcher } from '../services/webhookDispatcher.js';
 import { hashApiKey } from '../middleware/apiKeyAuth.js';
+import { API_SCOPES, API_WILDCARD_SCOPES } from '../middleware/apiScope.js';
 import { validateWebhookUrl } from '../utils/ssrfValidator.js';
 
 const db = createDbClient();
@@ -39,7 +40,7 @@ export async function developerRoutes(server: FastifyInstance) {
    * Generate a new API secret key (returned in full ONCE upon creation)
    */
   server.post('/api/developer/keys', async (request, reply) => {
-    const { entityId, name = 'Default API Key', environment = 'live', scopes } = request.body as {
+    const { entityId, name = 'Default API Key', environment = 'test', scopes } = request.body as {
       entityId: string;
       name?: string;
       environment?: 'live' | 'test';
@@ -47,6 +48,7 @@ export async function developerRoutes(server: FastifyInstance) {
     };
 
     if (!entityId) return reply.status(400).send({ error: 'entityId is required' });
+    if (!name.trim()) return reply.status(400).send({ error: 'name is required' });
 
     const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     if (entityRows.length === 0) return reply.status(404).send({ error: 'Entity not found' });
@@ -57,9 +59,12 @@ export async function developerRoutes(server: FastifyInstance) {
     const keyPrefix = secretKey.slice(0, 16);
     const hashedKey = hashApiKey(secretKey);
 
-    const defaultScopes = scopes && scopes.length > 0
+    const requestedScopes = scopes && scopes.length > 0
       ? scopes
       : ['invoices:all', 'wallets:all', 'payouts:all', 'reports:all', 'treasury:all'];
+    const invalidScopes = requestedScopes.filter(scope => !API_SCOPES.includes(scope as any) && !API_WILDCARD_SCOPES.includes(scope as any));
+    if (invalidScopes.length) return reply.status(400).send({ error: 'Unsupported API scopes', invalidScopes, supportedScopes: [...API_SCOPES, ...API_WILDCARD_SCOPES] });
+    const defaultScopes = [...new Set(requestedScopes)];
 
     const keyId = ulid();
 
@@ -237,6 +242,8 @@ export async function developerRoutes(server: FastifyInstance) {
   server.post('/api/developer/webhooks/deliveries/:id/resend', async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
+      const delivery = await db.select({ id: webhookDeliveries.id }).from(webhookDeliveries).where(and(eq(webhookDeliveries.id, id), eq(webhookDeliveries.entityId, request.session!.activeEntityId))).limit(1);
+      if (!delivery[0]) return reply.status(404).send({ error: 'Webhook delivery not found' });
       const result = await WebhookDispatcher.replayDelivery(id);
       return reply.send(result);
     } catch (err: any) {
