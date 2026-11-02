@@ -154,16 +154,6 @@ export const ComingSoonModal: React.FC<ComingSoonModalProps> = ({
                   <span>Get started on Telegram</span>
                   <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                 </a>
-                <div className="text-center">
-                  <a
-                    href={telegramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-[#35D9D0] hover:underline inline-flex items-center gap-1 font-mono"
-                  >
-                    {telegramUrl}
-                  </a>
-                </div>
               </div>
             </div>
           </motion.div>

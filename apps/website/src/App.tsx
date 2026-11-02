@@ -498,37 +498,24 @@ export default function App() {
               {/* Action Buttons */}
               <motion.div
                 variants={fadeUp} custom={3}
-                className="space-y-3 max-w-md mx-auto lg:mx-0 pt-2"
+                className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start max-w-md mx-auto lg:mx-0 pt-2"
               >
-                <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                  <button
-                    onClick={() => setComingSoonModalOpen(true)}
-                    className="btn-primary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
-                  >
-                    <span>Use mobile app</span>
-                    <ArrowRight className="w-5 h-5" />
-                  </button>
-                  <a
-                    href={TELEGRAM_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-secondary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
-                  >
-                    <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
-                    <span>Get started on Telegram</span>
-                  </a>
-                </div>
-                <div className="flex justify-center lg:justify-start">
-                  <a
-                    href={TELEGRAM_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-[#35D9D0] hover:underline font-mono tracking-wide"
-                  >
-                    <span>https://t.me/payeetbot</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </a>
-                </div>
+                <button
+                  onClick={() => setComingSoonModalOpen(true)}
+                  className="btn-primary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
+                >
+                  <span>Use mobile app</span>
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+                <a
+                  href={TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary !text-base !py-3.5 !px-8 flex items-center justify-center gap-2"
+                >
+                  <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
+                  <span>Get started on Telegram</span>
+                </a>
               </motion.div>
 
 
@@ -893,7 +880,7 @@ export default function App() {
               <p className="text-sm text-[#F7F8F4]/80 leading-relaxed">
                 Conversational money management where you already spend your time. Send money to contacts, generate PDF/SVG invoices, check rates, and authorize bank transfers—protected by 6-digit PIN security.
               </p>
-              <div className="pt-2 space-y-2">
+              <div className="pt-2">
                 <a
                   href={TELEGRAM_URL}
                   target="_blank"
@@ -903,17 +890,6 @@ export default function App() {
                   <TelegramIcon className="w-3.5 h-3.5 text-[#35D9D0]" />
                   <span>Get Started on Telegram</span>
                 </a>
-                <div>
-                  <a
-                    href={TELEGRAM_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[0.7rem] text-[#35D9D0] hover:underline inline-flex items-center gap-1 font-mono"
-                  >
-                    <span>https://t.me/payeetbot</span>
-                    <ArrowUpRight className="w-3 h-3" />
-                  </a>
-                </div>
               </div>
             </div>
           </div>
@@ -1933,33 +1909,20 @@ console.log(status); // "SETTLED"`}
           <p className="text-lg sm:text-xl text-[#F7F8F4]/85 max-w-xl mx-auto leading-relaxed">
             Open your Proxim account in minutes on your phone or start managing your money conversationally in Telegram.
           </p>
-          <div className="space-y-3 pt-2 max-w-md mx-auto">
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-lg !py-4 !px-10 flex items-center justify-center gap-2">
-                <span>Use Mobile App</span>
-                <ArrowRight className="w-5 h-5" />
-              </button>
-              <a
-                href={TELEGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary !text-lg !py-4 !px-10 flex items-center justify-center gap-2.5"
-              >
-                <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
-                <span>Get started on Telegram</span>
-              </a>
-            </div>
-            <div className="flex justify-center">
-              <a
-                href={TELEGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-[#35D9D0] hover:underline font-mono tracking-wide"
-              >
-                <span>https://t.me/payeetbot</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </a>
-            </div>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-2 max-w-md mx-auto">
+            <button onClick={() => setComingSoonModalOpen(true)} className="btn-primary !text-lg !py-4 !px-10 flex items-center justify-center gap-2">
+              <span>Use Mobile App</span>
+              <ArrowRight className="w-5 h-5" />
+            </button>
+            <a
+              href={TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary !text-lg !py-4 !px-10 flex items-center justify-center gap-2.5"
+            >
+              <TelegramIcon className="w-5 h-5 text-[#35D9D0]" />
+              <span>Get started on Telegram</span>
+            </a>
           </div>
         </div>
       </section>
