@@ -422,7 +422,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('CORPORATE DISBURSEMENTS'), findsOneWidget);
     expect(find.text('Add Employee'), findsOneWidget);
-    expect(find.text('David Miller'), findsOneWidget);
+    // No fabricated seed recipients — the queue starts empty.
+    expect(find.text('Recipient Queue (0)'), findsOneWidget);
+    expect(find.text('David Miller'), findsNothing);
 
     // Go back
     await tester.tap(find.byIcon(Icons.arrow_back).first);

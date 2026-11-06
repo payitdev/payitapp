@@ -22,28 +22,52 @@ class VaultRepository {
     }
   }
 
-  /// Deposit into a savings strategy / pod vault
+  /// Lock funds into a yield vault — POST /api/kamino/lock.
+  /// Requires a 6-digit transaction PIN; lockDurationDays must be one of
+  /// 30, 60, 90, or 365 (the backend does not support flexible locks).
   Future<void> deposit({
-    required String strategyId,
-    required double amount,
-    required String currency,
+    required String entityId,
+    required String vaultId,
+    required double amountUsd,
+    required int lockDurationDays,
+    required String passcode,
+    String strategy = 'kamino',
   }) async {
-    await _apiClient.post<Map<String, dynamic>>(
-      '/api/savings/deposit',
-      data: {'strategyId': strategyId, 'amount': amount, 'currency': currency},
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/api/kamino/lock',
+      data: {
+        'entityId': entityId,
+        'vaultId': vaultId,
+        'amountUsd': amountUsd,
+        'lockDurationDays': lockDurationDays,
+        'strategy': strategy,
+        'passcode': passcode,
+      },
     );
+    final data = response.data;
+    if (data == null || data['success'] != true) {
+      throw ProximException(
+        data?['error']?.toString() ?? 'Unable to lock funds. Please try again.',
+      );
+    }
   }
 
-  /// Withdraw from a savings strategy / pod vault
+  /// Withdraw a matured savings position — POST /api/kamino/withdraw.
   Future<void> withdraw({
-    required String strategyId,
-    required double amount,
-    required String currency,
+    required String entityId,
+    required String termVaultId,
+    required String passcode,
   }) async {
-    await _apiClient.post<Map<String, dynamic>>(
-      '/api/savings/withdraw',
-      data: {'strategyId': strategyId, 'amount': amount, 'currency': currency},
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/api/kamino/withdraw',
+      data: {'entityId': entityId, 'termVaultId': termVaultId, 'passcode': passcode},
     );
+    final data = response.data;
+    if (data == null || data['success'] != true) {
+      throw ProximException(
+        data?['error']?.toString() ?? 'Unable to withdraw. Please try again.',
+      );
+    }
   }
 
   /// Live yield routes with APYs across Kamino + NEAR Intent Earn —
