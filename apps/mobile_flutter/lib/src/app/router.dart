@@ -129,7 +129,7 @@ final router = GoRouter(
       parentNavigatorKey: _rootNavigatorKey,
       path: '/checkout/:id',
       builder: (context, state) {
-        final id = state.pathParameters['id'] ?? 'INV-2026-095';
+        final id = state.pathParameters['id'] ?? '';
         return PublicInvoiceCheckoutScreen(invoiceId: id);
       },
     ),

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/proxim_theme.dart';
+import '../../auth/presentation/auth_provider.dart';
+import '../../auth/presentation/transaction_pin_sheet.dart';
 import '../domain/vault_models.dart';
 import 'vault_provider.dart';
 
@@ -31,7 +33,21 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   ];
 
   int _selectedLockIndex = 2;
-  final double _depositAmount = 1000.0;
+  final TextEditingController _amountController = TextEditingController(text: '1000');
+
+  double get _depositAmount => double.tryParse(_amountController.text) ?? 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
 
   /// APY (percent) for a lock option resolved from the live yield routes;
   /// null when no rate is available for that duration.
@@ -276,15 +292,23 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                     children: [
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Text('DEPOSIT AMOUNT',
+                          const Text('DEPOSIT AMOUNT (USD)',
                               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: ProximColors.onSurfaceVariant, letterSpacing: 0.6)),
-                          const SizedBox(height: 2),
-                          Text('\$${_depositAmount.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  fontFeatures: [FontFeature.tabularFigures()])),
+                          TextField(
+                            controller: _amountController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                fontFeatures: [FontFeature.tabularFigures()]),
+                            decoration: const InputDecoration(
+                              prefixText: '\$ ',
+                              prefixStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white),
+                              isDense: true,
+                              border: InputBorder.none,
+                            ),
+                          ),
                         ]),
                       ),
                       Expanded(
@@ -309,28 +333,65 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   height: 48,
                   child: ElevatedButton(
                     onPressed: () async {
-                      final repo = ref.read(vaultRepositoryProvider);
-                      final summary = ref.read(savingsSummaryProvider).value;
-                      final strategyId = summary?.strategies.isNotEmpty == true
-                          ? summary!.strategies.first.id
-                          : 'default';
+                      final messenger = ScaffoldMessenger.of(context);
+                      final amount = _depositAmount;
+                      if (amount <= 0) {
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Enter a deposit amount greater than zero.')),
+                        );
+                        return;
+                      }
+                      final durationKey = selectedOption.durationKey;
+                      if (durationKey == null) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Flexible deposits are not supported yet — pick a lock duration of 30 days or longer.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      if (bestOption == null) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Yield options are unavailable right now — please try again shortly.'),
+                          ),
+                        );
+                        return;
+                      }
+                      final entity = ref.read(activeEntityProvider);
+                      if (entity == null) {
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('No active account selected.')),
+                        );
+                        return;
+                      }
+                      final pin = await showTransactionPinSheet(context);
+                      if (pin == null || !context.mounted) return;
                       try {
-                        await repo.deposit(
-                            strategyId: strategyId,
-                            amount: _depositAmount,
-                            currency: 'USD');
+                        await ref.read(vaultRepositoryProvider).deposit(
+                              entityId: entity.id,
+                              vaultId: bestOption.id,
+                              amountUsd: amount,
+                              lockDurationDays: durationKey,
+                              passcode: pin,
+                              strategy: bestOption.provider == 'near_intent' ? 'near_intent' : 'kamino',
+                            );
                         ref.invalidate(savingsSummaryProvider);
+                        ref.invalidate(vaultYieldOptionsProvider);
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(
-                                'Locked \$${_depositAmount.toStringAsFixed(0)} in ${selectedOption.label} vault.')),
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Locked \$${amount.toStringAsFixed(0)} in the ${selectedOption.label} vault.',
+                              ),
+                            ),
                           );
                         }
                       } catch (e) {
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(e.toString())),
-                          );
+                          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
                         }
                       }
                     },

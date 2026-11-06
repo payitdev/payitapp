@@ -17,46 +17,70 @@ class InvoicesBuilderScreen extends ConsumerStatefulWidget {
 
 class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
   int _selectedFilter = 0; // 0: All, 1: Unpaid, 2: Paid, 3: Overdue
-  final TextEditingController _amountController = TextEditingController(text: '12,500.00');
-  final TextEditingController _clientNameController = TextEditingController(text: 'Acme Corp');
-  final TextEditingController _clientEmailController = TextEditingController(text: 'billing@acme.com');
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _clientNameController = TextEditingController();
+  final TextEditingController _clientEmailController = TextEditingController();
   final Set<int> _selectedRails = {0, 1}; // 0: Solana, 1: Base, 2: Wire
   bool _isGenerating = false;
 
   Future<void> _handleGenerateLink() async {
+    final clientName = _clientNameController.text.trim();
+    final clientEmail = _clientEmailController.text.trim();
+    final parsedAmount = double.tryParse(_amountController.text.replaceAll(',', ''));
+    String? validationError;
+    if (clientName.isEmpty) {
+      validationError = 'Enter the client name.';
+    } else if (clientEmail.isEmpty) {
+      validationError = 'Enter the client email.';
+    } else if (parsedAmount == null || parsedAmount <= 0) {
+      validationError = 'Enter a valid invoice amount.';
+    }
+    if (validationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(validationError)),
+      );
+      return;
+    }
+
     setState(() => _isGenerating = true);
-    
-    final cleanAmount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 12500.0;
     final rails = _selectedRails.map((id) => id == 0 ? 'Fast USD' : (id == 1 ? 'Digital Rail' : 'Direct Wire')).toList();
     final entity = ref.read(activeEntityProvider);
 
     ProximInvoice? invoice;
+    String? errorMessage;
     try {
       invoice = await ref.read(invoicesRepositoryProvider).createInvoice(
-            clientName: _clientNameController.text.trim().isEmpty ? 'Acme Corp' : _clientNameController.text.trim(),
-            clientEmail: _clientEmailController.text.trim().isEmpty ? 'billing@acme.com' : _clientEmailController.text.trim(),
-            amount: cleanAmount,
+            clientName: clientName,
+            clientEmail: clientEmail,
+            amount: parsedAmount!,
             currency: 'USDC',
             acceptedRails: rails,
           );
       if (entity != null) {
         ref.invalidate(invoicesListProvider(entity.id));
       }
-    } catch (_) {}
+    } catch (e) {
+      errorMessage = e.toString();
+    }
 
     if (!mounted) return;
     setState(() {
       _isGenerating = false;
     });
 
-    final invNum = invoice?.invoiceNumber ?? 'INV-2026-095';
+    if (invoice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage ?? 'Could not generate the invoice. Please try again.')),
+      );
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Invoice #$invNum generated & ready to checkout'),
+        content: Text('Invoice #${invoice.invoiceNumber} generated & ready to checkout'),
         action: SnackBarAction(
           label: 'View Checkout',
           textColor: ProximColors.primary,
-          onPressed: () => context.push('/checkout/$invNum'),
+          onPressed: () => context.push('/checkout/${invoice!.invoiceNumber}'),
         ),
       ),
     );
@@ -384,7 +408,7 @@ class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        'Draft #INV-2026-095',
+                        'Draft',
                         style: ProximTextStyles.labelXs(color: ProximColors.primary),
                       ),
                     ),
@@ -414,7 +438,7 @@ class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
                           ),
                           child: Center(
                             child: Text(
-                              _clientNameController.text.isNotEmpty ? _clientNameController.text[0].toUpperCase() : 'A',
+                              _clientNameController.text.isNotEmpty ? _clientNameController.text[0].toUpperCase() : '?',
                               style: const TextStyle(fontWeight: FontWeight.bold, color: ProximColors.primary),
                             ),
                           ),
@@ -425,11 +449,11 @@ class _InvoicesBuilderScreenState extends ConsumerState<InvoicesBuilderScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _clientNameController.text.isNotEmpty ? _clientNameController.text : 'Acme Corp',
+                                _clientNameController.text.isNotEmpty ? _clientNameController.text : 'Tap to set client',
                                 style: ProximTextStyles.bodyLg().copyWith(fontWeight: FontWeight.w600),
                               ),
                               Text(
-                                _clientEmailController.text.isNotEmpty ? _clientEmailController.text : 'billing@acme.com',
+                                _clientEmailController.text.isNotEmpty ? _clientEmailController.text : 'Name & email required',
                                 style: ProximTextStyles.labelXs(),
                               ),
                             ],

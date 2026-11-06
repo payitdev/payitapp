@@ -20,26 +20,7 @@ class _BatchPayrollScreenState extends ConsumerState<BatchPayrollScreen> {
   bool _isSettled = false;
   String? _errorMessage;
 
-  final List<PayrollRecipient> _recipients = [
-    const PayrollRecipient(
-      name: 'Sarah Jenkins',
-      accountOrPhone: '0123456789',
-      bankOrNetwork: '058',
-      amount: 45000.0,
-    ),
-    const PayrollRecipient(
-      name: 'David Miller',
-      accountOrPhone: '0987654321',
-      bankOrNetwork: '011',
-      amount: 52000.0,
-    ),
-    const PayrollRecipient(
-      name: 'Elena Rostova',
-      accountOrPhone: '0456789123',
-      bankOrNetwork: '033',
-      amount: 38000.0,
-    ),
-  ];
+  final List<PayrollRecipient> _recipients = [];
 
   double get _totalBatchAmount => _recipients.fold<double>(0.0, (sum, r) => sum + r.amount);
 

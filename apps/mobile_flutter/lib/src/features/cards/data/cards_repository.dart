@@ -48,23 +48,27 @@ class CardsRepository {
   }
 
   /// Freeze or unfreeze a card
-  Future<ProximCard> toggleFreeze(String cardId, {required bool freeze}) async {
+  Future<void> toggleFreeze(String cardId, {required bool freeze}) async {
     final response = await _apiClient.post<Map<String, dynamic>>(
-      '/api/cards/$cardId/${freeze ? 'freeze' : 'unfreeze'}',
+      '/api/cards/freeze',
+      data: {'cardId': cardId, 'freeze': freeze},
     );
     final data = response.data;
-    if (data != null && data['card'] != null) {
-      return ProximCard.fromJson(data['card'] as Map<String, dynamic>);
+    if (data == null || data['success'] != true) {
+      throw const ProximException('Unable to update card status. Please try again.');
     }
-    throw const ProximException('Unable to update card status. Please try again.');
   }
 
   /// Top up a card with funds
   Future<void> topUpCard(String cardId, double amount, String currency) async {
-    await _apiClient.post<Map<String, dynamic>>(
-      '/api/cards/$cardId/top-up',
-      data: {'amount': amount, 'currency': currency},
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/api/cards/top-up',
+      data: {'cardId': cardId, 'amount': amount, 'currency': currency},
     );
+    final data = response.data;
+    if (data == null || data['success'] != true) {
+      throw const ProximException('Unable to top up card. Please try again.');
+    }
   }
 
   /// Issue a new virtual card — path: POST /api/cards/issue
