@@ -166,8 +166,8 @@ export class NotificationService {
             html: emailPayload.html,
             text: emailPayload.text,
           })
-          .then((res) => console.log(`[NotificationService] Email dispatched to ${user.email}: ${res.id}`))
-          .catch((err) => console.error(`[NotificationService] Email delivery failed for ${user.email}:`, err.message))
+          .then((res: { id?: string }) => console.log(`[NotificationService] Email dispatched to ${user.email}: ${res.id}`))
+          .catch((err: { message?: string }) => console.error(`[NotificationService] Email delivery failed for ${user.email}:`, err.message))
       );
     }
 
@@ -180,8 +180,8 @@ export class NotificationService {
             to: user.phone,
             text: whatsappText,
           })
-          .then((res) => console.log(`[NotificationService] WhatsApp dispatched to ${user.phone}: ${res.id}`))
-          .catch((err) => console.error(`[NotificationService] WhatsApp delivery failed for ${user.phone}:`, err.message))
+          .then((res: { id?: string }) => console.log(`[NotificationService] WhatsApp dispatched to ${user.phone}: ${res.id}`))
+          .catch((err: { message?: string }) => console.error(`[NotificationService] WhatsApp delivery failed for ${user.phone}:`, err.message))
       );
     }
 

@@ -212,6 +212,36 @@ export async function cardRoutes(server: FastifyInstance) {
   });
 
   /**
+   * Card transaction history from the provider.
+   */
+  server.get('/api/cards/:cardId/transactions', async (request, reply) => {
+    const { cardId } = request.params as { cardId: string };
+    const { entityId } = request.query as { entityId?: string };
+    const sessionUserId = String(request.session?.userId || '');
+    if (!sessionUserId) return reply.status(401).send({ error: 'Authentication required' });
+
+    const record = await findCardRecord(cardId, entityId, sessionUserId);
+    if (!record) return reply.status(404).send({ error: 'Card not found for this account' });
+
+    try {
+      const data: any = await brails.listCardTransactions(record.providerCardId, { take: 50, order: 'DESC' });
+      const list = Array.isArray(data) ? data : (data?.data ?? data?.transactions ?? data?.items ?? []);
+      const transactions = (Array.isArray(list) ? list : []).map((t: any) => ({
+        id: String(t.id ?? t.transactionId ?? t.reference ?? ''),
+        description: t.description ?? t.merchant ?? t.narration ?? t.channel ?? 'Card transaction',
+        amount: Number(t.amount ?? t.amountMinor ?? 0),
+        currency: (t.currency || record.currency || 'USD').toUpperCase(),
+        timestamp: t.createdAt ?? t.created_at ?? t.date ?? t.timestamp ?? null,
+        type: String(t.type ?? t.direction ?? (t.action === 'credit' ? 'CREDIT' : 'DEBIT')).toUpperCase(),
+      }));
+      return reply.send({ success: true, cardId: record.id, transactions });
+    } catch (error: any) {
+      request.log.error({ err: error }, 'card transactions lookup failed');
+      return reply.status(502).send({ error: 'Unable to load card transactions', details: error?.message });
+    }
+  });
+
+  /**
    * Issue Virtual Card for Proxim
    */
   server.post('/api/cards/issue', async (request, reply) => {
