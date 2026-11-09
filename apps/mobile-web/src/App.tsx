@@ -136,7 +136,8 @@ function AppContent() {
     })();
   }, [authenticated, privyUser, currentUser]);
 
-  /** Demo / preview login — calls real backend endpoint. */
+  /** Demo / preview login — calls the real backend endpoint. Never
+   * fabricates a session: on failure the user sees an error. */
   const handleDemoLogin = async () => {
     setAuthLoading(true);
     setAuthError('');
@@ -146,15 +147,10 @@ function AppContent() {
       if (res.ok && data.success) {
         applyBackendSession(data);
       } else {
-        // Fallback: use mock data if backend unreachable
-        const fallback = { id: 'demo-user-1', email: 'alex.morgan@proxim.app', fullName: 'Alex Morgan', legalName: 'Alex Morgan', firstName: 'Alex' };
-        setCurrentUser?.(fallback);
-        setActiveEntity?.(fallback);
+        setAuthError(data.error || 'Demo login is unavailable right now. Please try again shortly.');
       }
     } catch {
-      const fallback = { id: 'demo-user-1', email: 'alex.morgan@proxim.app', fullName: 'Alex Morgan', legalName: 'Alex Morgan', firstName: 'Alex' };
-      setCurrentUser?.(fallback);
-      setActiveEntity?.(fallback);
+      setAuthError('Could not reach the server. Please check your connection and try again.');
     } finally {
       setAuthLoading(false);
     }
