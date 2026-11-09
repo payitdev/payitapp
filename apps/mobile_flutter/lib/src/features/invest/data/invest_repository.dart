@@ -53,8 +53,11 @@ class InvestRepository {
     }
   }
 
+  /// The live-finance routes answer 503 (explicitly disabled) or 404
+  /// (older backend) when investing isn't enabled — treat both as an
+  /// empty watchlist/positions so the screen renders its empty state.
   static bool _isNotFound(Object e) =>
-      e is ProximException && e.statusCode == 404;
+      e is ProximException && (e.statusCode == 404 || e.statusCode == 503);
 
   /// Buy an asset (market order)
   Future<void> buyStock({
