@@ -327,7 +327,39 @@ class _BatchPayrollScreenState extends ConsumerState<BatchPayrollScreen> {
             label: const Text('Add Employee', style: TextStyle(color: Colors.white, fontSize: 13)),
           ),
         ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: ProximColors.hairlineBorder),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+            onPressed: _showImportCsvDialog,
+            icon: const Icon(Icons.upload_file, size: 16, color: ProximColors.primary),
+            label: const Text('Import CSV', style: TextStyle(color: Colors.white, fontSize: 13)),
+          ),
+        ),
       ],
+    );
+  }
+
+  /// Parses pasted CSV rows (`name, accountOrPhone, bankOrNetwork, amount`),
+  /// tolerating a header row and blank lines. Reports skipped rows.
+  Future<void> _showImportCsvDialog() async {
+    final imported = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => _CsvImportDialog(
+        onImport: (recipients) => setState(() => _recipients.addAll(recipients)),
+      ),
+    );
+    if (!mounted || imported == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(imported == 0
+            ? 'No valid rows found — expected: name, account, bank code, amount.'
+            : 'Imported $imported recipient${imported == 1 ? '' : 's'}.'),
+      ),
     );
   }
 
@@ -577,6 +609,94 @@ class _BatchPayrollScreenState extends ConsumerState<BatchPayrollScreen> {
                 ],
               ),
             )),
+      ],
+    );
+  }
+}
+
+
+/// Paste-based CSV import — one recipient per line: name, account, bank code,
+/// amount. The controller is owned here so it lives as long as the dialog
+/// (including its close animation).
+class _CsvImportDialog extends StatefulWidget {
+  const _CsvImportDialog({required this.onImport});
+
+  final void Function(List<PayrollRecipient>) onImport;
+
+  @override
+  State<_CsvImportDialog> createState() => _CsvImportDialogState();
+}
+
+class _CsvImportDialogState extends State<_CsvImportDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _import() {
+    final rows = _controller.text.split('\n');
+    final parsed = <PayrollRecipient>[];
+    for (final raw in rows) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      final cols = line.split(',').map((c) => c.trim()).toList();
+      if (cols.length < 4) continue;
+      if (cols[0].toLowerCase() == 'name') continue; // header row
+      final amount = double.tryParse(cols[3].replaceAll('₦', '').replaceAll(' ', ''));
+      if (amount == null || amount <= 0) continue;
+      parsed.add(PayrollRecipient(
+        name: cols[0],
+        accountOrPhone: cols[1],
+        bankOrNetwork: cols[2],
+        amount: amount,
+      ));
+    }
+    widget.onImport(parsed);
+    Navigator.of(context).pop(parsed.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: ProximColors.surfaceContainerLow,
+      title: const Text('Import recipients', style: TextStyle(color: Colors.white, fontSize: 16)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Paste CSV rows — one recipient per line:\nname, account/phone, bank code, amount',
+            style: TextStyle(fontSize: 12, color: ProximColors.onSurfaceVariant),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _controller,
+            maxLines: 8,
+            style: const TextStyle(fontSize: 12, color: Colors.white, fontFamily: 'monospace'),
+            decoration: const InputDecoration(
+              hintText: 'Ada Lovelace,0123456789,058,45000',
+              hintStyle: TextStyle(color: ProximColors.onSurfaceVariant),
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel', style: TextStyle(color: ProximColors.onSurfaceVariant)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ProximColors.primary,
+            foregroundColor: ProximColors.surfaceContainerLowest,
+          ),
+          onPressed: _import,
+          child: const Text('Import'),
+        ),
       ],
     );
   }

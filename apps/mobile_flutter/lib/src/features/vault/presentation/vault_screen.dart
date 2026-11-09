@@ -25,14 +25,15 @@ class VaultScreen extends ConsumerStatefulWidget {
 }
 
 class _VaultScreenState extends ConsumerState<VaultScreen> {
+  // Backend locks are 30/60/90/365 days only — no flexible (no-lock) product
+  // exists, so it is intentionally not offered here.
   static const List<LockOption> _lockOptions = [
-    LockOption(label: 'Flexible', duration: 'No lock'),
     LockOption(label: '30 Days', duration: '1 month', durationKey: 30),
     LockOption(label: '90 Days', duration: '3 months', durationKey: 90),
     LockOption(label: '1 Year', duration: '12 months', durationKey: 365),
   ];
 
-  int _selectedLockIndex = 2;
+  int _selectedLockIndex = 1; // 90 Days
   final TextEditingController _amountController = TextEditingController(text: '1000');
 
   double get _depositAmount => double.tryParse(_amountController.text) ?? 0;
