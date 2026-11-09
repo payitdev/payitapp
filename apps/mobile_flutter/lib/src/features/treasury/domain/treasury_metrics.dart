@@ -2,9 +2,10 @@ import 'dart:math' as math;
 
 import 'treasury_models.dart';
 
-/// Client-side derived treasury metrics for the dashboard hero card.
-/// The backend has no burn-rate / runway / inflow endpoints, so these are
-/// computed purely from the live balance, account list and transfer history.
+/// Treasury metrics for the dashboard hero card. The provider prefers the
+/// server-computed /api/treasury/metrics (full uncapped history); this
+/// client-side derivation remains as the fallback when that endpoint is
+/// unavailable, computed from the live balance, account list and history.
 class TreasuryMetrics {
   final double balance;
   final String currency;

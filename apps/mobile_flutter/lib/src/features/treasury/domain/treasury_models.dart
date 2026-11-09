@@ -212,3 +212,38 @@ class PendingApproval {
     );
   }
 }
+
+
+/// Server-computed treasury metrics — GET /api/treasury/metrics.
+/// Precomputed from the full (uncapped) transfer history on the backend.
+class TreasuryMetricsSnapshot {
+  final double balance;
+  final double monthlyBurn;
+  final bool burnEstimated;
+  final double? runwayMonths;
+  final double inflow30d;
+  final double inflowPrev30d;
+  final double? momChangePercent;
+
+  const TreasuryMetricsSnapshot({
+    required this.balance,
+    required this.monthlyBurn,
+    required this.burnEstimated,
+    required this.runwayMonths,
+    required this.inflow30d,
+    required this.inflowPrev30d,
+    required this.momChangePercent,
+  });
+
+  factory TreasuryMetricsSnapshot.fromJson(Map<String, dynamic> json) {
+    return TreasuryMetricsSnapshot(
+      balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
+      monthlyBurn: (json['monthlyBurn'] as num?)?.toDouble() ?? 0.0,
+      burnEstimated: json['burnEstimated'] as bool? ?? true,
+      runwayMonths: (json['runwayMonths'] as num?)?.toDouble(),
+      inflow30d: (json['inflow30d'] as num?)?.toDouble() ?? 0.0,
+      inflowPrev30d: (json['inflowPrev30d'] as num?)?.toDouble() ?? 0.0,
+      momChangePercent: (json['momChangePercent'] as num?)?.toDouble(),
+    );
+  }
+}

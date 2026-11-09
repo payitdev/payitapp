@@ -337,4 +337,24 @@ class TreasuryRepository {
       return [];
     }
   }
+
+  /// Server-computed metrics (burn rate, runway, 30D inflow + MoM) from
+  /// GET /api/treasury/metrics. Returns null when the endpoint is
+  /// unavailable (e.g. older backend mid-rollout) so the caller can fall
+  /// back to client-side derivation from live data.
+  Future<TreasuryMetricsSnapshot?> getServerMetrics({required String entityId}) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/api/treasury/metrics',
+        queryParameters: {'entityId': entityId},
+      );
+      final data = response.data;
+      if (data != null && data['success'] == true) {
+        return TreasuryMetricsSnapshot.fromJson(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
 }
