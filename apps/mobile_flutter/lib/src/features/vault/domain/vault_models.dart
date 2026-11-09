@@ -174,3 +174,73 @@ class AutoSaveStatus {
     );
   }
 }
+
+/// A locked savings position — GET /api/kamino/positions/:entityId.
+class SavingsPosition {
+  final String id;
+  final String vaultName;
+  final String protocol;
+  final int lockDurationDays;
+  final DateTime startDate;
+  final DateTime unlockDate;
+  final double principalAmountUsd;
+  final double userNetApy;
+  final String status; // PENDING_DEPOSIT | SOLVING | LOCKED | MATURED | EARLY_UNLOCKED | WITHDRAWN_EXTERNAL
+  final double accruedInterestUsd;
+  final double currentTotalValueUsd;
+  final bool onChainSynced;
+
+  const SavingsPosition({
+    required this.id,
+    required this.vaultName,
+    required this.protocol,
+    required this.lockDurationDays,
+    required this.startDate,
+    required this.unlockDate,
+    required this.principalAmountUsd,
+    required this.userNetApy,
+    required this.status,
+    required this.accruedInterestUsd,
+    required this.currentTotalValueUsd,
+    required this.onChainSynced,
+  });
+
+  bool get isMatured => status == 'MATURED';
+  bool get isPending => status == 'PENDING_DEPOSIT' || status == 'SOLVING';
+  bool get isWithdrawn =>
+      status == 'WITHDRAWN_EXTERNAL' || status == 'EARLY_UNLOCKED';
+
+  int get daysRemaining {
+    final days = unlockDate.difference(DateTime.now()).inDays;
+    return days < 0 ? 0 : days;
+  }
+
+  factory SavingsPosition.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic v) =>
+        DateTime.tryParse(v?.toString() ?? '') ?? DateTime.now();
+    return SavingsPosition(
+      id: json['id'] as String? ?? '',
+      vaultName: json['vaultName'] as String? ?? json['vault_name'] as String? ?? 'Vault',
+      protocol: json['protocol'] as String? ?? 'kamino',
+      lockDurationDays: json['lockDurationDays'] as int? ??
+          json['lock_duration_days'] as int? ?? 0,
+      startDate: parseDate(json['startDate'] ?? json['start_date']),
+      unlockDate: parseDate(json['unlockDate'] ?? json['unlock_date']),
+      principalAmountUsd:
+          double.tryParse(json['principalAmountUsd']?.toString() ?? '') ??
+              double.tryParse(json['principal_amount_usd']?.toString() ?? '') ??
+              0.0,
+      userNetApy: double.tryParse(json['userNetApy']?.toString() ?? '') ??
+          double.tryParse(json['user_net_apy']?.toString() ?? '') ??
+          0.0,
+      status: json['status'] as String? ?? 'LOCKED',
+      accruedInterestUsd:
+          double.tryParse(json['accruedInterestUsd']?.toString() ?? '') ?? 0.0,
+      currentTotalValueUsd:
+          double.tryParse(json['currentTotalValueUsd']?.toString() ?? '') ??
+              double.tryParse(json['principalAmountUsd']?.toString() ?? '') ??
+              0.0,
+      onChainSynced: json['onChainSynced'] as bool? ?? false,
+    );
+  }
+}

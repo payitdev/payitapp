@@ -65,6 +65,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     final bestApy = ref.watch(bestVaultApyProvider);
     final yieldOptionsAsync = ref.watch(vaultYieldOptionsProvider);
     final autoSaveAsync = ref.watch(autoSaveStatusProvider);
+    final positionsAsync = ref.watch(vaultPositionsProvider);
 
     final yieldOptions = yieldOptionsAsync.value ?? const <VaultYieldOption>[];
     VaultYieldOption? bestOption;
@@ -414,9 +415,128 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          _buildLocksSection(positionsAsync),
         ],
       ),
     );
+  }
+
+  /// Active and matured savings positions for the entity, with withdrawal
+  /// for matured locks (backend rejects early withdrawals by design).
+  Widget _buildLocksSection(AsyncValue<List<SavingsPosition>> positionsAsync) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Your Locks', style: ProximTextStyles.headlineSm()),
+        const SizedBox(height: 10),
+        positionsAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, value: 0.8))),
+          ),
+          error: (e, _) => Text('Unable to load positions.', style: ProximTextStyles.labelXs(color: ProximColors.statusWarning)),
+          data: (positions) {
+            if (positions.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  'No locked funds yet — lock an amount above to start earning.',
+                  style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                ),
+              );
+            }
+            return Column(
+              children: [
+                for (final position in positions) _buildLockTile(position),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLockTile(SavingsPosition position) {
+    final statusLabel = position.isWithdrawn
+        ? 'Withdrawn'
+        : position.isPending
+            ? 'Processing'
+            : position.isMatured
+                ? 'Matured'
+                : '${position.daysRemaining}d left';
+    final statusColor = position.isMatured
+        ? ProximColors.statusSuccess
+        : position.isPending
+            ? ProximColors.statusWarning
+            : ProximColors.onSurfaceVariant;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ProximColors.subtleBorder),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(position.vaultName,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+              const SizedBox(height: 2),
+              Text(
+                '\$${position.currentTotalValueUsd.toStringAsFixed(2)} · ${position.userNetApy.toStringAsFixed(1)}% net APY',
+                style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+              ),
+            ]),
+          ),
+          Text(statusLabel, style: ProximTextStyles.labelXs(color: statusColor).copyWith(fontWeight: FontWeight.w700)),
+          if (position.isMatured) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _withdrawPosition(position),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: ProximColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Withdraw', style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _withdrawPosition(SavingsPosition position) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final entity = ref.read(activeEntityProvider);
+    if (entity == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('No active account selected.')));
+      return;
+    }
+    final pin = await showTransactionPinSheet(context);
+    if (pin == null || !mounted) return;
+    try {
+      await ref.read(vaultRepositoryProvider).withdraw(
+            entityId: entity.id,
+            termVaultId: position.id,
+            passcode: pin,
+          );
+      ref.invalidate(vaultPositionsProvider);
+      ref.invalidate(savingsSummaryProvider);
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Withdrew \$${position.currentTotalValueUsd.toStringAsFixed(2)} from ${position.vaultName}.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   Widget _buildStrategyCard({

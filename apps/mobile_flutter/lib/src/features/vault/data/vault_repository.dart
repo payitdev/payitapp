@@ -106,4 +106,18 @@ class VaultRepository {
       return const AutoSaveStatus(enabled: false, liquidBufferUsd: 0);
     }
   }
+
+  /// Locked positions for an entity — GET /api/kamino/positions/:entityId.
+  Future<List<SavingsPosition>> getPositions({required String entityId}) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/api/kamino/positions/$entityId',
+    );
+    final data = response.data;
+    if (data != null && data['positions'] is List) {
+      return (data['positions'] as List)
+          .map((p) => SavingsPosition.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
 }

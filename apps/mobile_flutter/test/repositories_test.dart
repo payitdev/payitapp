@@ -570,6 +570,9 @@ class FakeApiClient extends ProximApiClient {
           ],
         };
       default:
+        if (path.startsWith('/api/kamino/positions/')) {
+          return {'success': true, 'positions': []};
+        }
         throw ProximException('Unexpected path in FakeApiClient: $path');
     }
   }

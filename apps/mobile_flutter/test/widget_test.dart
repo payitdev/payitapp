@@ -490,6 +490,20 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets('Vault screen shows the positions section with an honest empty state',
+      (tester) async {
+    await pumpProximApp(tester);
+    await tester.pumpAndSettle();
+    router.go('/vault');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your Locks'), findsOneWidget);
+    expect(
+      find.text('No locked funds yet — lock an amount above to start earning.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Treasury hero card renders provider-driven balance and metrics', (tester) async {
     await pumpDashboardWith(
       tester: tester,
