@@ -47,3 +47,11 @@ final autoSaveStatusProvider = FutureProvider.autoDispose<AutoSaveStatus>((ref) 
   final repo = ref.watch(vaultRepositoryProvider);
   return repo.getAutoSave(entityId: entity.id);
 });
+
+/// Locked savings positions for the active entity.
+final vaultPositionsProvider = FutureProvider.autoDispose<List<SavingsPosition>>((ref) async {
+  final entity = ref.watch(activeEntityProvider);
+  if (entity == null) throw StateError('No active entity selected.');
+  final repo = ref.watch(vaultRepositoryProvider);
+  return repo.getPositions(entityId: entity.id);
+});

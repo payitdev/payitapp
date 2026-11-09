@@ -45,10 +45,12 @@ working tree for that file.
   PIN + small amount (confirm term_vaults row, on-chain shares, summary refresh).
 Any provider-shape surprises → fix the mapping, add regression tests.
 
-### OPEN-3 — Vault withdrawal UI (MEDIUM)
-Backend `POST /api/kamino/withdraw` exists and the repo method is wired, but no
-screen flow calls it. Build a "Your positions / matured locks" section with
-withdraw CTA + PIN prompt, or deliberately defer and hide the repo method.
+### ~~OPEN-3~~ — CLOSED. The vault screen now has a "Your Locks" section:
+live positions from `GET /api/kamino/positions/:entityId` (status, days
+remaining, current value + net APY), and matured locks get a Withdraw CTA
+that prompts for the transaction PIN and calls `POST /api/kamino/withdraw`.
+Honest empty and error states; widget-tested. Note: backend rejects early
+withdrawals by design — only MATURED locks show the CTA.
 
 ### ~~OPEN-4~~ — CLOSED (removed). The Flexible chip is gone from the vault
 lock options — only 30/90/365-day locks are offered, matching what the backend
