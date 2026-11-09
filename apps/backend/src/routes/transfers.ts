@@ -1172,7 +1172,7 @@ async function syncOnChainActivityAndBalance(entityId: string) {
 }
 
 // Calculate real entity balance from settled transfers and live multi-chain on-chain sync
-async function calculateLiveEntityBalance(entityId: string): Promise<number> {
+export async function calculateLiveEntityBalance(entityId: string): Promise<number> {
   const now = Date.now();
   const lastSync = lastSyncTimestamps.get(entityId) || 0;
   if (now - lastSync > SYNC_THROTTLE_MS) {

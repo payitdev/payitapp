@@ -6,6 +6,7 @@ import { env } from './env.js';
 import { authRoutes } from './routes/auth.js';
 import { entityRoutes } from './routes/entities.js';
 import { approvalRoutes } from './routes/approvals.js';
+import { treasuryMetricsRoutes } from './routes/treasuryMetrics.js';
 import { transferRoutes } from './routes/transfers.js';
 import { cardRoutes } from './routes/cards.js';
 import { invoiceRoutes } from './routes/invoices.js';
@@ -28,6 +29,7 @@ import { v1Routes } from './routes/v1Routes.js';
 import { brailsRoutes } from './routes/brails.js';
 import { schoolRoutes } from './routes/schools.js';
 import { nuvionRoutes } from './routes/nuvion.js';
+import { yellowCardRoutes } from './routes/yellowCard.js';
 import { mpcRoutes } from './routes/mpc.js';
 import { easeIdClient } from '@payit/integrations';
 import rawBody from 'fastify-raw-body';
@@ -152,6 +154,7 @@ export function buildServer() {
   server.register(waitlistRoutes);
   server.register(transferRoutes);
   server.register(approvalRoutes);
+  server.register(treasuryMetricsRoutes);
 
   const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE || env.ENABLE_ONDO_FINANCE || env.ENABLE_NEAR_MPC;
   if (liveFinanceEnabled) {
@@ -183,6 +186,7 @@ export function buildServer() {
   server.register(brailsRoutes);
   server.register(schoolRoutes);
   server.register(nuvionRoutes);
+  server.register(yellowCardRoutes);
   server.register(mpcRoutes);
 
   // Dev/Staging only — seed routes for local testing
