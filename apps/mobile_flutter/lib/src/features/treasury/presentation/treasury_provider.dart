@@ -111,8 +111,9 @@ final treasuryMetricsProvider = FutureProvider.autoDispose<TreasuryMetrics>((ref
   }
   final repo = ref.watch(treasuryRepositoryProvider);
 
-  final balance = await repo.getBalance(entityId: entity.id);
-  final history = await repo.getHistory(entityId: entity.id);
+  // Prefer the server-computed metrics (full uncapped history); fall back
+  // to client-side derivation from live data when unavailable.
+  final server = await repo.getServerMetrics(entityId: entity.id);
   final accounts = await repo.getAccounts(entityId: entity.id);
   final rates = await repo.getFxRates();
 
@@ -123,6 +124,29 @@ final treasuryMetricsProvider = FutureProvider.autoDispose<TreasuryMetrics>((ref
       break;
     }
   }
+
+  if (server != null) {
+    final runway = server.runwayMonths;
+    return TreasuryMetrics(
+      balance: server.balance,
+      currency: 'USDC',
+      ngnEquivalent: usdRate != null ? server.balance * usdRate.rateToNgn : null,
+      vaultCount: accounts.length,
+      monthlyBurn: server.monthlyBurn,
+      burnIsEstimate: server.burnEstimated,
+      runwayMonths: runway,
+      runwayTier: runway == null || runway >= 6
+          ? 'Safe'
+          : runway >= 3
+              ? 'Watch'
+              : 'At Risk',
+      inflowLast30d: server.inflow30d,
+      inflowMomPct: server.momChangePercent,
+    );
+  }
+
+  final balance = await repo.getBalance(entityId: entity.id);
+  final history = await repo.getHistory(entityId: entity.id);
 
   return computeTreasuryMetrics(
     balance: balance.balance,
