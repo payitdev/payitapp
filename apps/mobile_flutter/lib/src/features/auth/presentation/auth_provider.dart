@@ -232,19 +232,6 @@ class AuthNotifier extends Notifier<AuthState> with WidgetsBindingObserver {
     }
   }
 
-  /// Demo account — used by the "Explore the demo" button on the login screen.
-  Future<bool> loginDemo() async {
-    _setState(state.copyWith(isLoading: true, clearError: true));
-    try {
-      final user = await _repository.loginDemo();
-      _setState(state.copyWith(isLoading: false, user: user, activeEntityId: user.activeEntityId));
-      return true;
-    } catch (e) {
-      _setState(AuthState(isLoading: false, errorMessage: e.toString()));
-      return false;
-    }
-  }
-
   // ── Session management ─────────────────────────────────────────────────────
 
   Future<void> toggleEntityMode() async {
