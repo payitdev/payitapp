@@ -31,37 +31,6 @@ class AuthRepository {
     return null;
   }
 
-  /// Demo Login — connects to backend; falls back to offline data ONLY when
-  /// DEMO_MODE=true is set at compile time.
-  Future<ProximUser> loginDemo() async {
-    try {
-      final response = await _apiClient.post<Map<String, dynamic>>(
-        '/api/auth/demo',
-        data: const <String, dynamic>{},
-      );
-      final data = response.data;
-      if (data != null && data['success'] == true && data['token'] != null) {
-        final token = data['token'] as String;
-        await _apiClient.tokenStorage.saveToken(token);
-
-        var user = ProximUser.fromJson(data['user'] as Map<String, dynamic>);
-        user = _ensureEntityAddresses(user);
-        await _apiClient.tokenStorage.saveActiveEntityId(user.activeEntityId);
-        return user;
-      }
-      throw const ProximException('Demo login failed. Please try again.');
-    } catch (e) {
-      // Only fall back to offline demo data if DEMO_MODE is explicitly enabled
-      if (ApiConfig.isDemoMode) {
-        debugPrint('[AuthRepository] DEMO_MODE: using offline fallback user.');
-        final fallbackUser = _getDemoFallbackUser();
-        await _apiClient.tokenStorage.saveActiveEntityId(fallbackUser.activeEntityId);
-        return fallbackUser;
-      }
-      rethrow;
-    }
-  }
-
   ProximUser _ensureEntityAddresses(ProximUser user) {
     final updatedEntities = user.entities.map((entity) {
       final hasEvm = entity.evmDepositAddress != null && entity.evmDepositAddress!.isNotEmpty;
@@ -237,56 +206,4 @@ class AuthRepository {
   // ─────────────────────────────────────────────────────────────────────────
   // Demo / Offline fallback — only used when DEMO_MODE=true
   // ─────────────────────────────────────────────────────────────────────────
-  static ProximUser _getDemoFallbackUser() {
-    return const ProximUser(
-      id: 'usr_demo_proxim_01',
-      email: 'alex.morgan@proxim.app',
-      fullName: 'Alex Morgan',
-      activeEntityId: 'ent_demo_business_01',
-      hasPasscode: true,
-      entities: [
-        ProximEntity(
-          id: 'ent_demo_business_01',
-          userId: 'usr_demo_proxim_01',
-          kind: 'BUSINESS',
-          legalName: 'Acme Global Technologies Ltd',
-          businessTag: 'ACMEBIZ',
-          dueStatus: 'approved',
-          evmDepositAddress: '0x35D9...82E1',
-          solanaDepositAddress: '7XqB...9vK2',
-          fiatAccounts: [
-            FiatAccount(
-              id: 'acc_biz_ngn_01',
-              accountNumber: '0124899012',
-              bankName: 'Providus Bank',
-              currency: 'NGN',
-              rail: 'NUBAN_INSTANT',
-              accountHolderName: 'Acme Global Technologies Ltd',
-              status: 'ACTIVE',
-            ),
-          ],
-        ),
-        ProximEntity(
-          id: 'ent_demo_personal_01',
-          userId: 'usr_demo_proxim_01',
-          kind: 'PERSONAL',
-          legalName: 'Alex Morgan',
-          dueStatus: 'approved',
-          evmDepositAddress: '0x8F21...47B9',
-          solanaDepositAddress: '3NmP...5wT8',
-          fiatAccounts: [
-            FiatAccount(
-              id: 'acc_per_ngn_01',
-              accountNumber: '9081234567',
-              bankName: 'SafeHaven Microfinance Bank',
-              currency: 'NGN',
-              rail: 'NUBAN_INSTANT',
-              accountHolderName: 'Alex Morgan',
-              status: 'ACTIVE',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
 }

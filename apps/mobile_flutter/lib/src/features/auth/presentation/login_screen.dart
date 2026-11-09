@@ -405,17 +405,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: isBusy ? null : () => ref.read(authProvider.notifier).loginDemo(),
-                        icon: const Icon(Icons.play_circle_outline, size: 16, color: ProximColors.primary),
-                        label: Text(
-                          'Explore Demo Account',
-                          style: ProximTextStyles.bodySm(color: ProximColors.primary)
-                              .copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),

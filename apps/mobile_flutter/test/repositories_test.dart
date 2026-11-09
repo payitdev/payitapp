@@ -615,16 +615,6 @@ void main() {
   group('AuthRepository with canned API responses', () {
     final repo = AuthRepository(apiClient: FakeApiClient());
 
-    test('loginDemo returns valid ProximUser with business and personal entities', () async {
-      final user = await repo.loginDemo();
-      expect(user.email, equals('alex.morgan@proxim.app'));
-      expect(user.fullName, equals('Alex Morgan'));
-      expect(user.entities.length, greaterThanOrEqualTo(2));
-      expect(user.activeEntity, isNotNull);
-      expect(user.activeEntity!.isBusiness, isTrue);
-      expect(user.activeEntity!.legalName, equals('Acme Global Technologies Ltd'));
-    });
-
     test('verifyPasscode validates 6-digit passcode', () async {
       expect(await repo.verifyPasscode('123456'), isTrue);
       expect(await repo.verifyPasscode('999999'), isFalse);
