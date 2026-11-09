@@ -457,6 +457,39 @@ void main() {
     expect(find.text('Send & Payout'), findsOneWidget);
   });
 
+  testWidgets('Payroll CSV import adds recipients to the queue', (tester) async {
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await pumpProximApp(tester);
+    await tester.pumpAndSettle();
+    router.go('/payroll');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recipient Queue (0)'), findsOneWidget);
+
+    await tester.tap(find.text('Import CSV'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).last,
+      'name,account,bank,amount\nAda Lovelace,0123456789,058,45000\nGrace Hopper,0987654321,011,52000\nbad-row',
+    );
+    await tester.ensureVisible(find.text('Import'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Imported 2 recipients.'), findsOneWidget);
+    expect(find.text('Recipient Queue (2)'), findsOneWidget);
+    expect(find.text('Ada Lovelace'), findsOneWidget);
+    expect(find.text('Grace Hopper'), findsOneWidget);
+
+    // Drain the SnackBar so its overlay doesn't leak into the next test.
+    await tester.pump(const Duration(seconds: 5));
+  });
+
   testWidgets('Treasury hero card renders provider-driven balance and metrics', (tester) async {
     await pumpDashboardWith(
       tester: tester,

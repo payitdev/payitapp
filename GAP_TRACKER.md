@@ -32,18 +32,17 @@ against https://payit-backend-td53.onrender.com where the change is user-visible
 
 ## Open
 
-### OPEN-1 — Ship the logout-on-refresh fix (HIGH)
-The `refreshSession()` fix for the Receive screen (`receive_deposit_screen.dart`)
-sits **uncommitted in the working tree**, mixed into the active Yellow Card WIP.
-Coordinate with whoever owns that branch of work and commit it with the Yellow
-Card changes — do not let it rot: it fixes a real production logout bug.
-Owner: whoever is building Yellow Card. Status: blocked on WIP coordination.
+### ~~OPEN-1~~ — CLOSED. The logout-on-refresh fix shipped in commit 838d350
+(`refreshSession()` replacing the state-wiping `initializeSession()` on the
+Receive screen). Confirmed present at HEAD; only Yellow Card WIP remains in the
+working tree for that file.
 
-### OPEN-2 — Verify new card + savings flows live (HIGH, after next deploy)
-- Card freeze/top-up/transactions against a real issued Brails card
-  (transactions route is new; provider payload mapping is best-effort).
-- Kamino lock with a real 6-digit PIN and a small real amount; confirm
-  `term_vaults` row, on-chain shares, and summary refresh.
+### OPEN-2 — Partially verified; remainder needs real funds/cards (HIGH)
+- Route existence confirmed live: `GET /api/cards/:cardId/transactions` returns
+  401-unauthenticated (route registered behind auth), as do the approvals routes.
+- Still needs: card freeze/top-up/transactions against a real issued Brails
+  card (provider payload mapping is best-effort), and a kamino lock with a real
+  PIN + small amount (confirm term_vaults row, on-chain shares, summary refresh).
 Any provider-shape surprises → fix the mapping, add regression tests.
 
 ### OPEN-3 — Vault withdrawal UI (MEDIUM)
@@ -51,11 +50,10 @@ Backend `POST /api/kamino/withdraw` exists and the repo method is wired, but no
 screen flow calls it. Build a "Your positions / matured locks" section with
 withdraw CTA + PIN prompt, or deliberately defer and hide the repo method.
 
-### OPEN-4 — Flexible (no-lock) savings deposits (MEDIUM)
-Backend only supports 30/60/90/365-day locks. UI currently blocks Flexible with
-an honest message. Decide: build flexible deposits (different product shape —
-needs backend design) or remove the Flexible chip so users can't select
-something that can never work.
+### ~~OPEN-4~~ — CLOSED (removed). The Flexible chip is gone from the vault
+lock options — only 30/90/365-day locks are offered, matching what the backend
+can actually fulfil. If flexible deposits become a product priority, design the
+backend flow first, then re-add the chip.
 
 ### OPEN-5 — Ondo/Pods investing enabled (MEDIUM, needs credentials)
 Routes exist behind `ENABLE_ONDO_FINANCE` / `ENABLE_PODS_FINANCE` (off in prod;
@@ -63,10 +61,10 @@ app shows honest empty state). When business-ready: set env vars on Render,
 whitelist origins if needed, then remove the 404-as-empty handling in the
 invest repository and verify live quotes/positions/buy/sell.
 
-### OPEN-6 — Payroll CSV import (LOW — verify)
-The old "Upload CSV" affordance was replaced by "Add Employee" in the Oct 10
-redesign. Confirm CSV bulk import is intentionally gone (or re-add it) before
-launch marketing mentions it.
+### ~~OPEN-6~~ — CLOSED (re-added). Payroll has an "Import CSV" button next to
+"Add Employee" — a paste-based dialog (`name, account, bank code, amount` per
+line, header row tolerated, bad rows skipped with a count report). Covered by
+the 'Payroll CSV import adds recipients to the queue' widget test.
 
 ### OPEN-7 — Precomputed treasury metrics (LOW)
 Burn rate / runway / 30D inflow are derived client-side from history (now
