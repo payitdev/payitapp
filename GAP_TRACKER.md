@@ -57,11 +57,15 @@ lock options — only 30/90/365-day locks are offered, matching what the backend
 can actually fulfil. If flexible deposits become a product priority, design the
 backend flow first, then re-add the chip.
 
-### OPEN-5 — Ondo/Pods investing enabled (MEDIUM, needs credentials)
-Routes exist behind `ENABLE_ONDO_FINANCE` / `ENABLE_PODS_FINANCE` (off in prod;
-app shows honest empty state). When business-ready: set env vars on Render,
-whitelist origins if needed, then remove the 404-as-empty handling in the
-invest repository and verify live quotes/positions/buy/sell.
+### OPEN-5 — Wiring complete; needs credentials to enable (MEDIUM)
+podsRoutes/ondoRoutes are now registered unconditionally and self-gate: with
+the flags off they return a clean 503 "disabled" (no more bare 404s), and the
+invest repository maps 404+503 to honest empty states. Enabling is now a pure
+env flip on Render: `ENABLE_ONDO_FINANCE=true` (+ `ONDO_API_KEY` and the
+relayer credentials) or `ENABLE_PODS_FINANCE=true` (+ `PODS_API_KEY`,
+`PODS_BASE_URL`). After flipping: verify quotes/positions/buy/sell live, then
+revisit the 503-as-empty mapping if the product should surface the error
+state differently.
 
 ### ~~OPEN-6~~ — CLOSED (re-added). Payroll has an "Import CSV" button next to
 "Add Employee" — a paste-based dialog (`name, account, bank code, amount` per
@@ -73,11 +77,18 @@ Burn rate / runway / 30D inflow are derived client-side from history (now
 ISO-timestamped, limit honored up to 500). A backend `/api/treasury/metrics`
 would make them exact and cheaper. Nice-to-have, not blocking.
 
-### OPEN-8 — Website/mobile-web/telegram-bot parity (LOW)
-This sweep covered `apps/mobile_flutter` + `apps/backend`. The other three apps
-have not had the same endpoint cross-check / fake-data sweep. Run the same
-batches against them (endpoint cross-check → demo-data grep → scoping) before
-calling the platform gap-free.
+### ~~OPEN-8~~ — CLOSED. The other three apps swept with the same batches:
+- **mobile-web**: endpoint cross-check found `/api/transfers/internal-convert`
+  had no backend route — BUILT IT: server-side priced conversion (live FX,
+  balance check, ledger double-entry, ownership check) + extracted a shared
+  `getFxRateRows()` used by /api/fx/rates too. Demo-login fake-session
+  fallback (fabricated 'demo-user-1' on any backend failure) removed — errors
+  surface honestly now.
+- **website**: all API calls matched backend routes; remaining 'Acme' hits are
+  marketing-page sample visuals and documentation code examples — acceptable.
+- **telegram-bot**: backend calls matched (link/confirm exists); no gaps.
+Note: the same convert endpoint is available to the Flutter swap screen if it
+should move off fx-quote+execute for pure conversions.
 
 ---
 
