@@ -156,22 +156,11 @@ export function buildServer() {
   server.register(approvalRoutes);
   server.register(treasuryMetricsRoutes);
 
-  const liveFinanceEnabled = env.ENABLE_LIVE_FINANCE || env.ENABLE_PODS_FINANCE || env.ENABLE_ONDO_FINANCE || env.ENABLE_NEAR_MPC;
-  if (liveFinanceEnabled) {
-    server.register(podsRoutes);
-    server.register(ondoRoutes);
-  } else {
-    server.get('/api/pods/status', async () => ({
-      success: false,
-      mode: 'demo',
-      message: 'Pods flow is disabled. Set ENABLE_PODS_FINANCE=true and provide live credentials to enable it.',
-    }));
-    server.get('/api/ondo/status', async () => ({
-      success: false,
-      mode: 'demo',
-      message: 'Ondo flow is disabled. Set ENABLE_ONDO_FINANCE=true and provide live credentials to enable it.',
-    }));
-  }
+  // podsRoutes/ondoRoutes self-gate: when the live-finance flags are off
+  // they register 503 catch-alls so clients get a clean, explicit
+  // "disabled" instead of a bare 404. Register unconditionally.
+  server.register(podsRoutes);
+  server.register(ondoRoutes);
 
   server.register(intentRoutes);
   server.register(kaminoRoutes);

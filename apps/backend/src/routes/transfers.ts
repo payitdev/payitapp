@@ -1216,64 +1216,67 @@ export async function calculateLiveEntityBalance(entityId: string): Promise<numb
   return Math.max(0, Math.round(finalBalance * 100) / 100);
 }
 
+export interface FxRateRow {
+  currency: string;
+  symbol: string;
+  rateToNgn: number;
+  rateToUsd: number;
+  name: string;
+}
+
+/// Live FX rows (CoinGecko with hardcoded fallback) — shared by the
+/// /api/fx/rates route and the internal currency conversion endpoint so
+/// conversions are always priced server-side.
+export async function getFxRateRows(): Promise<FxRateRow[]> {
+  try {
+    const response = await fetch('https://api.coingecko.com/api/v3/exchange_rates', {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const rates = data.rates;
+      const ngnRate = rates?.ngn?.value || 1550;
+      return [
+        { currency: 'NGN', symbol: '₦', rateToNgn: 1, rateToUsd: 1 / ngnRate, name: 'Nigerian Naira' },
+        { currency: 'USD', symbol: '$', rateToNgn: ngnRate, rateToUsd: 1, name: 'US Dollar' },
+        { currency: 'EUR', symbol: '€', rateToNgn: ngnRate * (rates?.eur?.value || 1.08), rateToUsd: rates?.eur?.value || 1.08, name: 'Euro' },
+        { currency: 'GBP', symbol: '£', rateToNgn: ngnRate * (rates?.gbp?.value || 1.28), rateToUsd: rates?.gbp?.value || 1.28, name: 'British Pound' },
+        { currency: 'KES', symbol: 'KSh', rateToNgn: ngnRate * (rates?.kes?.value || 0.0078), rateToUsd: rates?.kes?.value || 0.0078, name: 'Kenyan Shilling' },
+        { currency: 'GHS', symbol: 'GH₵', rateToNgn: ngnRate * (rates?.ghs?.value || 0.065), rateToUsd: rates?.ghs?.value || 0.065, name: 'Ghanaian Cedi' },
+        { currency: 'ZAR', symbol: 'R', rateToNgn: ngnRate * (rates?.zar?.value || 0.055), rateToUsd: rates?.zar?.value || 0.055, name: 'South African Rand' },
+        { currency: 'UGX', symbol: 'USh', rateToNgn: ngnRate * (rates?.ugx?.value || 0.00027), rateToUsd: rates?.ugx?.value || 0.00027, name: 'Ugandan Shilling' },
+        { currency: 'CAD', symbol: 'CA$', rateToNgn: ngnRate * (rates?.cad?.value || 0.74), rateToUsd: rates?.cad?.value || 0.74, name: 'Canadian Dollar' },
+        { currency: 'AED', symbol: 'AED', rateToNgn: ngnRate * (rates?.aed?.value || 0.27), rateToUsd: rates?.aed?.value || 0.27, name: 'UAE Dirham' },
+      ];
+    }
+  } catch (error: any) {
+    console.warn('[FX Rates] Failed to fetch live rates, using fallback:', error.message);
+  }
+  return [
+    { currency: 'NGN', symbol: '₦', rateToNgn: 1, rateToUsd: 1 / 1550, name: 'Nigerian Naira' },
+    { currency: 'USD', symbol: '$', rateToNgn: 1550, rateToUsd: 1, name: 'US Dollar' },
+    { currency: 'EUR', symbol: '€', rateToNgn: 1680, rateToUsd: 1.08, name: 'Euro' },
+    { currency: 'GBP', symbol: '£', rateToNgn: 1980, rateToUsd: 1.28, name: 'British Pound' },
+    { currency: 'KES', symbol: 'KSh', rateToNgn: 12.0, rateToUsd: 0.0078, name: 'Kenyan Shilling' },
+    { currency: 'GHS', symbol: 'GH₵', rateToNgn: 100.0, rateToUsd: 0.065, name: 'Ghanaian Cedi' },
+    { currency: 'ZAR', symbol: 'R', rateToNgn: 85.0, rateToUsd: 0.055, name: 'South African Rand' },
+    { currency: 'UGX', symbol: 'USh', rateToNgn: 0.42, rateToUsd: 0.00027, name: 'Ugandan Shilling' },
+    { currency: 'CAD', symbol: 'CA$', rateToNgn: 1140, rateToUsd: 0.74, name: 'Canadian Dollar' },
+    { currency: 'AED', symbol: 'AED', rateToNgn: 422, rateToUsd: 0.27, name: 'UAE Dirham' },
+  ];
+}
+
 export async function transferRoutes(server: FastifyInstance) {
 
   /**
    * Get Live FX Rates
    */
-  server.get('/api/fx/rates', async (request, reply) => {
-    try {
-      // Try to fetch live rates from CoinGecko
-      const response = await fetch('https://api.coingecko.com/api/v3/exchange_rates', {
-        signal: AbortSignal.timeout(5000),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const rates = data.rates;
-        
-        // Build rates object with NGN as base
-        const ngnRate = rates?.ngn?.value || 1550;
-        const usdRate = rates?.usd?.value || 1;
-        
-        return reply.send({
-          success: true,
-          rates: [
-            { currency: 'NGN', symbol: '₦', rateToNgn: 1, rateToUsd: 1 / ngnRate, name: 'Nigerian Naira' },
-            { currency: 'USD', symbol: '$', rateToNgn: ngnRate, rateToUsd: 1, name: 'US Dollar' },
-            { currency: 'EUR', symbol: '€', rateToNgn: ngnRate * (rates?.eur?.value || 1.08), rateToUsd: rates?.eur?.value || 1.08, name: 'Euro' },
-            { currency: 'GBP', symbol: '£', rateToNgn: ngnRate * (rates?.gbp?.value || 1.28), rateToUsd: rates?.gbp?.value || 1.28, name: 'British Pound' },
-            { currency: 'KES', symbol: 'KSh', rateToNgn: ngnRate * (rates?.kes?.value || 0.0078), rateToUsd: rates?.kes?.value || 0.0078, name: 'Kenyan Shilling' },
-            { currency: 'GHS', symbol: 'GH₵', rateToNgn: ngnRate * (rates?.ghs?.value || 0.065), rateToUsd: rates?.ghs?.value || 0.065, name: 'Ghanaian Cedi' },
-            { currency: 'ZAR', symbol: 'R', rateToNgn: ngnRate * (rates?.zar?.value || 0.055), rateToUsd: rates?.zar?.value || 0.055, name: 'South African Rand' },
-            { currency: 'UGX', symbol: 'USh', rateToNgn: ngnRate * (rates?.ugx?.value || 0.00027), rateToUsd: rates?.ugx?.value || 0.00027, name: 'Ugandan Shilling' },
-            { currency: 'CAD', symbol: 'CA$', rateToNgn: ngnRate * (rates?.cad?.value || 0.74), rateToUsd: rates?.cad?.value || 0.74, name: 'Canadian Dollar' },
-            { currency: 'AED', symbol: 'AED', rateToNgn: ngnRate * (rates?.aed?.value || 0.27), rateToUsd: rates?.aed?.value || 0.27, name: 'UAE Dirham' },
-          ],
-          source: 'coingecko',
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } catch (error: any) {
-      console.warn('[FX Rates] Failed to fetch live rates, using fallback:', error.message);
-    }
-    
-    // Fallback to hardcoded rates
+  server.get('/api/fx/rates', async (_request, reply) => {
+    const rows = await getFxRateRows();
     return reply.send({
       success: true,
-      rates: [
-        { currency: 'NGN', symbol: '₦', rateToNgn: 1, rateToUsd: 1 / 1550, name: 'Nigerian Naira' },
-        { currency: 'USD', symbol: '$', rateToNgn: 1550, rateToUsd: 1, name: 'US Dollar' },
-        { currency: 'EUR', symbol: '€', rateToNgn: 1680, rateToUsd: 1.08, name: 'Euro' },
-        { currency: 'GBP', symbol: '£', rateToNgn: 1980, rateToUsd: 1.28, name: 'British Pound' },
-        { currency: 'KES', symbol: 'KSh', rateToNgn: 12.0, rateToUsd: 0.0078, name: 'Kenyan Shilling' },
-        { currency: 'GHS', symbol: 'GH₵', rateToNgn: 100.0, rateToUsd: 0.065, name: 'Ghanaian Cedi' },
-        { currency: 'ZAR', symbol: 'R', rateToNgn: 85.0, rateToUsd: 0.055, name: 'South African Rand' },
-        { currency: 'UGX', symbol: 'USh', rateToNgn: 0.42, rateToUsd: 0.00027, name: 'Ugandan Shilling' },
-        { currency: 'CAD', symbol: 'CA$', rateToNgn: 1140, rateToUsd: 0.74, name: 'Canadian Dollar' },
-        { currency: 'AED', symbol: 'AED', rateToNgn: 422, rateToUsd: 0.27, name: 'UAE Dirham' },
-      ],
-      source: 'fallback',
+      rates: rows,
+      source: rows.some(r => r.currency === 'USD' && r.rateToNgn !== 1550) ? 'coingecko' : 'fallback',
       timestamp: new Date().toISOString(),
     });
   });
@@ -1948,6 +1951,89 @@ export async function transferRoutes(server: FastifyInstance) {
         currency: normalizedCurrency,
         fee: 0.00,
         narration: narration || 'Proxim Peer-to-Peer Transfer',
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
+
+  /**
+   * Internal currency conversion — debits one currency, credits another on
+   * the same entity's ledger at the live server-side FX rate. Used by the
+   * mobile-web convert modal (and available to the Flutter app).
+   */
+  server.post('/api/transfers/internal-convert', async (request, reply) => {
+    const { entityId, fromCurrency, toCurrency, fromAmount, narration } = request.body as {
+      entityId?: string;
+      fromCurrency?: string;
+      toCurrency?: string;
+      fromAmount?: number;
+      narration?: string;
+    };
+
+    if (!entityId || !fromCurrency || !toCurrency || !Number.isFinite(fromAmount) || (fromAmount as number) <= 0) {
+      return reply.status(400).send({ error: 'entityId, fromCurrency, toCurrency, and a valid fromAmount are required' });
+    }
+    const from = fromCurrency.toUpperCase();
+    const to = toCurrency.toUpperCase();
+    if (from === to) return reply.status(400).send({ error: 'fromCurrency and toCurrency must differ' });
+    const session = request.session;
+    if (!session?.userEntityIds.includes(entityId)) {
+      return reply.status(403).send({ error: 'Entity is not owned by the authenticated user' });
+    }
+
+    const rows = await getFxRateRows();
+    const fromRate = rows.find(r => r.currency === from);
+    const toRate = rows.find(r => r.currency === to);
+    if (!fromRate || !toRate) {
+      return reply.status(400).send({ error: `Unsupported currency pair ${from}/${to}` });
+    }
+    const amount = fromAmount as number;
+    const toAmount = (amount * fromRate.rateToUsd) / toRate.rateToUsd;
+
+    const sourceBalance = await getEntityBalance(db, entityId, from, 'cash');
+    if (sourceBalance < amount) return reply.status(409).send({ error: 'Insufficient available balance' });
+
+    const transferId = ulid();
+    const fromCashId = `${entityId}_cash_${from}`;
+    const fromClearingId = `${entityId}_outbound_${from}`;
+    const toCashId = `${entityId}_cash_${to}`;
+    const toClearingId = `${entityId}_inbound_${to}`;
+    const accountRows = await db.select().from(ledgerAccounts).where(sql`${ledgerAccounts.id} IN (${fromCashId}, ${fromClearingId}, ${toCashId}, ${toClearingId})`);
+    const accountIds = new Set(accountRows.map(a => a.id));
+    const missingAccounts = [
+      { id: fromCashId, entityId, name: `Available ${from}`, type: 'ASSET' as const, currency: from },
+      { id: fromClearingId, entityId, name: `Outbound Clearing ${from}`, type: 'LIABILITY' as const, currency: from },
+      { id: toCashId, entityId, name: `Available ${to}`, type: 'ASSET' as const, currency: to },
+      { id: toClearingId, entityId, name: `Inbound Clearing ${to}`, type: 'LIABILITY' as const, currency: to },
+    ].filter(a => !accountIds.has(a.id));
+    if (missingAccounts.length) await db.insert(ledgerAccounts).values(missingAccounts);
+
+    await db.insert(transfers).values({
+      id: transferId, entityId, dueTransferId: transferId,
+      sourceCurrency: from, targetCurrency: to,
+      sourceAmount: amount.toFixed(4), targetAmount: toAmount.toFixed(4), feeAmount: '0.0000',
+      direction: 'DEBIT', settlementStatus: 'LEDGER_CREDITED', status: 'completed',
+    });
+    await db.insert(ledgerEntries).values([
+      { id: ulid(), entityId, transactionId: `${transferId}_OUT`, ledgerAccountId: fromCashId, type: 'CREDIT', amount: amount.toFixed(4) },
+      { id: ulid(), entityId, transactionId: `${transferId}_OUT`, ledgerAccountId: fromClearingId, type: 'DEBIT', amount: amount.toFixed(4) },
+      { id: ulid(), entityId, transactionId: `${transferId}_IN`, ledgerAccountId: toClearingId, type: 'CREDIT', amount: toAmount.toFixed(4) },
+      { id: ulid(), entityId, transactionId: `${transferId}_IN`, ledgerAccountId: toCashId, type: 'DEBIT', amount: toAmount.toFixed(4) },
+    ]);
+
+    return reply.send({
+      success: true,
+      transfer: {
+        id: transferId,
+        entityId,
+        fromCurrency: from,
+        toCurrency: to,
+        fromAmount: amount,
+        toAmount: Math.round(toAmount * 10000) / 10000,
+        rate: toAmount / amount,
+        fee: 0.00,
+        narration: narration || 'Proxim Currency Conversion',
         status: 'completed',
         timestamp: new Date().toISOString(),
       },
