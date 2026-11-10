@@ -68,6 +68,9 @@ async function runMigrations() {
       );
 
       ALTER TABLE entities ADD COLUMN IF NOT EXISTS registration_number TEXT;
+      ALTER TABLE entities ADD COLUMN IF NOT EXISTS username_customized INTEGER DEFAULT 0 NOT NULL;
+      ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_customer_id TEXT;
+      ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_status TEXT DEFAULT 'incomplete' NOT NULL;
 
       CREATE TABLE IF NOT EXISTS deposit_sync_cursors (
         id TEXT PRIMARY KEY,
@@ -966,6 +969,34 @@ async function runMigrations() {
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_nuvion_funding_entity ON nuvion_funding_sessions(local_entity_id, status);
+
+      CREATE TABLE IF NOT EXISTS yellowcard_payments (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        kind TEXT NOT NULL CHECK (kind IN ('COLLECTION', 'SEND')),
+        sequence_id TEXT NOT NULL UNIQUE,
+        provider_payment_id TEXT UNIQUE,
+        country TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        local_amount NUMERIC(28,2) NOT NULL,
+        status TEXT NOT NULL,
+        expires_at TIMESTAMP,
+        failure_code TEXT,
+        provider_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_yellowcard_payments_entity_status ON yellowcard_payments(entity_id, status);
+
+      CREATE TABLE IF NOT EXISTS yellowcard_webhook_events (
+        id TEXT PRIMARY KEY,
+        event_key TEXT NOT NULL UNIQUE,
+        provider_payment_id TEXT,
+        sequence_id TEXT,
+        status TEXT NOT NULL DEFAULT 'RECEIVED',
+        payload TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
 
       CREATE TABLE IF NOT EXISTS nuvion_savings_goals (
         id TEXT PRIMARY KEY,
