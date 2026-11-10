@@ -76,10 +76,17 @@ class ProximApiClient {
           }
 
           final friendlyMessage = _mapErrorMessage(error);
+          // Backend errors often carry a `details` field with the real cause
+          // (especially the auth catch-alls) — surface it for diagnosis.
+          final detail = error.response?.data is Map
+              ? error.response?.data['details']?.toString()
+              : null;
           return handler.next(
             error.copyWith(
               error: ProximException(
-                friendlyMessage,
+                detail != null && detail.isNotEmpty
+                    ? '$friendlyMessage ($detail)'
+                    : friendlyMessage,
                 statusCode: error.response?.statusCode,
                 code: error.response?.data is Map
                     ? error.response?.data['code']?.toString()
