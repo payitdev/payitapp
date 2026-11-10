@@ -29,7 +29,6 @@ import { v1Routes } from './routes/v1Routes.js';
 import { brailsRoutes } from './routes/brails.js';
 import { schoolRoutes } from './routes/schools.js';
 import { nuvionRoutes } from './routes/nuvion.js';
-import { yellowCardRoutes } from './routes/yellowCard.js';
 import { mpcRoutes } from './routes/mpc.js';
 import { easeIdClient } from '@payit/integrations';
 import rawBody from 'fastify-raw-body';
@@ -175,7 +174,6 @@ export function buildServer() {
   server.register(brailsRoutes);
   server.register(schoolRoutes);
   server.register(nuvionRoutes);
-  server.register(yellowCardRoutes);
   server.register(mpcRoutes);
 
   // Dev/Staging only — seed routes for local testing
