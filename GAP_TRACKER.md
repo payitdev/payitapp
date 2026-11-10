@@ -30,6 +30,18 @@ against https://payit-backend-td53.onrender.com where the change is user-visible
 
 ---
 
+### ~~OPEN-2~~ — CLOSED. Root cause of the login outage found and fixed:
+the Sep 5 notifications commit added `whatsapp_notifications_enabled` to
+schema.ts but never migrated it, so every `SELECT` on users in the auth flow
+threw undefined_column and hit the login catch-all 500 — breaking BOTH Google
+and email login on the deployed backend. Fix: idempotent ALTERs (commit
+02f15d9) + a systematic column-level audit of schema vs migration (17 more
+columns repaired across 6 tables; audit now reports zero missing). Deployed
+and verified: the login endpoint reaches token verification again.
+Follow-up: full Google round-trip on a healthy device (emulator OAuth
+browser needs Chrome first-run completed — environment quirk, not an app bug:
+the same APK opened the Google sign-in page on a fully provisioned emulator).
+
 ## Open
 
 ### ~~OPEN-1~~ — CLOSED. The logout-on-refresh fix shipped in commit 838d350
