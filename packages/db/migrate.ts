@@ -34,6 +34,7 @@ async function runMigrations() {
       );
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS privy_user_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_notifications_enabled BOOLEAN DEFAULT FALSE NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_privy_user_id ON users (privy_user_id) WHERE privy_user_id IS NOT NULL;
 
       CREATE TABLE IF NOT EXISTS telegram_user_links (
@@ -71,6 +72,25 @@ async function runMigrations() {
       ALTER TABLE entities ADD COLUMN IF NOT EXISTS username_customized INTEGER DEFAULT 0 NOT NULL;
       ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_customer_id TEXT;
       ALTER TABLE entities ADD COLUMN IF NOT EXISTS due_status TEXT DEFAULT 'incomplete' NOT NULL;
+
+      -- Schema drift repair: columns present in schema.ts but never added to
+      -- existing tables (CREATE TABLE IF NOT EXISTS does not upgrade).
+      ALTER TABLE nuvion_account_details ADD COLUMN IF NOT EXISTS iban TEXT;
+      ALTER TABLE nuvion_account_details ADD COLUMN IF NOT EXISTS sort_code TEXT;
+      ALTER TABLE nuvion_account_details ADD COLUMN IF NOT EXISTS swift_bic TEXT;
+      ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_quote_id TEXT;
+      ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_transfer_id TEXT;
+      ALTER TABLE invoices ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+      ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_account_or_link TEXT;
+      ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS currency TEXT;
+      ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(18,2);
+      ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS bank_or_network TEXT;
+      ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS currency TEXT;
+      ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS due_payout_id TEXT;
+      ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS recipient_account_or_phone TEXT;
+      ALTER TABLE term_vaults ADD COLUMN IF NOT EXISTS early_exit_choice TEXT CHECK (early_exit_choice IN ('FORFEIT_INTEREST', 'PENALTY_FEE'));
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone_or_momo TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS target_entity_id TEXT;
 
       CREATE TABLE IF NOT EXISTS deposit_sync_cursors (
         id TEXT PRIMARY KEY,
