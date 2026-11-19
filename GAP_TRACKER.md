@@ -42,6 +42,19 @@ Follow-up: full Google round-trip on a healthy device (emulator OAuth
 browser needs Chrome first-run completed — environment quirk, not an app bug:
 the same APK opened the Google sign-in page on a fully provisioned emulator).
 
+### CLOSED — Balance flicker on Base USDC deposits (Nov 19)
+Symptom: deposited funds appeared and disappeared in the app. Root cause:
+the displayed balance reads the live USDC balance of the deposit address,
+but EVERY detected EVM deposit — including Base USDC (already the
+settlement asset) — was routed through gas sponsorship + MPC sweep +
+NEAR Intent swap. The sweep emptied the address (balance -> $0) until the
+swap settled or failed into MANUAL_REVIEW; retries made it flicker.
+Fix (2d9ca81, feat): base:usdc deposits credit the ledger directly
+(instant, no funds move); stuck pre-fix rows heal idempotently on next
+sync. NOTE for the sweep team: non-USDC/other-chain deposits still go
+through the intent pipeline — the flicker risk remains there until
+balances read the ledger first, address second.
+
 ## Open
 
 ### ~~OPEN-1~~ — CLOSED. The logout-on-refresh fix shipped in commit 838d350
