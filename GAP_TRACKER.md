@@ -55,6 +55,19 @@ sync. NOTE for the sweep team: non-USDC/other-chain deposits still go
 through the intent pipeline — the flicker risk remains there until
 balances read the ledger first, address second.
 
+### Deposit coverage matrix (corrected after the flicker investigation)
+What the deposit pipeline actually covers today:
+- EVM chains (Base, Ethereum, Polygon, Arbitrum, Optimism, BSC): ONLY native
+  USDC and USDT Transfer events are indexed. Other tokens (incl. native ETH)
+  sent to the deposit address are NOT detected — real gap (LOW-MED).
+- Solana: signature watch on the Solana deposit address.
+- BTC/TRON/TON/Cosmos/Sui/Aptos/XRP/NEAR named accounts: derived and stored,
+  but NOT displayed in the Receive UI and NOT indexed — not user-facing.
+- Base USDC (settlement asset): now direct-credit, instant, no sweep (fde7686).
+Fixes shipped this round: flicker-proof balance (ledger-anchored, address
+balance can no longer drag it below the account balance) + deposit minimum
+hints (Base: no minimum; other chains: 5 USDC floor).
+
 ## Open
 
 ### ~~OPEN-1~~ — CLOSED. The logout-on-refresh fix shipped in commit 838d350
