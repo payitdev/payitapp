@@ -1259,20 +1259,13 @@ export async function calculateLiveEntityBalance(entityId: string): Promise<numb
     });
   }
 
-  const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
-  if (entityRows.length > 0) {
-    try {
-      const onChainBalance = await getOnChainAssetBalance(entityRows[0], 'base', baseSettlementAsset);
-      return Math.max(0, Number(onChainBalance.balance));
-    } catch (error: any) {
-      console.warn(`[Balance] Base ${baseSettlementAsset} RPC lookup failed for ${entityId}:`, error.message);
-    }
-  }
-
-  // 1. Fall back to the double-entry ledger if the live chain is unavailable.
+  // Account balance from the double-entry ledger + settled/pending transfers.
+  // Pending CREDITs include in-flight sweep settlements, so this stays stable
+  // while a deposit is mid-swap (the deposit address may be drained during
+  // the sweep — reporting the raw address balance then makes the displayed
+  // balance flicker to zero).
   const ledgerBalance = await getEntityBalance(db, entityId, baseSettlementAsset, 'cash');
 
-  // 2. Sum settled transfers in the configured settlement asset only.
   const dbTransfers = await db.select().from(transfers).where(eq(transfers.entityId, entityId));
   let transferSum = 0;
   for (const row of dbTransfers) {
@@ -1288,8 +1281,23 @@ export async function calculateLiveEntityBalance(entityId: string): Promise<numb
     }
   }
 
-  const finalBalance = Math.max(ledgerBalance, transferSum);
-  return Math.max(0, Math.round(finalBalance * 100) / 100);
+  const accountBalance = Math.max(0, Math.round(Math.max(ledgerBalance, transferSum) * 100) / 100);
+
+  // The live address balance can exceed the account balance only when funds
+  // sit on a chain we have not credited yet (no indexer for that asset) —
+  // those must remain visible. But it must never report LESS than the
+  // account balance, which is what a mid-sweep address drain would do.
+  const entityRows = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
+  if (entityRows.length > 0) {
+    try {
+      const onChainBalance = await getOnChainAssetBalance(entityRows[0], 'base', baseSettlementAsset);
+      return Math.max(accountBalance, Number(onChainBalance.balance) || 0);
+    } catch (error: any) {
+      console.warn(`[Balance] Base ${baseSettlementAsset} RPC lookup failed for ${entityId}:`, error.message);
+    }
+  }
+
+  return accountBalance;
 }
 
 export interface FxRateRow {
