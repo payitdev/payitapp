@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/network/api_config.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
 import '../../auth/domain/auth_models.dart';
@@ -15,12 +16,14 @@ class ReceiveDepositScreen extends ConsumerStatefulWidget {
   const ReceiveDepositScreen({super.key});
 
   @override
-  ConsumerState<ReceiveDepositScreen> createState() => _ReceiveDepositScreenState();
+  ConsumerState<ReceiveDepositScreen> createState() =>
+      _ReceiveDepositScreenState();
 }
 
 class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   int _selectedTab = 0; // 0: Crypto, 1: Bank (NGN), 2: MoMo
-  int _selectedChain = 0; // 0: Base, 1: Solana, 2: Ethereum, 3: Arbitrum, 4: Polygon
+  int _selectedChain =
+      0; // 0: Base, 1: Solana, 2: Ethereum, 3: Arbitrum, 4: Polygon
 
   static const _chains = ['Base', 'Solana', 'Ethereum', 'Arbitrum', 'Polygon'];
 
@@ -29,7 +32,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final entity = ref.read(activeEntityProvider);
-      if (entity == null || entity.evmDepositAddress == null || entity.evmDepositAddress!.isEmpty) {
+      if (entity == null ||
+          entity.evmDepositAddress == null ||
+          entity.evmDepositAddress!.isEmpty) {
         // Refresh entity data (e.g. freshly derived deposit addresses).
         // Never logs out on failure — the user may be mid-flow.
         ref.read(authProvider.notifier).refreshSession();
@@ -56,7 +61,10 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   }
 
   /// The deposit detail relevant to the selected tab (address or account number).
-  String? _activeDepositDetail(String? cryptoAddress, DepositAccount? fiatAccount) {
+  String? _activeDepositDetail(
+    String? cryptoAddress,
+    DepositAccount? fiatAccount,
+  ) {
     if (_selectedTab == 1) return fiatAccount?.accountNumber;
     return cryptoAddress;
   }
@@ -64,7 +72,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
   @override
   Widget build(BuildContext context) {
     final entity = ref.watch(activeEntityProvider);
-    final accountsAsync = entity == null ? null : ref.watch(depositAccountsProvider(entity.id));
+    final accountsAsync = entity == null
+        ? null
+        : ref.watch(depositAccountsProvider(entity.id));
     final cryptoAddress = _cryptoAddressFor(entity);
     final fiatAccount = _primaryFiatAccount(accountsAsync?.value);
 
@@ -88,36 +98,42 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   },
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildHeader(),
-                      const SizedBox(height: 14),
-                      _buildFundingTabs(),
-                      const SizedBox(height: 14),
-                      if (_selectedTab == 0) ...[
-                        _buildChainSelector(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeader(),
                         const SizedBox(height: 14),
-                        _buildQrVaultCard(cryptoAddress),
-                      ] else if (_selectedTab == 1) ...[
-                        _buildVirtualBankCard(accountsAsync),
-                      ] else ...[
-                        _buildMoMoCard(),
+                        _buildFundingTabs(),
+                        const SizedBox(height: 14),
+                        if (_selectedTab == 0) ...[
+                          _buildChainSelector(),
+                          const SizedBox(height: 14),
+                          _buildQrVaultCard(cryptoAddress),
+                        ] else if (_selectedTab == 1) ...[
+                          _buildVirtualBankCard(accountsAsync),
+                          const SizedBox(height: 14),
+                          _buildYellowCardOnRamp(entity),
+                        ] else ...[
+                          _buildMoMoCard(),
+                        ],
+                        const SizedBox(height: 16),
+                        if (_selectedTab != 1)
+                          _buildVirtualBankCard(accountsAsync),
+                        const SizedBox(height: 16),
+                        _buildMoMoSection(),
+                        const SizedBox(height: 20),
+                        _buildActionButtons(cryptoAddress, fiatAccount),
+                        const SizedBox(height: 32),
                       ],
-                      const SizedBox(height: 16),
-                      if (_selectedTab != 1) _buildVirtualBankCard(accountsAsync),
-                      const SizedBox(height: 16),
-                      _buildMoMoSection(),
-                      const SizedBox(height: 20),
-                      _buildActionButtons(cryptoAddress, fiatAccount),
-                      const SizedBox(height: 32),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
           ),
         ),
       ),
@@ -138,7 +154,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.8),
-        border: const Border(bottom: BorderSide(color: ProximColors.hairlineBorder)),
+        border: const Border(
+          bottom: BorderSide(color: ProximColors.hairlineBorder),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -157,7 +175,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
           ),
           Text('Receive & Deposit', style: ProximTextStyles.headlineSm()),
           IconButton(
-            icon: const Icon(Icons.help_outline, size: 20, color: ProximColors.onSurfaceVariant),
+            icon: const Icon(
+              Icons.help_outline,
+              size: 20,
+              color: ProximColors.onSurfaceVariant,
+            ),
             onPressed: () {},
           ),
         ],
@@ -182,10 +204,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             const SizedBox(width: 6),
             Text(
               'INBOUND LIQUIDITY',
-              style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
-              ),
+              style: ProximTextStyles.labelXs(
+                color: ProximColors.primary,
+              ).copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.8),
             ),
           ],
         ),
@@ -236,7 +257,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             child: Text(
               label,
               style: ProximTextStyles.labelSm(
-                color: isSelected ? ProximColors.surfaceContainerLowest : ProximColors.onSurfaceVariant,
+                color: isSelected
+                    ? ProximColors.surfaceContainerLowest
+                    : ProximColors.onSurfaceVariant,
               ).copyWith(fontWeight: FontWeight.w700),
             ),
           ),
@@ -256,12 +279,19 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             child: GestureDetector(
               onTap: () => setState(() => _selectedChain = index),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
-                  color: isSelected ? ProximColors.surfaceContainerHigh : ProximColors.surfaceContainerLow,
+                  color: isSelected
+                      ? ProximColors.surfaceContainerHigh
+                      : ProximColors.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(9999),
                   border: Border.all(
-                    color: isSelected ? ProximColors.primary : ProximColors.hairlineBorder,
+                    color: isSelected
+                        ? ProximColors.primary
+                        : ProximColors.hairlineBorder,
                   ),
                 ),
                 child: Row(
@@ -280,7 +310,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     Text(
                       _chains[index],
                       style: ProximTextStyles.labelSm(
-                        color: isSelected ? ProximColors.primary : ProximColors.onSurfaceVariant,
+                        color: isSelected
+                            ? ProximColors.primary
+                            : ProximColors.onSurfaceVariant,
                       ).copyWith(fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -325,9 +357,15 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                             height: 36,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: ProximColors.primary.withValues(alpha: 0.15),
+                              color: ProximColors.primary.withValues(
+                                alpha: 0.15,
+                              ),
                             ),
-                            child: const Icon(Icons.token, size: 20, color: ProximColors.primary),
+                            child: const Icon(
+                              Icons.token,
+                              size: 20,
+                              color: ProximColors.primary,
+                            ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -336,15 +374,28 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                               children: [
                                 Row(
                                   children: [
-                                    Flexible(child: Text('USD Coin', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis)),
+                                    Flexible(
+                                      child: Text(
+                                        'USD Coin',
+                                        style: ProximTextStyles.headlineSm(),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                     const SizedBox(width: 6),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: ProximColors.surfaceContainerHighest,
+                                        color: ProximColors
+                                            .surfaceContainerHighest,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: Text('USDC', style: ProximTextStyles.labelXs()),
+                                      child: Text(
+                                        'USDC',
+                                        style: ProximTextStyles.labelXs(),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -361,18 +412,27 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: ProximColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(9999),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.bolt, size: 12, color: ProximColors.primary),
+                          const Icon(
+                            Icons.bolt,
+                            size: 12,
+                            color: ProximColors.primary,
+                          ),
                           const SizedBox(width: 2),
                           Text(
                             'Zero Transfer Fee',
-                            style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                            style: ProximTextStyles.labelXs(
+                              color: ProximColors.primary,
+                            ),
                           ),
                         ],
                       ),
@@ -401,8 +461,14 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                           height: 12,
                           decoration: const BoxDecoration(
                             border: Border(
-                              top: BorderSide(color: ProximColors.primary, width: 2),
-                              left: BorderSide(color: ProximColors.primary, width: 2),
+                              top: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
+                              left: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
                         ),
@@ -415,8 +481,14 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                           height: 12,
                           decoration: const BoxDecoration(
                             border: Border(
-                              top: BorderSide(color: ProximColors.primary, width: 2),
-                              right: BorderSide(color: ProximColors.primary, width: 2),
+                              top: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
+                              right: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
                         ),
@@ -429,8 +501,14 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                           height: 12,
                           decoration: const BoxDecoration(
                             border: Border(
-                              bottom: BorderSide(color: ProximColors.primary, width: 2),
-                              left: BorderSide(color: ProximColors.primary, width: 2),
+                              bottom: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
+                              left: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
                         ),
@@ -443,8 +521,14 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                           height: 12,
                           decoration: const BoxDecoration(
                             border: Border(
-                              bottom: BorderSide(color: ProximColors.primary, width: 2),
-                              right: BorderSide(color: ProximColors.primary, width: 2),
+                              bottom: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
+                              right: BorderSide(
+                                color: ProximColors.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
                         ),
@@ -479,14 +563,22 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.hourglass_top, size: 28, color: ProximColors.onSurfaceVariant),
+                              const Icon(
+                                Icons.hourglass_top,
+                                size: 28,
+                                color: ProximColors.onSurfaceVariant,
+                              ),
                               const SizedBox(height: 8),
                               Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
                                 child: Text(
                                   'Deposit address not available yet',
                                   textAlign: TextAlign.center,
-                                  style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                                  style: ProximTextStyles.labelXs(
+                                    color: ProximColors.onSurfaceVariant,
+                                  ),
                                 ),
                               ),
                             ],
@@ -527,7 +619,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                               const SizedBox(width: 4),
                               Text(
                                 'Verified Route',
-                                style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                                style: ProximTextStyles.labelXs(
+                                  color: ProximColors.statusSuccess,
+                                ),
                               ),
                             ],
                           ),
@@ -536,14 +630,21 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     const SizedBox(height: 6),
                     if (address != null && address.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: ProximColors.surfaceContainerLowest,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.account_balance_wallet_outlined, size: 18, color: ProximColors.primary),
+                            const Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 18,
+                              color: ProximColors.primary,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -558,9 +659,15 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                             ),
                             const SizedBox(width: 8),
                             GestureDetector(
-                              onTap: () => _copyToClipboard(address, 'Deposit Account ID'),
+                              onTap: () => _copyToClipboard(
+                                address,
+                                'Deposit Account ID',
+                              ),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
                                 decoration: BoxDecoration(
                                   color: ProximColors.surfaceContainerHigh,
                                   borderRadius: BorderRadius.circular(6),
@@ -568,13 +675,17 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.copy, size: 12, color: ProximColors.primary),
+                                    const Icon(
+                                      Icons.copy,
+                                      size: 12,
+                                      color: ProximColors.primary,
+                                    ),
                                     const SizedBox(width: 4),
                                     Text(
                                       'Copy',
-                                      style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      style: ProximTextStyles.labelXs(
+                                        color: ProximColors.primary,
+                                      ).copyWith(fontWeight: FontWeight.w700),
                                     ),
                                   ],
                                 ),
@@ -586,7 +697,10 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     else
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: ProximColors.surfaceContainerLowest,
                           borderRadius: BorderRadius.circular(10),
@@ -602,13 +716,19 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                             SizedBox(
                               height: 36,
                               child: OutlinedButton.icon(
-                                onPressed: () => ref.read(authProvider.notifier).initializeSession(),
+                                onPressed: () => ref
+                                    .read(authProvider.notifier)
+                                    .initializeSession(),
                                 icon: const Icon(Icons.refresh, size: 14),
                                 label: const Text('Refresh Address'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: ProximColors.primary,
-                                  side: const BorderSide(color: ProximColors.primary),
-                                  textStyle: ProximTextStyles.labelXs(color: ProximColors.primary),
+                                  side: const BorderSide(
+                                    color: ProximColors.primary,
+                                  ),
+                                  textStyle: ProximTextStyles.labelXs(
+                                    color: ProximColors.primary,
+                                  ),
                                 ),
                               ),
                             ),
@@ -628,11 +748,17 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline, size: 16, color: ProximColors.statusWarning),
+                      const Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: ProximColors.statusWarning,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Send only USDC on ${_chains[_selectedChain]}. Deposits settle in ~2 seconds.',
+                          _chains[_selectedChain] == 'Base'
+                              ? 'Send only USDC on Base. No minimum — deposits credit instantly.'
+                              : 'Send only USDC on ${_chains[_selectedChain]}. Minimum 5 USDC — smaller deposits may not cover network swap fees.',
                           style: ProximTextStyles.labelXs(),
                         ),
                       ),
@@ -647,7 +773,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
     );
   }
 
-  Widget _buildVirtualBankCard(AsyncValue<List<DepositAccount>>? accountsAsync) {
+  Widget _buildVirtualBankCard(
+    AsyncValue<List<DepositAccount>>? accountsAsync,
+  ) {
     final account = _primaryFiatAccount(accountsAsync?.value);
 
     if (accountsAsync == null || accountsAsync.isLoading) {
@@ -660,10 +788,16 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                 const SizedBox(
                   width: 24,
                   height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: ProximColors.primary,
+                  ),
                 ),
                 const SizedBox(height: 10),
-                Text('Loading your virtual account…', style: ProximTextStyles.bodySm()),
+                Text(
+                  'Loading your virtual account…',
+                  style: ProximTextStyles.bodySm(),
+                ),
               ],
             ),
           ),
@@ -677,7 +811,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
           padding: const EdgeInsets.symmetric(vertical: 20),
           child: Row(
             children: [
-              const Icon(Icons.error_outline, size: 18, color: ProximColors.statusWarning),
+              const Icon(
+                Icons.error_outline,
+                size: 18,
+                color: ProximColors.statusWarning,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -697,7 +835,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
           padding: const EdgeInsets.symmetric(vertical: 20),
           child: Row(
             children: [
-              const Icon(Icons.hourglass_top, size: 18, color: ProximColors.onSurfaceVariant),
+              const Icon(
+                Icons.hourglass_top,
+                size: 18,
+                color: ProximColors.onSurfaceVariant,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -758,16 +900,24 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     const SizedBox(height: 2),
                     Text(
                       accountNumber,
-                      style: ProximTextStyles.headlineSm(color: ProximColors.primary).copyWith(
-                        letterSpacing: 1.2,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                      style:
+                          ProximTextStyles.headlineSm(
+                            color: ProximColors.primary,
+                          ).copyWith(
+                            letterSpacing: 1.2,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
                     ),
                   ],
                 ),
                 IconButton(
-                  icon: const Icon(Icons.copy, size: 18, color: ProximColors.onSurfaceVariant),
-                  onPressed: () => _copyToClipboard(accountNumber, 'Account number'),
+                  icon: const Icon(
+                    Icons.copy,
+                    size: 18,
+                    color: ProximColors.onSurfaceVariant,
+                  ),
+                  onPressed: () =>
+                      _copyToClipboard(accountNumber, 'Account number'),
                 ),
               ],
             ),
@@ -778,11 +928,392 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
           _buildDetailRow(
             'ACCOUNT NAME',
             account.accountHolderName,
-            statusBadge: account.status.toUpperCase() == 'ACTIVE' ? 'Active' : null,
+            statusBadge: account.status.toUpperCase() == 'ACTIVE'
+                ? 'Active'
+                : null,
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildYellowCardOnRamp(ProximEntity? entity) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ProximColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ProximColors.hairlineBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.swap_vertical_circle_outlined,
+                color: ProximColors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Buy USDC with Yellow Card',
+                  style: ProximTextStyles.headlineSm(),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: ProximColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9999),
+                ),
+                child: Text(
+                  'NGN',
+                  style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Get a bank-transfer quote and confirm it before your payment is collected.',
+            style: ProximTextStyles.bodySm(),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: entity == null
+                  ? null
+                  : () => _showYellowCardCollectionSheet(entity),
+              icon: const Icon(Icons.add_card_outlined, size: 18),
+              label: const Text('Create NGN deposit quote'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ProximColors.primary,
+                side: const BorderSide(color: ProximColors.primary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showYellowCardCollectionSheet(ProximEntity entity) async {
+    final amountController = TextEditingController();
+    final accountNameController = TextEditingController();
+    final accountNumberController = TextEditingController();
+    final bankNameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final emailController = TextEditingController();
+    final addressController = TextEditingController();
+    final dobController = TextEditingController();
+    final ninController = TextEditingController();
+    final bvnController = TextEditingController();
+    List<Map<String, dynamic>> channels = const [];
+    String? channelId;
+    Map<String, dynamic>? collection;
+    bool loading = true;
+    String? error;
+
+    try {
+      channels = await ref
+          .read(yellowCardRepositoryProvider)
+          .getChannels(rampType: 'deposit');
+      if (channels.isNotEmpty) {
+        channelId = (channels.first['id'] ?? channels.first['channelId'])
+            ?.toString();
+      }
+    } catch (_) {
+      error = 'Yellow Card is unavailable right now. Please try again shortly.';
+    }
+    loading = false;
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: ProximColors.surfaceContainerLow,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Yellow Card NGN deposit',
+                  style: ProximTextStyles.headlineMd(),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Use the details that match your verified bank account.',
+                  style: ProximTextStyles.bodySm(),
+                ),
+                const SizedBox(height: 16),
+                if (loading)
+                  const Center(child: CircularProgressIndicator())
+                else if (error != null)
+                  Text(
+                    error!,
+                    style: ProximTextStyles.bodySm(
+                      color: ProximColors.statusWarning,
+                    ),
+                  )
+                else ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: channelId,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment channel',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: channels.map((channel) {
+                      final id = (channel['id'] ?? channel['channelId'])
+                          .toString();
+                      final label =
+                          (channel['name'] ??
+                                  channel['displayName'] ??
+                                  channel['type'] ??
+                                  id)
+                              .toString();
+                      return DropdownMenuItem(value: id, child: Text(label));
+                    }).toList(),
+                    onChanged: collection == null
+                        ? (value) => setSheetState(() => channelId = value)
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountController,
+                    enabled: collection == null,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Amount in NGN',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: accountNameController,
+                    enabled: collection == null,
+                    decoration: const InputDecoration(
+                      labelText: 'Account holder name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: accountNumberController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Bank account number',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: bankNameController,
+                    enabled: collection == null,
+                    decoration: const InputDecoration(
+                      labelText: 'Bank name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: phoneController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone number',
+                      hintText: '+2348012345678',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emailController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email address',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: addressController,
+                    enabled: collection == null,
+                    decoration: const InputDecoration(
+                      labelText: 'Residential address',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: dobController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.datetime,
+                    decoration: const InputDecoration(
+                      labelText: 'Date of birth',
+                      hintText: 'MM/DD/YYYY',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ninController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'NIN',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: bvnController,
+                    enabled: collection == null,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'BVN',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (collection != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Quote created. Confirm to receive the provider payment instructions.',
+                      style: ProximTextStyles.bodySm(
+                        color: ProximColors.statusSuccess,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () async {
+                        final amount = double.tryParse(
+                          amountController.text.replaceAll(',', '').trim(),
+                        );
+                        if (collection == null &&
+                            (channelId == null ||
+                                amount == null ||
+                                amount <= 0 ||
+                                accountNameController.text.trim().isEmpty ||
+                                accountNumberController.text.trim().isEmpty ||
+                                bankNameController.text.trim().isEmpty ||
+                                phoneController.text.trim().isEmpty ||
+                                emailController.text.trim().isEmpty ||
+                                addressController.text.trim().isEmpty ||
+                                dobController.text.trim().isEmpty ||
+                                ninController.text.trim().isEmpty ||
+                                bvnController.text.trim().isEmpty)) {
+                          setSheetState(
+                            () => error =
+                                'Complete every field to create your quote.',
+                          );
+                          return;
+                        }
+                        setSheetState(() {
+                          loading = true;
+                          error = null;
+                        });
+                        try {
+                          if (collection == null) {
+                            collection = await ref
+                                .read(yellowCardRepositoryProvider)
+                                .createCollection(
+                                  entityId: entity.id,
+                                  channelId: channelId!,
+                                  localAmount: amount!,
+                                  recipient: {
+                                    'name': entity.legalName,
+                                    'country': 'NG',
+                                    'phone': phoneController.text.trim(),
+                                    'email': emailController.text.trim(),
+                                    'address': addressController.text.trim(),
+                                    'dob': dobController.text.trim(),
+                                    'idNumber': ninController.text.trim(),
+                                    'idType': 'NIN',
+                                    'additionalIdType': 'BVN',
+                                    'additionalIdNumber': bvnController.text
+                                        .trim(),
+                                  },
+                                  source: {
+                                    'accountName': accountNameController.text
+                                        .trim(),
+                                    'accountNumber': accountNumberController
+                                        .text
+                                        .trim(),
+                                    'accountBank': bankNameController.text
+                                        .trim(),
+                                    'accountType': 'bank',
+                                  },
+                                );
+                          } else {
+                            await ref
+                                .read(yellowCardRepositoryProvider)
+                                .acceptCollection(collection!['id'] as String);
+                            if (sheetContext.mounted) {
+                              Navigator.of(sheetContext).pop();
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(this.context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Deposit confirmed. Follow the Yellow Card payment instructions.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        } on ProximException catch (e) {
+                          setSheetState(() => error = e.message);
+                        } catch (_) {
+                          setSheetState(
+                            () => error =
+                                'We could not prepare this deposit. Please try again.',
+                          );
+                        } finally {
+                          if (sheetContext.mounted) {
+                            setSheetState(() => loading = false);
+                          }
+                        }
+                      },
+                      child: Text(
+                        collection == null ? 'Create quote' : 'Confirm deposit',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    amountController.dispose();
+    accountNameController.dispose();
+    accountNumberController.dispose();
+    bankNameController.dispose();
+    phoneController.dispose();
+    emailController.dispose();
+    addressController.dispose();
+    dobController.dispose();
+    ninController.dispose();
+    bvnController.dispose();
   }
 
   Widget _buildBankCardShell({required Widget child}) {
@@ -810,15 +1341,27 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                         shape: BoxShape.circle,
                         color: ProximColors.surfaceContainerHigh,
                       ),
-                      child: const Icon(Icons.account_balance, size: 18, color: ProximColors.onSurface),
+                      child: const Icon(
+                        Icons.account_balance,
+                        size: 18,
+                        color: ProximColors.onSurface,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Virtual Bank Account', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis),
-                          Text('NGN Direct On-Ramp', style: ProximTextStyles.bodySm(), overflow: TextOverflow.ellipsis),
+                          Text(
+                            'Virtual Bank Account',
+                            style: ProximTextStyles.headlineSm(),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'NGN Direct On-Ramp',
+                            style: ProximTextStyles.bodySm(),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ],
                       ),
                     ),
@@ -832,7 +1375,10 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   color: ProximColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(9999),
                 ),
-                child: Text('Instant NIBSS', style: ProximTextStyles.labelXs(color: ProximColors.primary)),
+                child: Text(
+                  'Instant NIBSS',
+                  style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                ),
               ),
             ],
           ),
@@ -860,9 +1406,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
               const SizedBox(height: 2),
               Text(
                 value,
-                style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: ProximTextStyles.bodySm(
+                  color: ProximColors.textWhite,
+                ).copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -875,7 +1421,9 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
               ),
               child: Text(
                 statusBadge,
-                style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                style: ProximTextStyles.labelXs(
+                  color: ProximColors.statusSuccess,
+                ),
               ),
             ),
         ],
@@ -904,15 +1452,27 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                     shape: BoxShape.circle,
                     color: ProximColors.surfaceContainerHighest,
                   ),
-                  child: const Icon(Icons.contactless_outlined, size: 20, color: ProximColors.onSurface),
+                  child: const Icon(
+                    Icons.contactless_outlined,
+                    size: 20,
+                    color: ProximColors.onSurface,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Mobile Money & QR Cash', style: ProximTextStyles.headlineSm(), overflow: TextOverflow.ellipsis),
-                      Text('M-Pesa, MTN MoMo, Orange Money', style: ProximTextStyles.bodySm(), overflow: TextOverflow.ellipsis),
+                      Text(
+                        'Mobile Money & QR Cash',
+                        style: ProximTextStyles.headlineSm(),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'M-Pesa, MTN MoMo, Orange Money',
+                        style: ProximTextStyles.bodySm(),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -920,7 +1480,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.arrow_forward_ios, size: 14, color: ProximColors.onSurfaceVariant),
+          const Icon(
+            Icons.arrow_forward_ios,
+            size: 14,
+            color: ProximColors.onSurfaceVariant,
+          ),
         ],
       ),
     );
@@ -937,7 +1501,10 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Rapid Mobile Money Settlement', style: ProximTextStyles.headlineSm()),
+          Text(
+            'Rapid Mobile Money Settlement',
+            style: ProximTextStyles.headlineSm(),
+          ),
           const SizedBox(height: 6),
           Text(
             'Supported corridors: Kenya (M-Pesa), Ghana (MTN MoMo), Nigeria (Paga, PalmPay).',
@@ -948,7 +1515,10 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
     );
   }
 
-  Widget _buildActionButtons(String? cryptoAddress, DepositAccount? fiatAccount) {
+  Widget _buildActionButtons(
+    String? cryptoAddress,
+    DepositAccount? fiatAccount,
+  ) {
     final depositDetail = _activeDepositDetail(cryptoAddress, fiatAccount);
 
     void shareDepositDetails() {
@@ -970,7 +1540,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             height: 50,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF35D9D0), Color(0xFF5DF6EC), Color(0xFF7567F8)],
+                colors: [
+                  Color(0xFF35D9D0),
+                  Color(0xFF5DF6EC),
+                  Color(0xFF7567F8),
+                ],
               ),
               borderRadius: BorderRadius.circular(9999),
               boxShadow: [
@@ -984,7 +1558,11 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.share, size: 18, color: ProximColors.surfaceContainerLowest),
+                const Icon(
+                  Icons.share,
+                  size: 18,
+                  color: ProximColors.surfaceContainerLowest,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Share Deposit Details',
@@ -1014,9 +1592,18 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.copy, size: 16, color: ProximColors.onSurface),
+                      const Icon(
+                        Icons.copy,
+                        size: 16,
+                        color: ProximColors.onSurface,
+                      ),
                       const SizedBox(width: 6),
-                      Text('Copy Details', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
+                      Text(
+                        'Copy Details',
+                        style: ProximTextStyles.labelSm(
+                          color: ProximColors.textWhite,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1036,9 +1623,18 @@ class _ReceiveDepositScreenState extends ConsumerState<ReceiveDepositScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.request_quote_outlined, size: 16, color: ProximColors.onSurface),
+                      const Icon(
+                        Icons.request_quote_outlined,
+                        size: 16,
+                        color: ProximColors.onSurface,
+                      ),
                       const SizedBox(width: 6),
-                      Text('Request P2P', style: ProximTextStyles.labelSm(color: ProximColors.textWhite)),
+                      Text(
+                        'Request P2P',
+                        style: ProximTextStyles.labelSm(
+                          color: ProximColors.textWhite,
+                        ),
+                      ),
                     ],
                   ),
                 ),
