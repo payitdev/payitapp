@@ -703,10 +703,86 @@ async function syncEvmUsdcDeposits(entityId: string): Promise<void> {
         if (!Number.isFinite(amount) || amount <= 0) continue;
         const reference = `evm_${network.symbol.toLowerCase()}_${network.name}_${log.transactionHash}`;
         const existing = await db.select().from(transfers).where(eq(transfers.dueTransferId, reference)).limit(1);
-        if (existing.length > 0) continue;
+        const isBaseUsdcDeposit = network.name === 'base' && network.symbol === 'USDC';
+        if (existing.length > 0) {
+          const row = existing[0] as any;
+          const stuck = row.status !== 'completed' && row.settlementStatus !== 'LEDGER_CREDITED';
+          if (!(isBaseUsdcDeposit && stuck)) continue;
+          // Heal deposits caught by the pre-fix sweep pipeline: the USDC is
+          // already in the settlement asset in the user's wallet, so credit
+          // the ledger directly and mark the transfer completed. Idempotent
+          // via the ledger transactionId marker.
+          const healTxnId = `${reference}_IN`;
+          const healCashId = `${entityId}_cash_USDC`;
+          const healClearingId = `${entityId}_inbound_USDC`;
+          const alreadyCredited = await db.select().from(ledgerEntries).where(eq(ledgerEntries.transactionId, healTxnId)).limit(1);
+          if (alreadyCredited.length === 0) {
+            const healAccounts = await db.select().from(ledgerAccounts).where(sql`${ledgerAccounts.id} IN (${healCashId}, ${healClearingId})`);
+            const healKnown = new Set(healAccounts.map((a: any) => a.id));
+            const healMissing = [
+              { id: healCashId, entityId, name: 'Available USDC', type: 'ASSET' as const, currency: 'USDC' },
+              { id: healClearingId, entityId, name: 'Inbound Clearing USDC', type: 'LIABILITY' as const, currency: 'USDC' },
+            ].filter((a) => !healKnown.has(a.id));
+            if (healMissing.length) await db.insert(ledgerAccounts).values(healMissing);
+            const healAmount = parseFloat(row.sourceAmount || '0');
+            await db.insert(ledgerEntries).values([
+              { id: ulid(), entityId, transactionId: healTxnId, ledgerAccountId: healCashId, type: 'DEBIT', amount: healAmount.toFixed(6) },
+              { id: ulid(), entityId, transactionId: healTxnId, ledgerAccountId: healClearingId, type: 'CREDIT', amount: healAmount.toFixed(6) },
+            ]);
+          }
+          await db.update(transfers).set({
+            targetAmount: row.sourceAmount,
+            settlementStatus: 'LEDGER_CREDITED',
+            status: 'completed',
+            settlementError: null,
+          }).where(eq(transfers.id, row.id));
+          console.log(`[OnChain Sync] Healed stuck Base USDC deposit for ${entityId}: ${row.sourceAmount} USDC (${log.transactionHash})`);
+          continue;
+        }
 
         const entity = entityRows[0];
         if (!entity.evmDepositAddress) continue;
+
+        // Fast path: deposits already in the settlement asset (Base USDC) are
+        // credited directly to the entity's ledger. Routing them through the
+        // intent sweep would drain the deposit address (making the live
+        // address balance — and the app's displayed balance — flicker to 0
+        // until the swap settles) for no benefit: the asset is already USDC
+        // on Base, in the user's own MPC wallet.
+        if (isBaseUsdcDeposit) {
+          const cashId = `${entityId}_cash_USDC`;
+          const clearingId = `${entityId}_inbound_USDC`;
+          const accountRows = await db.select().from(ledgerAccounts).where(sql`${ledgerAccounts.id} IN (${cashId}, ${clearingId})`);
+          const knownAccounts = new Set(accountRows.map((a: any) => a.id));
+          const missingAccounts = [
+            { id: cashId, entityId, name: 'Available USDC', type: 'ASSET' as const, currency: 'USDC' },
+            { id: clearingId, entityId, name: 'Inbound Clearing USDC', type: 'LIABILITY' as const, currency: 'USDC' },
+          ].filter((a) => !knownAccounts.has(a.id));
+          if (missingAccounts.length) await db.insert(ledgerAccounts).values(missingAccounts);
+
+          await db.insert(ledgerEntries).values([
+            { id: ulid(), entityId, transactionId: `${reference}_IN`, ledgerAccountId: cashId, type: 'DEBIT', amount: amount.toFixed(6) },
+            { id: ulid(), entityId, transactionId: `${reference}_IN`, ledgerAccountId: clearingId, type: 'CREDIT', amount: amount.toFixed(6) },
+          ]);
+
+          await db.insert(transfers).values({
+            id: ulid(),
+            entityId,
+            dueTransferId: reference,
+            sourceCurrency: 'USDC',
+            targetCurrency: baseSettlementAsset,
+            sourceAmount: amount.toFixed(6),
+            targetAmount: amount.toFixed(6),
+            feeAmount: '0.00',
+            direction: 'CREDIT',
+            settlementStatus: 'LEDGER_CREDITED',
+            sourceTxHash: log.transactionHash,
+            status: 'completed',
+          });
+          console.log(`[OnChain Sync] Base USDC deposit credited directly for ${entityId}: ${amount} USDC (${log.transactionHash})`);
+          continue;
+        }
+
         const settlement = await createPendingIntentSettlement({
           entityId,
           reference,
