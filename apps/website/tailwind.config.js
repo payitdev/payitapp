@@ -18,7 +18,9 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Manrope', 'sans-serif'],
+        sans: ['Satoshi', 'Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        display: ['Bricolage Grotesque', 'Satoshi', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       boxShadow: {
         'glow': '0 0 50px -10px rgba(16, 185, 129, 0.25)',
