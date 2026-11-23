@@ -76,7 +76,7 @@ export const ComingSoonModal: React.FC<ComingSoonModalProps> = ({
             <button
               onClick={onClose}
               aria-label="Close modal"
-              className="absolute top-5 right-5 p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+              className="absolute top-4 right-4 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -126,7 +126,7 @@ export const ComingSoonModal: React.FC<ComingSoonModalProps> = ({
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="Enter your email"
-                        className="flex-1 bg-[#060B14] text-white text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-[#35D9D0] transition-colors"
+                        className="flex-1 min-h-[44px] bg-[#060B14] text-white text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-[#35D9D0] transition-colors"
                       />
                       <button
                         type="submit"

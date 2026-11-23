@@ -29,9 +29,11 @@
 :root {
   /* Official Neutrals */
   --p-night-void:      #060B14;
-  --p-charcoal:        #0F1414;
+  --p-charcoal:        #0D1424;
+  --p-surface:         #0F172A;
   --p-soft-ivory:      #F7F8F4;
   --p-light-gray:      #E6EBEC;
+  --p-text-muted:      #94A3B8;
 
   /* Official Aurora Palette */
   --p-aurora-cyan:     #35D9D0;
@@ -40,13 +42,14 @@
   --p-aurora-violet:   #7567F8;
   --p-aurora-magenta:  #FF5DA8;
 
-  /* Shadows & Depth */
-  --s-depth:           0 24px 70px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
-  --s-glow-aurora:     0 0 60px rgba(53, 217, 208, 0.35);
+  /* Shadows & Depth - Subtle, Clean Elevation (No muddy dark shadows) */
+  --s-depth:           0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 36px rgba(0, 0, 0, 0.35);
+  --s-glow-aurora:     0 0 40px rgba(53, 217, 208, 0.25);
 
-  /* Radii */
-  --r-card:            28px;
+  /* Radii - Uniform & disciplined */
+  --r-card:            24px;
   --r-pill:            9999px;
+  --r-input:           12px;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -83,13 +86,14 @@
   transform: rotateY(-4deg) rotateX(2deg) rotateZ(0deg) scale(1.02);
 }
 
-/* Buttons */
+/* Buttons with minimum 44px touch target (FeedLoop guideline) */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 14px 30px;
+  min-height: 44px;
+  padding: 12px 28px;
   border-radius: var(--r-pill);
   background: linear-gradient(135deg, #16C7B7 0%, #35D9D0 100%);
   color: #060B14;
@@ -99,14 +103,14 @@
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 6px 28px rgba(22, 199, 183, 0.35);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 20px rgba(22, 199, 183, 0.28);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .btn-primary:hover {
   background: linear-gradient(135deg, #35D9D0 0%, #4A8CFF 100%);
   color: #FFFFFF;
-  box-shadow: 0 10px 36px rgba(53, 217, 208, 0.50);
-  transform: translateY(-1.5px);
+  box-shadow: 0 8px 28px rgba(53, 217, 208, 0.45);
+  transform: translateY(-1px);
 }
 .btn-primary:active { transform: scale(0.98); }
 
@@ -115,53 +119,52 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 14px 28px;
+  min-height: 44px;
+  padding: 12px 26px;
   border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
   color: #F7F8F4;
   font-weight: 600;
   font-size: 0.9375rem;
-  border: 1px solid rgba(255, 255, 255, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
   white-space: nowrap;
   backdrop-filter: blur(16px);
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
 }
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
   color: #FFFFFF;
+  transform: translateY(-1px);
 }
+.btn-secondary:active { transform: scale(0.98); }
 
-/* Glass Card */
+/* Unified Surface Card (FeedLoop: uniform padding, consistent card radius, no muddy shadows) */
 .card-glass {
-  background: rgba(15, 20, 32, 0.70);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0B111E;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--r-card);
-  box-shadow: var(--s-depth);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .card-glass:hover {
-  border-color: rgba(53, 217, 208, 0.40);
-  box-shadow: var(--s-depth), 0 0 45px rgba(117, 103, 248, 0.25);
-  transform: translateY(-2px);
+  border-color: rgba(53, 217, 208, 0.35);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 30px rgba(53, 217, 208, 0.12);
 }
 
 .badge-aurora {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
+  gap: 6px;
+  padding: 6px 14px;
   border-radius: var(--r-pill);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: rgba(53, 217, 208, 0.12);
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.04);
   color: #35D9D0;
-  border: 1px solid rgba(53, 217, 208, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(12px);
 }
 
 :focus-visible {

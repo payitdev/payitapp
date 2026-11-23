@@ -220,6 +220,7 @@ const ComingSoonView = ({ onBackToHome }: { onBackToHome: () => void }) => {
 export default function App() {
   const [activePage, setActivePage] = useState<AppView>('home');
   const [comingSoonModalOpen, setComingSoonModalOpen] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
@@ -553,22 +554,22 @@ export default function App() {
             >
 
               {/* Phone Interactive Feature Selector Tabs */}
-              <div className="z-30 flex bg-[#0A0E17]/90 p-1.5 rounded-2xl border border-white/15 shadow-xl gap-1">
+              <div className="z-30 flex bg-[#0A0E17]/90 p-1.5 rounded-2xl border border-white/10 gap-1.5">
                 {[
-                  { id: 'VAULTS', label: '📱 Mobile App', icon: Smartphone },
-                  { id: 'TELEGRAM', label: '💬 Telegram Layer', icon: MessageSquare },
-                  { id: 'SEND', label: '⚡ Instant Payouts', icon: Send },
+                  { id: 'VAULTS', label: 'Mobile App', icon: Smartphone },
+                  { id: 'TELEGRAM', label: 'Telegram Layer', icon: MessageSquare },
+                  { id: 'SEND', label: 'Instant Payouts', icon: Zap },
                 ].map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     onClick={() => setPhoneArtifactTab(id as any)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 ${
                       phoneArtifactTab === id
-                        ? 'bg-[#16C7B7] text-[#060B14] shadow-md'
+                        ? 'bg-[#16C7B7] text-[#060B14] font-bold shadow-md'
                         : 'text-white/70 hover:text-white hover:bg-white/5'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
+                    <Icon className="w-4 h-4" />
                     <span>{label}</span>
                   </button>
                 ))}
@@ -900,12 +901,12 @@ export default function App() {
       {/* ──────────────────────────────────────────
           03: MULTI-CURRENCY ACCOUNTS (ANIMATED)
           ────────────────────────────────────────── */}
-      <section id="currencies" className="relative overflow-hidden py-24 bg-[#F7F8F4] text-[#0F1414]">
+      <section id="currencies" className="relative overflow-hidden py-24 sm:py-32 border-t border-white/10 bg-[#060B14]">
         
         {/* Animated Live Exchange Rate Floating Ticker */}
-        <div className="relative overflow-hidden py-3 bg-[#0F1414] text-white border-y border-white/10 mb-12">
-          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-[#0F1414] to-transparent z-10 pointer-events-none" />
-          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-[#0F1414] to-transparent z-10 pointer-events-none" />
+        <div className="relative overflow-hidden py-3 bg-[#0A0E17] text-white border-y border-white/[0.08] mb-12">
+          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-[#060B14] to-transparent z-10 pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-[#060B14] to-transparent z-10 pointer-events-none" />
           
           <motion.div
             className="flex gap-8 items-center w-max text-xs font-mono"
@@ -946,64 +947,61 @@ export default function App() {
 
         <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-8 space-y-12">
           <div className="text-center max-w-2xl mx-auto space-y-4">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-[#0F1414]/10 text-[#0F1414] border border-[#0F1414]/15">
-              One account. Multiple currencies.
+            <span className="badge-aurora !text-xs !py-1.5 !px-4">
+              One account • Multiple currencies
             </span>
-            <h2 className="text-3xl sm:text-5xl font-extrabold text-[#0F1414] tracking-tight">
+            <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
               Hold, send, receive, convert &amp; spend.
             </h2>
-            <p className="text-base sm:text-lg text-[#0F1414]/75 leading-relaxed">
+            <p className="text-base sm:text-lg text-[#F7F8F4]/80 leading-relaxed">
               Manage your local and international balances in one unified account with direct settlement into bank accounts across Africa, Europe, the US, and digital reserves.
             </p>
             
             {/* Animated Interactive Lifecycle Flow Strip */}
-            <div className="flex flex-wrap items-center justify-center gap-2 pt-3 text-xs font-extrabold text-[#0F1414] uppercase tracking-wider">
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-3 text-xs font-bold text-white uppercase tracking-wider">
               {['Hold', 'Send', 'Receive', 'Convert', 'Spend'].map((step, idx) => (
                 <div key={step} className="flex items-center gap-2">
-                  <motion.span
-                    whileHover={{ scale: 1.08, backgroundColor: '#16C7B7', color: '#060B14' }}
-                    className="px-3.5 py-1.5 rounded-xl bg-black/5 border border-black/10 shadow-sm cursor-default transition-all"
-                  >
+                  <span className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[#35D9D0]">
                     {step}
-                  </motion.span>
-                  {idx < 4 && <span className="text-[#16C7B7] font-bold animate-pulse">→</span>}
+                  </span>
+                  {idx < 4 && <span className="text-[#16C7B7] font-bold">→</span>}
                 </div>
               ))}
             </div>
           </div>
 
           {/* Animated Interactive Currency Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {currenciesList.map((c, idx) => (
               <motion.div
                 key={c.code}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 15 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: idx * 0.04 }}
-                whileHover={{ y: -5, scale: 1.02 }}
-                className="p-5 rounded-2xl bg-white border border-[#0F1414]/10 shadow-md flex items-center justify-between hover:border-[#16C7B7] hover:shadow-xl transition-all group"
+                transition={{ duration: 0.35, delay: idx * 0.03 }}
+                whileHover={{ y: -3 }}
+                className="p-5 rounded-2xl bg-[#0B111E] border border-white/[0.08] hover:border-[#16C7B7]/40 transition-all flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3.5">
                   <div className="relative">
                     <img
                       src={c.flag}
                       alt={c.name}
-                      className="w-11 h-11 rounded-full object-cover shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-200"
+                      className="w-10 h-10 rounded-full object-cover shrink-0 border border-white/10"
                     />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#16C7B7] absolute -bottom-0.5 -right-0.5 border-2 border-white" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#16C7B7] absolute -bottom-0.5 -right-0.5 border-2 border-[#0B111E]" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="text-base font-extrabold text-[#0F1414] leading-tight group-hover:text-[#16C7B7] transition-colors">{c.code}</p>
-                      <span className="text-xs text-[#0F1414]/50 font-mono">({c.symbol})</span>
+                      <p className="text-base font-extrabold text-white leading-tight group-hover:text-[#35D9D0] transition-colors">{c.code}</p>
+                      <span className="text-xs text-white/50 font-mono">({c.symbol})</span>
                     </div>
-                    <p className="text-xs text-[#0F1414]/70 font-semibold">{c.name}</p>
+                    <p className="text-xs text-[#94A3B8] font-medium">{c.name}</p>
                   </div>
                 </div>
 
                 <div className="text-right">
-                  <span className="inline-block px-3 py-1 rounded-xl text-xs font-bold bg-[#16C7B7]/15 text-[#0F1414] border border-[#16C7B7]/30 group-hover:bg-[#16C7B7] group-hover:text-[#060B14] transition-all">
+                  <span className="inline-block px-2.5 py-1 rounded-xl text-xs font-semibold bg-white/5 text-[#35D9D0] border border-white/10 group-hover:bg-[#16C7B7]/15 group-hover:border-[#16C7B7]/30 transition-all">
                     {c.route}
                   </span>
                 </div>
@@ -1158,7 +1156,7 @@ export default function App() {
                     <select
                       value={sourceCurrency}
                       onChange={(e: any) => setSourceCurrency(e.target.value)}
-                      className="bg-[#060B14] text-white text-base font-bold px-4 py-2.5 rounded-2xl border border-white/15 outline-none cursor-pointer"
+                      className="min-h-[44px] bg-[#060B14] text-white text-sm font-bold px-4 py-2 rounded-xl border border-white/15 outline-none cursor-pointer"
                     >
                       <option value="USD">USD ($)</option>
                       <option value="EUR">EUR (€)</option>
@@ -1168,7 +1166,7 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center justify-center">
-                  <div className="w-10 h-10 rounded-full bg-[#16C7B7]/20 border border-[#16C7B7] flex items-center justify-center">
+                  <div className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-[#16C7B7]/15 border border-[#16C7B7]/40 flex items-center justify-center text-[#35D9D0]">
                     <Repeat className="w-5 h-5 text-[#16C7B7]" />
                   </div>
                 </div>
@@ -1185,7 +1183,7 @@ export default function App() {
                     <select
                       value={targetCurrency}
                       onChange={(e: any) => setTargetCurrency(e.target.value)}
-                      className="bg-[#060B14] text-white text-base font-bold px-4 py-2.5 rounded-2xl border border-white/15 outline-none cursor-pointer"
+                      className="min-h-[44px] bg-[#060B14] text-white text-sm font-bold px-4 py-2 rounded-xl border border-white/15 outline-none cursor-pointer"
                     >
                       <option value="NGN">NGN (₦)</option>
                       <option value="KES">KES (KSh)</option>
@@ -1348,7 +1346,7 @@ export default function App() {
                   </h4>
                   <p className="text-xs text-white/50">Segregated Enterprise Treasury &amp; Payroll</p>
                 </div>
-                <div className="flex bg-[#060B14] p-1 rounded-xl border border-white/10 gap-1 self-start sm:self-auto">
+                <div className="flex bg-[#060B14] p-1.5 rounded-2xl border border-white/10 gap-1.5 self-start sm:self-auto">
                   {[
                     { id: 'PAYROLL', label: 'Payroll Run' },
                     { id: 'INVOICING', label: 'Invoices' },
@@ -1357,9 +1355,9 @@ export default function App() {
                     <button
                       key={id}
                       onClick={() => setBusinessArtifactTab(id as any)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
                         businessArtifactTab === id
-                          ? 'bg-[#16C7B7] text-[#060B14] shadow'
+                          ? 'bg-[#16C7B7] text-[#060B14] font-bold shadow'
                           : 'text-white/60 hover:text-white'
                       }`}
                     >
@@ -1692,15 +1690,35 @@ export default function App() {
             </div>
 
             {/* Code Snippet Artifact */}
-            <div className="lg:col-span-6 card-glass p-7 rounded-[32px] border-[#35D9D0]/30 bg-[#0A0E17] font-mono text-xs sm:text-sm text-white/90 shadow-2xl">
+            <div className="lg:col-span-6 card-glass p-7 rounded-[32px] border-white/10 bg-[#070B14] font-mono text-xs sm:text-sm text-white/90 shadow-2xl">
               <div className="flex items-center justify-between border-b border-white/10 pb-3.5 mb-4 text-white/50 text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                  <div className="w-3 h-3 rounded-full bg-green-500/80" />
-                  <span className="ml-2 text-white/80 font-bold">POST /api/v1/transfers</span>
+                  <div className="w-3 h-3 rounded-full bg-[#FF5DA8]/80" />
+                  <div className="w-3 h-3 rounded-full bg-[#D6B65A]/80" />
+                  <div className="w-3 h-3 rounded-full bg-[#16C7B7]/80" />
+                  <span className="ml-2 text-white/90 font-bold">POST /api/v1/transfers</span>
                 </div>
-                <span>JSON</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`// Initialize instant multi-currency transfer\nconst response = await fetch("https://api.proximfi.xyz/v1/transfers", {\n  method: "POST",\n  headers: {\n    "Authorization": "Bearer px_live_9a8f27b...",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({\n    sourceCurrency: "USD",\n    targetCurrency: "NGN",\n    amount: 1000.00,\n    recipient: {\n      accountNumber: "0123456789",\n      bankCode: "058", // GTBank\n      name: "David Adeleke"\n    },\n    reference: "inv_march_payroll_01"\n  })\n});\n\n// Settlement confirmed in < 30 seconds\nconst { transferId, status, rate } = await response.json();\nconsole.log(status); // "SETTLED"`);
+                    setCodeCopied(true);
+                    setTimeout(() => setCodeCopied(false), 2000);
+                  }}
+                  className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all flex items-center gap-1.5 text-[0.7rem]"
+                  title="Copy snippet"
+                >
+                  {codeCopied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-[#16C7B7]" />
+                      <span className="text-[#16C7B7]">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
               </div>
               <pre className="overflow-x-auto text-xs sm:text-sm leading-relaxed text-[#F7F8F4]">
 {`// Initialize instant multi-currency transfer
@@ -1813,35 +1831,32 @@ console.log(status); // "SETTLED"`}
             transition={{ repeat: Infinity, ease: 'linear', duration: 22 }}
           >
             {[
-              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#041126]', border: 'border-white/20', imgClass: 'h-10 sm:h-12' },
-              { name: 'Brails', src: '/partners/brails.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#FDF0EE]', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-8 sm:h-10' },
-              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0F1524]', border: 'border-white/20', imgClass: 'h-8 sm:h-10' },
+              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-9 sm:h-11' },
+              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
+              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
             ].concat([
-              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#041126]', border: 'border-white/20', imgClass: 'h-10 sm:h-12' },
-              { name: 'Brails', src: '/partners/brails.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#FDF0EE]', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-8 sm:h-10' },
-              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0F1524]', border: 'border-white/20', imgClass: 'h-8 sm:h-10' },
+              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-9 sm:h-11' },
+              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
+              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
             ]).concat([
-              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#041126]', border: 'border-white/20', imgClass: 'h-10 sm:h-12' },
-              { name: 'Brails', src: '/partners/brails.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#FDF0EE]', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-7 sm:h-9' },
-              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-white', border: 'border-white/10', imgClass: 'h-8 sm:h-10' },
-              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0F1524]', border: 'border-white/20', imgClass: 'h-8 sm:h-10' },
+              { name: 'Arc', src: '/partners/arc.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-9 sm:h-11' },
+              { name: 'Nuvion', src: '/partners/nuvion.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'NEAR', src: '/partners/near.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-7 sm:h-9' },
+              { name: 'Privy', src: '/partners/privy.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
+              { name: 'Senviok', src: '/partners/senviok.png', bg: 'bg-[#0B111E]', border: 'border-white/[0.08]', imgClass: 'h-8 sm:h-10' },
             ]).map((partner, idx) => (
               <div
                 key={idx}
-                className={`p-6 rounded-3xl ${partner.bg} border ${partner.border} flex items-center justify-center h-28 w-52 sm:w-60 shrink-0 shadow-2xl transition-transform hover:scale-105`}
+                className="p-6 rounded-2xl bg-[#0B111E] border border-white/[0.08] hover:border-[#16C7B7]/40 flex items-center justify-center h-24 w-48 sm:w-56 shrink-0 transition-all group"
               >
                 <img
                   src={partner.src}
                   alt={partner.name}
-                  className={`${partner.imgClass} w-auto object-contain rounded-lg`}
+                  className={`${partner.imgClass} w-auto object-contain brightness-95 opacity-85 group-hover:opacity-100 transition-opacity`}
                 />
               </div>
             ))}
