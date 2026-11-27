@@ -102,19 +102,41 @@ final approvalsProvider = FutureProvider.autoDispose
 });
 
 /// Derived hero-card metrics (burn rate, runway, 30D inflow, NGN equivalent,
-/// vault count) computed purely from the live data above. A failure in any
-/// upstream call surfaces here as an error state scoped to the hero card.
-final treasuryMetricsProvider = FutureProvider.autoDispose<TreasuryMetrics>((ref) async {
-  final entity = ref.watch(activeEntityProvider);
-  if (entity == null) {
-    throw StateError('No active entity selected.');
-  }
-  final repo = ref.watch(treasuryRepositoryProvider);
+/// vault count). Resilient like [resilientBalanceProvider]: the last good
+/// value is cached per entity and kept on screen through refetch failures
+/// and reloads, so the hero card never flickers to a skeleton or error over
+/// a known balance. An error only surfaces when no value has ever loaded.
+class ResilientTreasuryMetricsNotifier extends Notifier<AsyncValue<TreasuryMetrics>> {
+  static final Map<String, TreasuryMetrics> _cache = {};
 
+  @override
+  AsyncValue<TreasuryMetrics> build() {
+    final entity = ref.watch(activeEntityProvider);
+    if (entity == null) return const AsyncLoading();
+    Future(() => refresh(entity.id));
+    final cached = _cache[entity.id];
+    return cached != null ? AsyncData(cached) : const AsyncLoading();
+  }
+
+  Future<void> refresh(String entityId) async {
+    final repo = ref.read(treasuryRepositoryProvider);
+    try {
+      final metrics = await _fetchTreasuryMetrics(repo, entityId);
+      _cache[entityId] = metrics;
+      state = AsyncData(metrics);
+    } catch (e, st) {
+      // Never drop known-good metrics on a failed refetch — keep showing the
+      // last value (stale-while-revalidate).
+      if (!state.hasValue) state = AsyncError<TreasuryMetrics>(e, st);
+    }
+  }
+}
+
+Future<TreasuryMetrics> _fetchTreasuryMetrics(TreasuryRepository repo, String entityId) async {
   // Prefer the server-computed metrics (full uncapped history); fall back
   // to client-side derivation from live data when unavailable.
-  final server = await repo.getServerMetrics(entityId: entity.id);
-  final accounts = await repo.getAccounts(entityId: entity.id);
+  final server = await repo.getServerMetrics(entityId: entityId);
+  final accounts = await repo.getAccounts(entityId: entityId);
   final rates = await repo.getFxRates();
 
   FxRate? usdRate;
@@ -145,8 +167,8 @@ final treasuryMetricsProvider = FutureProvider.autoDispose<TreasuryMetrics>((ref
     );
   }
 
-  final balance = await repo.getBalance(entityId: entity.id);
-  final history = await repo.getHistory(entityId: entity.id);
+  final balance = await repo.getBalance(entityId: entityId);
+  final history = await repo.getHistory(entityId: entityId);
 
   return computeTreasuryMetrics(
     balance: balance.balance,
@@ -155,4 +177,9 @@ final treasuryMetricsProvider = FutureProvider.autoDispose<TreasuryMetrics>((ref
     vaultCount: accounts.length,
     rateToNgn: usdRate?.rateToNgn,
   );
-});
+}
+
+final treasuryMetricsProvider =
+    NotifierProvider<ResilientTreasuryMetricsNotifier, AsyncValue<TreasuryMetrics>>(
+  ResilientTreasuryMetricsNotifier.new,
+);
