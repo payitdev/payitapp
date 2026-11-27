@@ -130,6 +130,37 @@ should move off fx-quote+execute for pure conversions.
 
 ---
 
+## Nov 27 — Balance flicker: verified root cause chain closed end-to-end
+
+### Backend flicker fix CONFIRMED LIVE
+`fde7686` (flicker-proof balance) had never been verified as deployed — a
+failed Render build leaves the old deploy live silently. Added
+`GET /api/version` (commit `51ec4a6`, public since `c81cb1e`) which reports
+`{commit, branch, servedAt}` from Render's own env vars. Verified: production
+is serving `c81cb1e` on `feat/proxim-due-turnkey`, which includes the whole
+flicker-fix lineage (`2d9ca81` + `fde7686`). Use `/api/version` from now on
+to confirm any deploy actually landed before believing a fix is live.
+
+### Personal-side flicker — app fix (already in this APK)
+`resilientBalanceProvider` (`ResilientBalanceNotifier`, stale-while-revalidate
+per entity, never drops a known-good value to error/loading) — home screen
+watches it instead of the raw `transfersBalanceProvider`.
+
+### Treasury hero flicker — app fix (`f19444f` feat / `065e3c1` main)
+`treasuryMetricsProvider` was still a plain `autoDispose` FutureProvider:
+any transient failure (cold-start timeout, flaky connection) flipped the
+corporate hero card to skeleton/error over a known balance. Converted to
+`ResilientTreasuryMetricsNotifier` — same stale-while-revalidate pattern,
+per-entity cache, error only when nothing has ever loaded. Consumers
+unchanged (both already treated it as `AsyncValue`); test overrides updated
+to a `_FakeTreasuryMetricsNotifier`. Analyze clean, 47/47 tests green.
+
+### APK
+Split-per-abi release rebuilt from `f19444f` with both app-side resilience
+fixes + the live backend. arm64-v8a is the phone/emulator build.
+
+---
+
 ## Sweep method (rerun after any big merge)
 
 1. **Endpoint cross-check:** extract every `/api/...` path the app calls; diff
