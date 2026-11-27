@@ -8,6 +8,7 @@ import '../../../core/network/api_config.dart';
 import '../../../core/theme/proxim_theme.dart';
 import '../../../core/widgets/centered_app_container.dart';
 import '../domain/transfers_models.dart';
+import 'resilient_balance_provider.dart';
 import 'transfers_provider.dart';
 
 class SwapConvertScreen extends ConsumerStatefulWidget {
@@ -144,7 +145,7 @@ class _SwapConvertScreenState extends ConsumerState<SwapConvertScreen> {
     final toCurr = _isUsdToNgn ? 'NGN' : 'USD';
     final quoteArg = (from: fromCurr, to: toCurr, amount: _payAmount);
     final quoteAsync = ref.watch(fxQuoteProvider(quoteArg));
-    final balanceAsync = ref.watch(transfersBalanceProvider);
+    final balanceAsync = ref.watch(resilientBalanceProvider);
 
     ref.listen(fxQuoteProvider(quoteArg), (previous, next) {
       next.whenData((quote) {
