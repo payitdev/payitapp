@@ -131,6 +131,18 @@ export function buildServer() {
     };
   });
 
+  // Deployment identity — Render injects RENDER_GIT_COMMIT/BRANCH at build
+  // time. Lets us (and the app) verify WHICH commit is actually serving
+  // instead of assuming a push deployed.
+  server.get('/api/version', async () => {
+    return {
+      success: true,
+      commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'unknown',
+      branch: process.env.RENDER_GIT_BRANCH || 'unknown',
+      servedAt: new Date().toISOString(),
+    };
+  });
+
   // Serve static document uploads for Brails CDN document verification
   server.get('/uploads/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };
