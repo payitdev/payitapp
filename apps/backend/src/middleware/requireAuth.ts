@@ -23,6 +23,7 @@ declare module 'fastify' {
 const PUBLIC_PREFIXES = [
   '/health',
   '/api/config',
+  '/api/version',
   '/favicon.ico',
   '/api/auth/',
   '/webhooks/',
