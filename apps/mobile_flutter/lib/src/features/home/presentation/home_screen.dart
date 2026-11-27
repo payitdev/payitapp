@@ -9,6 +9,7 @@ import '../../../core/widgets/kyc_banner.dart';
 import '../../../core/widgets/quick_action_buttons.dart';
 import '../../../core/widgets/transaction_tile.dart';
 import '../../auth/presentation/auth_provider.dart';
+import '../../transfers/presentation/resilient_balance_provider.dart';
 import '../../transfers/presentation/transfers_provider.dart';
 import '../../treasury/presentation/treasury_dashboard_screen.dart';
 import '../../vault/presentation/vault_provider.dart';
@@ -40,7 +41,7 @@ class _PersonalHomeView extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final userName = user?.fullName ?? '';
 
-    final balanceAsync = ref.watch(transfersBalanceProvider);
+    final balanceAsync = ref.watch(resilientBalanceProvider);
     final historyAsync = ref.watch(transfersHistoryProvider);
     final kycAsync = ref.watch(kycStatusProvider);
     final savingsAsync = ref.watch(savingsSummaryProvider);
@@ -146,7 +147,7 @@ class _PersonalHomeView extends ConsumerWidget {
               isPositiveTrend: true,
             ),
             error: (err, _) => _BalanceErrorCard(
-              onRetry: () => ref.invalidate(transfersBalanceProvider),
+              onRetry: () => ref.invalidate(resilientBalanceProvider),
             ),
           ),
           const SizedBox(height: 20),
