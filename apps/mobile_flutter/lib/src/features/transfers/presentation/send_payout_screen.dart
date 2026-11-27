@@ -21,7 +21,16 @@ class SendPayoutScreen extends ConsumerStatefulWidget {
 class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _recipientController = TextEditingController();
-  int _selectedRail = 0; // 0: Paytag, 1: Nuvion African, 2: Multi-chain, 3: Bank Wire
+  final TextEditingController _accountNumberController =
+      TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _dobController = TextEditingController();
+  final TextEditingController _ninController = TextEditingController();
+  final TextEditingController _bvnController = TextEditingController();
+  int _selectedRail =
+      0; // 0: Paytag, 1: Yellow Card, 2: Multi-chain, 3: Bank Wire
   int _countdownSeconds = 0;
   Timer? _timer;
   Timer? _searchDebounce;
@@ -60,7 +69,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     }
 
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
-      final identity = await ref.read(transfersRepositoryProvider).resolveUserIdentity(clean);
+      final identity = await ref
+          .read(transfersRepositoryProvider)
+          .resolveUserIdentity(clean);
       if (mounted) {
         setState(() => _resolvedUser = identity);
       }
@@ -73,6 +84,13 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     _searchDebounce?.cancel();
     _amountController.dispose();
     _recipientController.dispose();
+    _accountNumberController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    _dobController.dispose();
+    _ninController.dispose();
+    _bvnController.dispose();
     super.dispose();
   }
 
@@ -83,19 +101,23 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
   }
 
   double get _amount {
-    return double.tryParse(_amountController.text.replaceAll(',', '').trim()) ?? 0.0;
+    return double.tryParse(_amountController.text.replaceAll(',', '').trim()) ??
+        0.0;
   }
 
   String get _recipientInitials {
-    final parts = _recipientController.text.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    final parts = _recipientController.text
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty);
     if (parts.isEmpty) return '?';
     return parts.take(2).map((p) => p[0].toUpperCase()).join();
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _handleAuthorize(FxQuote? liveQuote) async {
@@ -104,9 +126,11 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     final recipientName = _recipientController.text.trim();
     final cleanAmount = _amount;
     if (recipientName.isEmpty) {
-      _showError(_selectedRail == 0
-          ? 'Please enter a recipient Paytag or @username.'
-          : 'Please enter a recipient name.');
+      _showError(
+        _selectedRail == 0
+            ? 'Please enter a recipient Paytag or @username.'
+            : 'Please enter a recipient name.',
+      );
       return;
     }
     if (cleanAmount <= 0) {
@@ -125,7 +149,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
           return;
         }
         final targetTag = recipientName.replaceAll('@', '');
-        await ref.read(transfersRepositoryProvider).sendInternalP2P(
+        await ref
+            .read(transfersRepositoryProvider)
+            .sendInternalP2P(
               fromEntityId: entity.id,
               toUsernameOrTag: targetTag,
               amount: cleanAmount,
@@ -134,30 +160,117 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
             );
       } else {
         // Cross-border / External rail execution
-        final quote = liveQuote ?? ref.read(fxQuoteProvider((from: 'USD', to: 'NGN', amount: cleanAmount))).value;
+        final quote =
+            liveQuote ??
+            ref
+                .read(
+                  fxQuoteProvider((
+                    from: 'USD',
+                    to: 'NGN',
+                    amount: cleanAmount,
+                  )),
+                )
+                .value;
         if (quote == null) {
           _showError("We couldn't lock in a live rate. Please try again.");
           setState(() => _isAuthorizing = false);
           return;
         }
 
-        final railName = _selectedRail == 1
-            ? 'Nuvion African Payout Rail'
-            : (_selectedRail == 2 ? 'Multi-Chain Digital Rail' : 'Global Bank Wire');
-
-        await ref.read(transfersRepositoryProvider).sendTransfer(
-              recipientName: recipientName,
-              amount: cleanAmount,
-              currency: 'USD',
-              rail: railName,
+        if (_selectedRail == 1) {
+          final entity = ref.read(activeEntityProvider);
+          final accountNumber = _accountNumberController.text.trim();
+          final kycValues = [
+            _phoneController.text,
+            _emailController.text,
+            _addressController.text,
+            _dobController.text,
+            _ninController.text,
+            _bvnController.text,
+          ];
+          if (entity == null ||
+              accountNumber.isEmpty ||
+              kycValues.any((value) => value.trim().isEmpty)) {
+            _showError(
+              'Complete the bank account and verified identity details to continue.',
             );
+            setState(() => _isAuthorizing = false);
+            return;
+          }
+          final yellowCard = ref.read(yellowCardRepositoryProvider);
+          final channels = await yellowCard.getChannels(rampType: 'withdraw');
+          if (channels.isEmpty) {
+            _showError(
+              'No Yellow Card NGN payout channel is available right now.',
+            );
+            setState(() => _isAuthorizing = false);
+            return;
+          }
+          final channelId =
+              (channels.first['id'] ?? channels.first['channelId'])?.toString();
+          if (channelId == null || channelId.isEmpty) {
+            _showError('Yellow Card returned an invalid payout channel.');
+            setState(() => _isAuthorizing = false);
+            return;
+          }
+          final networks = await yellowCard.getNetworks(channelId: channelId);
+          final networkId = networks.isEmpty
+              ? null
+              : networks.first['id']?.toString();
+          if (networkId == null || networkId.isEmpty) {
+            _showError('No Yellow Card payout network is available right now.');
+            setState(() => _isAuthorizing = false);
+            return;
+          }
+          final payment = await ref
+              .read(yellowCardRepositoryProvider)
+              .createSend(
+                entityId: entity.id,
+                channelId: channelId,
+                networkId: networkId,
+                localAmount: cleanAmount * quote.rate,
+                sender: {
+                  'name': entity.legalName,
+                  'country': 'NG',
+                  'phone': _phoneController.text.trim(),
+                  'email': _emailController.text.trim(),
+                  'address': _addressController.text.trim(),
+                  'dob': _dobController.text.trim(),
+                  'idNumber': _ninController.text.trim(),
+                  'idType': 'NIN',
+                  'additionalIdType': 'BVN',
+                  'additionalIdNumber': _bvnController.text.trim(),
+                },
+                destination: {
+                  'accountName': recipientName,
+                  'accountNumber': accountNumber,
+                },
+              );
+          await ref
+              .read(yellowCardRepositoryProvider)
+              .acceptSend(payment['id'] as String);
+        } else {
+          final railName = _selectedRail == 2
+              ? 'Multi-Chain Digital Rail'
+              : 'Global Bank Wire';
+          await ref
+              .read(transfersRepositoryProvider)
+              .sendTransfer(
+                recipientName: recipientName,
+                amount: cleanAmount,
+                currency: 'USD',
+                rail: railName,
+              );
+        }
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isAuthorizing = false);
-      _showError(e is ProximException
-          ? e.message
-          : "We couldn't complete your payment. Please try again.");
+      _showError(
+        e is ProximException
+            ? e.message
+            : "We couldn't complete your payment. Please try again.",
+      );
       return;
     }
 
@@ -170,10 +283,15 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final quoteAsync = ref.watch(fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)));
+    final quoteAsync = ref.watch(
+      fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)),
+    );
     final balanceAsync = ref.watch(transfersBalanceProvider);
 
-    ref.listen(fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)), (previous, next) {
+    ref.listen(fxQuoteProvider((from: 'USD', to: 'NGN', amount: _amount)), (
+      previous,
+      next,
+    ) {
       next.whenData((quote) {
         if (mounted && quote.validForSeconds != _countdownSeconds) {
           setState(() => _countdownSeconds = quote.validForSeconds);
@@ -193,7 +311,10 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
               // Scrollable Content
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -233,7 +354,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: ProximColors.surfaceContainerLowest.withValues(alpha: 0.8),
-        border: const Border(bottom: BorderSide(color: ProximColors.hairlineBorder)),
+        border: const Border(
+          bottom: BorderSide(color: ProximColors.hairlineBorder),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -266,7 +389,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: ProximColors.surfaceContainerLow,
-              border: Border.all(color: ProximColors.primary.withValues(alpha: 0.3)),
+              border: Border.all(
+                color: ProximColors.primary.withValues(alpha: 0.3),
+              ),
             ),
             child: const Center(
               child: Text(
@@ -301,10 +426,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
             const SizedBox(width: 6),
             Text(
               'TREASURY TRANSFER',
-              style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
-              ),
+              style: ProximTextStyles.labelXs(
+                color: ProximColors.primary,
+              ).copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.8),
             ),
           ],
         ),
@@ -331,7 +455,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   const SizedBox(width: 3),
                   Text(
                     'T+0 LIQUID',
-                    style: ProximTextStyles.labelXs(color: ProximColors.onSurfaceVariant),
+                    style: ProximTextStyles.labelXs(
+                      color: ProximColors.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -370,24 +496,32 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   Text('Avail: ', style: ProximTextStyles.labelSm()),
                   Text(
                     '\$${NumberFormat('#,##0.00', 'en_US').format(available)}',
-                    style: ProximTextStyles.labelSm(color: ProximColors.primary).copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: ProximTextStyles.labelSm(
+                      color: ProximColors.primary,
+                    ).copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(width: 6),
                   GestureDetector(
                     onTap: () => setState(
-                      () => _amountController.text = NumberFormat('#,##0.00', 'en_US').format(available),
+                      () => _amountController.text = NumberFormat(
+                        '#,##0.00',
+                        'en_US',
+                      ).format(available),
                     ),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: ProximColors.surfaceContainerHigh,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         'MAX',
-                        style: ProximTextStyles.labelXs(color: ProximColors.primary),
+                        style: ProximTextStyles.labelXs(
+                          color: ProximColors.primary,
+                        ),
                       ),
                     ),
                   ),
@@ -409,7 +543,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                     Expanded(
                       child: TextField(
                         controller: _amountController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         onChanged: (_) => setState(() {}),
                         style: ProximTextStyles.headlineLg().copyWith(
                           color: ProximColors.onSurface,
@@ -426,7 +562,10 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: ProximColors.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(9999),
@@ -441,14 +580,18 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                         color: ProximColors.primary.withValues(alpha: 0.2),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.attach_money, size: 14, color: ProximColors.primary),
+                      child: const Icon(
+                        Icons.attach_money,
+                        size: 14,
+                        color: ProximColors.primary,
+                      ),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       'USD',
-                      style: ProximTextStyles.labelSm(color: ProximColors.textWhite).copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: ProximTextStyles.labelSm(
+                        color: ProximColors.textWhite,
+                      ).copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(width: 4),
                     Text('Cash', style: ProximTextStyles.labelXs()),
@@ -485,7 +628,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   const SizedBox(width: 4),
                   Text(
                     'Zero fee subsidized',
-                    style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                    style: ProximTextStyles.labelXs(
+                      color: ProximColors.statusSuccess,
+                    ),
                   ),
                 ],
               ),
@@ -525,12 +670,12 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
         ),
         const SizedBox(height: 6),
 
-        // Rail 1: Nuvion African Payout
+        // Rail 1: Yellow Card cash-out
         _buildRailCard(
           index: 1,
-          title: 'Nuvion African Payout',
-          badge: 'Corridor',
-          subtitle: 'Direct corridor • NGN, KES, GHS',
+          title: 'Yellow Card Cash-out',
+          badge: 'NGN',
+          subtitle: 'Bank payout from your USD stablecoin balance',
           icon: Icons.public,
         ),
         const SizedBox(height: 6),
@@ -569,10 +714,14 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? ProximColors.surfaceContainerHigh : ProximColors.surfaceContainer,
+          color: isSelected
+              ? ProximColors.surfaceContainerHigh
+              : ProximColors.surfaceContainer,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? ProximColors.primary.withValues(alpha: 0.6) : ProximColors.hairlineBorder,
+            color: isSelected
+                ? ProximColors.primary.withValues(alpha: 0.6)
+                : ProximColors.hairlineBorder,
           ),
         ),
         child: Row(
@@ -581,13 +730,17 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: isSelected ? ProximColors.primary.withValues(alpha: 0.15) : ProximColors.surfaceContainerLowest,
+                color: isSelected
+                    ? ProximColors.primary.withValues(alpha: 0.15)
+                    : ProximColors.surfaceContainerLowest,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
                 icon,
                 size: 20,
-                color: isSelected ? ProximColors.primary : ProximColors.onSurfaceVariant,
+                color: isSelected
+                    ? ProximColors.primary
+                    : ProximColors.onSurfaceVariant,
               ),
             ),
             const SizedBox(width: 12),
@@ -602,7 +755,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                           title,
                           style: ProximTextStyles.bodyLg().copyWith(
                             fontWeight: FontWeight.w600,
-                            color: isSelected ? ProximColors.textWhite : ProximColors.onSurface,
+                            color: isSelected
+                                ? ProximColors.textWhite
+                                : ProximColors.onSurface,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -610,16 +765,19 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                       if (badge != null) ...[
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
                           decoration: BoxDecoration(
                             color: ProximColors.primary.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(9999),
                           ),
                           child: Text(
                             badge,
-                            style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: ProximTextStyles.labelXs(
+                              color: ProximColors.primary,
+                            ).copyWith(fontWeight: FontWeight.w700),
                           ),
                         ),
                       ],
@@ -638,10 +796,18 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   shape: BoxShape.circle,
                   color: ProximColors.primary,
                 ),
-                child: const Icon(Icons.check, size: 14, color: ProximColors.surfaceContainerLowest),
+                child: const Icon(
+                  Icons.check,
+                  size: 14,
+                  color: ProximColors.surfaceContainerLowest,
+                ),
               )
             else
-              const Icon(Icons.chevron_right, size: 18, color: ProximColors.onSurfaceVariant),
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: ProximColors.onSurfaceVariant,
+              ),
           ],
         ),
       ),
@@ -714,15 +880,95 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                               ),
                             ),
                           ),
+                          if (_selectedRail == 1) ...[
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _accountNumberController,
+                              keyboardType: TextInputType.number,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: InputDecoration(
+                                labelText: 'Recipient bank account number',
+                                labelStyle: ProximTextStyles.bodySm(),
+                                border: const OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your phone number',
+                                hintText: '+2348012345678',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your email address',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _addressController,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your residential address',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _dobController,
+                              keyboardType: TextInputType.datetime,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your date of birth',
+                                hintText: 'MM/DD/YYYY',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _ninController,
+                              keyboardType: TextInputType.number,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your NIN',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _bvnController,
+                              keyboardType: TextInputType.number,
+                              style: ProximTextStyles.bodyLg(),
+                              decoration: const InputDecoration(
+                                labelText: 'Your BVN',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 2),
                           if (_selectedRail == 0 && _resolvedUser != null)
                             Row(
                               children: [
-                                const Icon(Icons.verified, size: 13, color: ProximColors.statusSuccess),
+                                const Icon(
+                                  Icons.verified,
+                                  size: 13,
+                                  color: ProximColors.statusSuccess,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '${_resolvedUser!.legalName} · @${_resolvedUser!.username}',
-                                  style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess),
+                                  style: ProximTextStyles.labelXs(
+                                    color: ProximColors.statusSuccess,
+                                  ),
                                 ),
                               ],
                             )
@@ -743,7 +989,10 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 // Guaranteed Live FX / Instant P2P Settlement Banner
                 if (_selectedRail == 0)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: ProximColors.surfaceContainerLowest,
                       borderRadius: BorderRadius.circular(12),
@@ -760,26 +1009,46 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                                 color: ProximColors.primary,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.bolt, size: 14, color: Colors.black),
+                              child: const Icon(
+                                Icons.bolt,
+                                size: 14,
+                                color: Colors.black,
+                              ),
                             ),
                             const SizedBox(width: 8),
-                            Text('Instant P2P Ledger Clearing', style: ProximTextStyles.bodySm()),
+                            Text(
+                              'Instant P2P Ledger Clearing',
+                              style: ProximTextStyles.bodySm(),
+                            ),
                           ],
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: ProximColors.statusSuccess.withValues(alpha: 0.15),
+                            color: ProximColors.statusSuccess.withValues(
+                              alpha: 0.15,
+                            ),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Text('0.00% FEE', style: ProximTextStyles.labelXs(color: ProximColors.statusSuccess)),
+                          child: Text(
+                            '0.00% FEE',
+                            style: ProximTextStyles.labelXs(
+                              color: ProximColors.statusSuccess,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   )
                 else
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: ProximColors.surfaceContainerLowest,
                       borderRadius: BorderRadius.circular(12),
@@ -794,54 +1063,73 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                                 const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: ProximColors.primary),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: ProximColors.primary,
+                                  ),
                                 )
                               else
-                                const Icon(Icons.lock_clock, size: 18, color: ProximColors.primary),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('GUARANTEED LIVE FX', style: ProximTextStyles.labelXs()),
-                                  Text(
-                                    quoteAsync.when(
-                                      loading: () => 'Fetching live rate…',
-                                      error: (error, _) =>
-                                          _amount <= 0 ? 'Enter an amount to see the live rate' : 'Rate unavailable',
-                                      data: (quote) =>
-                                          '1 USD = ${NumberFormat('#,##0.00', 'en_US').format(quote.rate)} NGN',
+                                const Icon(
+                                  Icons.lock_clock,
+                                  size: 18,
+                                  color: ProximColors.primary,
+                                ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'GUARANTEED LIVE FX',
+                                      style: ProximTextStyles.labelXs(),
                                     ),
-                                    overflow: TextOverflow.ellipsis,
-                                    style: ProximTextStyles.bodySm(color: ProximColors.textWhite).copyWith(
-                                      fontWeight: FontWeight.w600,
+                                    Text(
+                                      quoteAsync.when(
+                                        loading: () => 'Fetching live rate…',
+                                        error: (error, _) => _amount <= 0
+                                            ? 'Enter an amount to see the live rate'
+                                            : 'Rate unavailable',
+                                        data: (quote) =>
+                                            '1 USD = ${NumberFormat('#,##0.00', 'en_US').format(quote.rate)} NGN',
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: ProximTextStyles.bodySm(
+                                        color: ProximColors.textWhite,
+                                      ).copyWith(fontWeight: FontWeight.w600),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (quoteAsync.hasValue)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: ProximColors.surfaceContainerHigh,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            _formatTimer(),
-                            style: ProximTextStyles.labelXs(color: ProximColors.primary).copyWith(
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                              fontWeight: FontWeight.w700,
-                            ),
+                            ],
                           ),
                         ),
-                    ],
+                        const SizedBox(width: 8),
+                        if (quoteAsync.hasValue)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: ProximColors.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _formatTimer(),
+                              style:
+                                  ProximTextStyles.labelXs(
+                                    color: ProximColors.primary,
+                                  ).copyWith(
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
                 const SizedBox(height: 14),
 
                 // Output Display
@@ -854,7 +1142,10 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Recipient Receives Exactly', style: ProximTextStyles.labelSm()),
+                      Text(
+                        'Recipient Receives Exactly',
+                        style: ProximTextStyles.labelSm(),
+                      ),
                       const SizedBox(height: 4),
                       FittedBox(
                         fit: BoxFit.scaleDown,
@@ -874,9 +1165,14 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                                         'en_US',
                                       ).format(_amount * quote.rate),
                               ),
-                              style: ProximTextStyles.headlineLg(color: ProximColors.primary).copyWith(
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
+                              style:
+                                  ProximTextStyles.headlineLg(
+                                    color: ProximColors.primary,
+                                  ).copyWith(
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
                             ),
                             const SizedBox(width: 8),
                             Text('NGN', style: ProximTextStyles.headlineSm()),
@@ -889,9 +1185,17 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                 const SizedBox(height: 14),
 
                 // Breakdown Items
-                _buildBreakdownRow('Routing Rail', 'Instant Clearing (~3 mins)', isStatus: true),
+                _buildBreakdownRow(
+                  'Routing Rail',
+                  'Instant Clearing (~3 mins)',
+                  isStatus: true,
+                ),
                 const SizedBox(height: 8),
-                _buildBreakdownRow('Transfer Fee', '\$0.00 (Zero Fee Subsidized)', isHighlight: true),
+                _buildBreakdownRow(
+                  'Transfer Fee',
+                  '\$0.00 (Zero Fee Subsidized)',
+                  isHighlight: true,
+                ),
               ],
             ),
           ),
@@ -900,7 +1204,12 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
     );
   }
 
-  Widget _buildBreakdownRow(String label, String value, {bool isStatus = false, bool isHighlight = false}) {
+  Widget _buildBreakdownRow(
+    String label,
+    String value, {
+    bool isStatus = false,
+    bool isHighlight = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -934,7 +1243,9 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                   style: ProximTextStyles.bodySm(
                     color: isHighlight
                         ? ProximColors.statusSuccess
-                        : (isStatus ? ProximColors.textWhite : ProximColors.onSurface),
+                        : (isStatus
+                              ? ProximColors.textWhite
+                              : ProximColors.onSurface),
                   ).copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
@@ -957,13 +1268,21 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
               gradient: _isDispatched
                   ? null
                   : const LinearGradient(
-                      colors: [Color(0xFF35D9D0), Color(0xFF5DF6EC), Color(0xFF7567F8)],
+                      colors: [
+                        Color(0xFF35D9D0),
+                        Color(0xFF5DF6EC),
+                        Color(0xFF7567F8),
+                      ],
                     ),
               color: _isDispatched ? ProximColors.statusSuccess : null,
               borderRadius: BorderRadius.circular(9999),
               boxShadow: [
                 BoxShadow(
-                  color: (_isDispatched ? ProximColors.statusSuccess : ProximColors.primary).withValues(alpha: 0.3),
+                  color:
+                      (_isDispatched
+                              ? ProximColors.statusSuccess
+                              : ProximColors.primary)
+                          .withValues(alpha: 0.3),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -987,13 +1306,17 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              _isDispatched ? Icons.check_circle : Icons.security,
+                              _isDispatched
+                                  ? Icons.check_circle
+                                  : Icons.security,
                               size: 20,
                               color: ProximColors.surfaceContainerLowest,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _isDispatched ? 'Dispatched for Clearing' : 'Confirm & Authorize Payout',
+                              _isDispatched
+                                  ? 'Dispatched for Clearing'
+                                  : 'Confirm & Authorize Payout',
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
@@ -1015,7 +1338,11 @@ class _SendPayoutScreenState extends ConsumerState<SendPayoutScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.fingerprint, size: 16, color: ProximColors.onSurfaceVariant),
+                const Icon(
+                  Icons.fingerprint,
+                  size: 16,
+                  color: ProximColors.onSurfaceVariant,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Requires Face ID or Biometric authorization to send money',
