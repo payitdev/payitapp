@@ -159,6 +159,14 @@ to a `_FakeTreasuryMetricsNotifier`. Analyze clean, 47/47 tests green.
 Split-per-abi release rebuilt from `f19444f` with both app-side resilience
 fixes + the live backend. arm64-v8a is the phone/emulator build.
 
+### Remaining raw balance watch sites
+`transfersBalanceProvider` (non-resilient) is still watched by
+`send_payout_screen.dart` (~line 289). Not switched yet because that file
+currently carries uncommitted Yellow Card WIP — touching it would entangle
+the sessions. Switch it to `resilientBalanceProvider` (same pattern as
+`swap_convert_screen.dart`, commit `cbfe0c5`) once the WIP lands. The swap
+screen was switched in `cbfe0c5`; home + treasury hero were already covered.
+
 ---
 
 ## Sweep method (rerun after any big merge)
