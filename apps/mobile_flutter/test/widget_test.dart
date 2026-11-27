@@ -15,6 +15,15 @@ import 'package:proxim_app/src/features/treasury/domain/treasury_models.dart';
 import 'package:proxim_app/src/features/treasury/presentation/treasury_provider.dart';
 import 'repositories_test.dart' show FakeApiClient;
 
+class _FakeTreasuryMetricsNotifier extends ResilientTreasuryMetricsNotifier {
+  _FakeTreasuryMetricsNotifier(this._metrics);
+
+  final TreasuryMetrics _metrics;
+
+  @override
+  AsyncValue<TreasuryMetrics> build() => AsyncData(_metrics);
+}
+
 /// Auth notifier that stays inert (no session restore, no Privy calls) but
 /// provides a realistic two-entity user so screens render their real,
 /// data-driven UI instead of demo fallbacks — which no longer exist outside
@@ -298,7 +307,7 @@ Future<void> pumpDashboardWith({
       overrides: [
         authProvider.overrideWith(() => _FakeAuthNotifier()),
         apiClientProvider.overrideWithValue(FakeApiClient()),
-        treasuryMetricsProvider.overrideWith((ref) => Future.value(metrics)),
+        treasuryMetricsProvider.overrideWith(() => _FakeTreasuryMetricsNotifier(metrics)),
         treasuryHistoryProvider.overrideWith((ref) => Future.value(history)),
         pendingApprovalsProvider.overrideWith((ref) => Future.value(approvals)),
       ],
@@ -684,7 +693,7 @@ void main() {
         overrides: [
           authProvider.overrideWith(() => _FakeAuthNotifier()),
           activeBalanceSheetProvider.overrideWith((ref) => Future.value(_cannedBalanceSheet)),
-          treasuryMetricsProvider.overrideWith((ref) => Future.value(_cannedMetrics)),
+          treasuryMetricsProvider.overrideWith(() => _FakeTreasuryMetricsNotifier(_cannedMetrics)),
           treasuryHistoryProvider.overrideWith((ref) => Future.value(_cannedHistory)),
           fxRatesProvider.overrideWith((ref) => Future.value(const [
                 FxRate(
