@@ -18,8 +18,9 @@ import { DeveloperDashboard } from './components/DeveloperDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SchoolConsole } from './components/SchoolConsole';
 import { ComingSoonModal } from './components/ComingSoonModal';
+import { LegalCenter, LegalCategory } from './components/LegalCenter';
 
-type AppView = 'home' | 'coming-soon' | 'developers' | 'dashboard' | 'admin' | 'schools';
+type AppView = 'home' | 'coming-soon' | 'developers' | 'dashboard' | 'admin' | 'schools' | 'legal';
 
 const APP_URL = 'https://app.proximfi.xyz/';
 const TELEGRAM_URL = 'https://t.me/payeetbot';
@@ -219,6 +220,8 @@ const ComingSoonView = ({ onBackToHome }: { onBackToHome: () => void }) => {
    ══════════════════════════════════════════════════════ */
 export default function App() {
   const [activePage, setActivePage] = useState<AppView>('home');
+  const [legalTab, setLegalTab] = useState<LegalCategory>('terms');
+  const [legalSubpage, setLegalSubpage] = useState<string | undefined>(undefined);
   const [comingSoonModalOpen, setComingSoonModalOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -235,14 +238,72 @@ export default function App() {
 
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash;
-      const path = window.location.pathname;
-      if (hash === '#coming-soon') setActivePage('coming-soon');
-      else if (hash === '#developers' || path.startsWith('/developers') || path.startsWith('/docs')) setActivePage('developers');
-      else if (hash === '#dashboard' || path.startsWith('/dashboard')) setActivePage('dashboard');
-      else if (hash === '#admin' || path.startsWith('/admin')) setActivePage('admin');
-      else if (hash === '#schools' || path.startsWith('/schools')) setActivePage('schools');
-      else setActivePage('home');
+      const hash = window.location.hash.toLowerCase();
+      const path = window.location.pathname.toLowerCase();
+
+      if (hash === '#coming-soon') {
+        setActivePage('coming-soon');
+      } else if (hash === '#developers' || path.startsWith('/developers') || path.startsWith('/docs')) {
+        setActivePage('developers');
+      } else if (hash === '#dashboard' || path.startsWith('/dashboard')) {
+        setActivePage('dashboard');
+      } else if (hash === '#admin' || path.startsWith('/admin')) {
+        setActivePage('admin');
+      } else if (hash === '#schools' || path.startsWith('/schools')) {
+        setActivePage('schools');
+      } else if (
+        hash.startsWith('#terms') ||
+        hash.startsWith('#privacy') ||
+        hash.startsWith('#legal') ||
+        hash.startsWith('#compliance') ||
+        hash.startsWith('#aml') ||
+        hash.startsWith('#kyc') ||
+        hash.startsWith('#cards-policy') ||
+        hash.startsWith('#security-policy') ||
+        hash.startsWith('#cookies') ||
+        hash.startsWith('#disputes') ||
+        hash.startsWith('#refunds') ||
+        path.startsWith('/terms') ||
+        path.startsWith('/privacy') ||
+        path.startsWith('/legal') ||
+        path.startsWith('/compliance')
+      ) {
+        setActivePage('legal');
+        if (hash.startsWith('#privacy') || path.startsWith('/privacy')) {
+          setLegalTab('privacy');
+          if (hash === '#privacy-cookies' || hash === '#cookies') setLegalSubpage('privacy-cookies');
+          else if (hash === '#privacy-sharing') setLegalSubpage('privacy-sharing');
+          else if (hash === '#privacy-rights') setLegalSubpage('privacy-rights');
+          else if (hash === '#privacy-security') setLegalSubpage('privacy-security');
+          else if (hash === '#privacy-usage') setLegalSubpage('privacy-usage');
+          else setLegalSubpage('privacy-collection');
+        } else if (
+          hash.startsWith('#compliance') ||
+          hash.startsWith('#aml') ||
+          hash.startsWith('#kyc') ||
+          hash.startsWith('#security-policy') ||
+          hash.startsWith('#disputes') ||
+          hash.startsWith('#refunds') ||
+          path.startsWith('/compliance')
+        ) {
+          setLegalTab('compliance');
+          if (hash === '#kyc' || hash === '#compliance-kyc') setLegalSubpage('compliance-kyc');
+          else if (hash === '#security-policy' || hash === '#compliance-security') setLegalSubpage('compliance-security');
+          else if (hash === '#disputes' || hash === '#refunds' || hash === '#compliance-disputes') setLegalSubpage('compliance-disputes');
+          else if (hash === '#compliance-esign') setLegalSubpage('compliance-esign');
+          else setLegalSubpage('compliance-aml');
+        } else {
+          setLegalTab('terms');
+          if (hash === '#cards-policy' || hash === '#terms-cards') setLegalSubpage('terms-cards');
+          else if (hash === '#terms-vaults') setLegalSubpage('terms-vaults');
+          else if (hash === '#terms-transfers') setLegalSubpage('terms-transfers');
+          else if (hash === '#terms-acceptable-use') setLegalSubpage('terms-acceptable-use');
+          else if (hash === '#terms-business') setLegalSubpage('terms-business');
+          else setLegalSubpage('terms-general');
+        }
+      } else {
+        setActivePage('home');
+      }
     };
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
@@ -272,6 +333,15 @@ export default function App() {
   if (activePage === 'dashboard') return <DeveloperDashboard onBackToHome={goHome} onOpenDocs={() => setActivePage('developers')} />;
   if (activePage === 'admin') return <AdminDashboard onBackToHome={goHome} onOpenConsole={() => setActivePage('dashboard')} />;
   if (activePage === 'schools') return <SchoolConsole onBackToHome={goHome} />;
+  if (activePage === 'legal') {
+    return (
+      <LegalCenter
+        onBackToHome={goHome}
+        initialTab={legalTab}
+        initialSubpage={legalSubpage}
+      />
+    );
+  }
 
 
   const rates: Record<string, number> = {
@@ -429,6 +499,7 @@ export default function App() {
                 ['#business', 'Business'],
                 ['#developers-section', 'Developers'],
                 ['#faq', 'FAQ'],
+                ['#legal', 'Legal & Compliance'],
               ].map(([h, l]) => (
                 <a
                   key={h} href={h} onClick={() => setMobileMenuOpen(false)}
@@ -1959,6 +2030,7 @@ console.log(status); // "SETTLED"`}
               <a href="#developers-section" className="hover:text-white transition-colors">Developers</a>
               <a href="#security" className="hover:text-white transition-colors">Security</a>
               <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
+              <a href="#legal" className="hover:text-white transition-colors">Legal &amp; Compliance</a>
               <a
                 href={TELEGRAM_URL}
                 target="_blank"
@@ -1978,11 +2050,19 @@ console.log(status); // "SETTLED"`}
             </a>
           </div>
 
-          <div className="pt-8 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-[#F7F8F4]/50 text-xs sm:text-sm">
-            <p>© 2026 Proxim Inc. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+          <div className="pt-8 border-t border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-[#F7F8F4]/50 text-xs sm:text-sm">
+            <div className="space-y-1">
+              <p>© 2026 Proxim Inc. All rights reserved.</p>
+              <p className="text-[11px] text-white/40">
+                Financial technology platform. NUBAN and bank settlement rails provided by Providus Bank PLC and authorized deposit-taking institutions.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs sm:text-sm">
+              <a href="#privacy" className="hover:text-white transition-colors">Privacy Policy</a>
+              <a href="#terms" className="hover:text-white transition-colors">Terms of Service</a>
+              <a href="#compliance" className="hover:text-white transition-colors">Compliance &amp; AML</a>
+              <a href="#cards-policy" className="hover:text-white transition-colors">Cardholder Policy</a>
+              <a href="#security-policy" className="hover:text-white transition-colors">Security Safeguards</a>
               <span className="font-bold text-[#16C7B7]">proximfi.xyz</span>
             </div>
           </div>
